@@ -1,4 +1,4 @@
-﻿name: Validate Commits
+name: Validate Commits
 
 # Mirrors the policy used in the sibling repo `reimagined-launcher`.
 # A PR passes if AT LEAST ONE commit on the PR branch follows the
