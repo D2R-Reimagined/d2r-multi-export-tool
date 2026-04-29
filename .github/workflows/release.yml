@@ -39,7 +39,11 @@ jobs:
         id: app_token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.D2RR_GH_APP_ID }}
+          # `client-id` is the renamed input formerly called `app-id`. The
+          # action still accepts the numeric App ID value here (the rename
+          # tracks GitHub's broader move to client-id-based JWT issuers);
+          # keeping the secret name as-is avoids an org-wide secret churn.
+          client-id: ${{ secrets.D2RR_GH_APP_ID }}
           private-key: ${{ secrets.D2RR_GH_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           permission-contents: write
