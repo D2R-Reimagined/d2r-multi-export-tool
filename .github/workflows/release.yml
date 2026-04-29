@@ -1,4 +1,4 @@
-﻿name: Release
+name: Release
 
 # Manual release: produces a self-contained, single-file win-x64 zip
 # containing the CLI (D2RMultiExport.Console.exe) and GUI

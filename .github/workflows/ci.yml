@@ -1,4 +1,4 @@
-﻿name: Build Check
+name: Build Check
 
 on:
   # Run on PRs against main only — once a PR's CI is green and it gets
