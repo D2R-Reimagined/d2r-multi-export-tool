@@ -54,6 +54,24 @@ Both `.exe` files share the same `Config\` folder, so end-users can
 run either entry point from inside the extracted directory without
 extra setup.
 
+## Prerequisites
+
+The release workflow authenticates as the org-wide **D2R-Reimagined**
+GitHub App (the same bot identity used by `reimagined-launcher`), so
+tags, commits, and the GitHub Release are authored consistently across
+the org. This requires two org-level secrets to be granted to this
+repo (Org → Settings → Secrets and variables → Actions → Organization
+secrets → *Repository access*):
+
+- `D2RR_GH_APP_ID`
+- `D2RR_GH_APP_PRIVATE_KEY`
+
+If either is missing the workflow's `Create GitHub App token` step will
+fail with a 401 before any build work runs. The App must also be
+installed on this repo (Org → Settings → GitHub Apps → *Installed
+repositories*); D2R-Reimagined defaults to "All repositories", so this
+is normally already in place.
+
 ## Pre-flight checklist
 
 Before triggering a release, confirm:
