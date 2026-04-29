@@ -1,9 +1,6 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Data.Core;
-using Avalonia.Data.Core.Plugins;
-using System.Linq;
 using Avalonia.Markup.Xaml;
 using D2RMultiExport.Client.ViewModels;
 using D2RMultiExport.Client.Views;
@@ -21,9 +18,11 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // Avoid duplicate validations from both Avalonia and the CommunityToolkit. 
-            // More info: https://docs.avaloniaui.net/docs/guides/development-guides/data-validation#manage-validationplugins
-            DisableAvaloniaDataAnnotationValidation();
+            // Avalonia 12 removed the DataAnnotations binding plugin from the default
+            // pipeline (BindingPlugins / DataAnnotationsValidationPlugin are gone), so the
+            // CommunityToolkit.Mvvm + INotifyDataErrorInfo path no longer double-reports
+            // validation. The previous DisableAvaloniaDataAnnotationValidation() workaround
+            // is intentionally not carried over.
             desktop.MainWindow = new MainWindow
             {
                 DataContext = new MainWindowViewModel(),
@@ -31,18 +30,5 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
-    }
-
-    private void DisableAvaloniaDataAnnotationValidation()
-    {
-        // Get an array of plugins to remove
-        var dataValidationPluginsToRemove =
-            BindingPlugins.DataValidators.OfType<DataAnnotationsValidationPlugin>().ToArray();
-
-        // remove each entry found
-        foreach (var plugin in dataValidationPluginsToRemove)
-        {
-            BindingPlugins.DataValidators.Remove(plugin);
-        }
     }
 }

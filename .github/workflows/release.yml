@@ -37,7 +37,7 @@ jobs:
       # repositories list.
       - name: Create GitHub App token
         id: app_token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.D2RR_GH_APP_ID }}
           private-key: ${{ secrets.D2RR_GH_APP_PRIVATE_KEY }}
@@ -63,7 +63,7 @@ jobs:
           "tag=v$version"    >> $env:GITHUB_OUTPUT
 
       - name: Set up .NET (pinned to global.json)
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
 
@@ -187,13 +187,13 @@ jobs:
           "EOF"       >> $env:GITHUB_OUTPUT
 
       - name: Upload publish folder as workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: D2RMultiExport-${{ steps.release_version.outputs.tag }}-win-x64
           path: ${{ github.workspace }}\artifacts\D2RMultiExport
 
       - name: Create GitHub Release + attach zip
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           token:    ${{ steps.app_token.outputs.token }}
           tag_name: ${{ steps.release_version.outputs.tag }}
