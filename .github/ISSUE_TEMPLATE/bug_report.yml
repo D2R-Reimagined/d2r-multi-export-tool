@@ -1,0 +1,131 @@
+﻿name: Bug report
+description: Report something the exporter does wrong (incorrect output, crash, build failure, regression).
+title: "fix: <short, lowercase summary of the bug>"
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Before submitting, please:
+
+        - Confirm the issue is **in this repo**, not in the upstream
+          `.txt` parser. If a column is wrong, missing, or off by a
+          row, report it at
+          [`d2r-dotnet-tools`](https://github.com/D2R-Reimagined/d2r-dotnet-tools/issues/new/choose) instead — see
+          `AGENTS.md` → *External parsing dependency*.
+        - Re-run with the latest tagged release if possible.
+        - Do **not** file security issues here. Use
+          [private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new).
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release tag (e.g. `v0.3.1`) or commit SHA if running from `main`.
+      placeholder: v0.0.0 or abc1234
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - D2RMultiExport.Console (CLI)
+        - D2RMultiExport.Client (Avalonia GUI)
+        - D2RMultiExport.Lib (pipeline / importer / exporter)
+        - Bundled Config (export-config.json, synthetic-strings.json, …)
+        - Release artifact / packaging
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: dotnet
+    attributes:
+      label: .NET SDK version
+      description: Output of `dotnet --version`.
+      placeholder: "10.0.203"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: e.g. `Windows 11 23H2`, `Windows Server 2022`, `Ubuntu 24.04` (Lib/Console only).
+      placeholder: Windows 11 23H2
+    validations:
+      required: true
+
+  - type: input
+    id: mod-version
+    attributes:
+      label: Mod / source-data version
+      description: Which D2R Reimagined mod version (or other source tree) was passed via `--mod-root`. If this isn't the public mod, say so.
+      placeholder: e.g. D2R Reimagined 1.4.0
+    validations:
+      required: false
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Exact CLI invocation or GUI clicks. Include the `--mod-root`, `--out`, `--base-strings`, and any other flags you used (redact paths if needed).
+      placeholder: |
+        1. dotnet run --project .\D2RMultiExport.Console -c Release -- export `
+             --mod-root "C:\path\to\mod" `
+             --out      .\test-output
+        2. Open .\test-output\keyed\uniques.json
+        3. Search for "<thing>"
+      render: bash
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include error messages verbatim, including the stack trace if one was printed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: import-report
+    attributes:
+      label: Import report excerpt
+      description: |
+        If the export ran (even partially), paste the relevant rows from
+        `<out>/extras/import-report.txt`. The errors and warnings there
+        almost always point at the right importer.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: config-snippet
+    attributes:
+      label: Relevant config snippet (optional)
+      description: |
+        If you suspect a config-driven cause, paste the relevant block
+        from `D2RMultiExport.Lib/Config/export-config.json` (or whichever
+        config file applies). Do not paste the entire file.
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Logs, screenshots, hypotheses, related issues.
+    validations:
+      required: false

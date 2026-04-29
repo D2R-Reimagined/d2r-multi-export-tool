@@ -1,0 +1,205 @@
+{
+    "$schema": "stat-overrides-schema.json",
+    "$comment": "Synthetic ItemStatCost entries that don't exist in ItemStatCost.txt but are used by the game engine. These are loaded at startup and merged into the stat registry.",
+    "statOverrides": [
+        {
+            "stat": "dmg%",
+            "descPriority": 144,
+            "descFunc": 19,
+            "descVal": 3,
+            "descStrPosKey": "strModEnhancedDamage",
+            "descStrNegKey": "strModEnhancedDamage"
+        },
+        {
+            "$comment": "Unpaired dmg-min falls through here. The mindamage stat (ModStr1g = '%+d to Minimum Weapon Damage') already provides full translations in every shipped language, so route via FromStat instead of inventing a synthetic key.",
+            "stat": "dmg-min",
+            "descPriority": null,
+            "descPriorityFromStat": "mindamage",
+            "descFunc": 1,
+            "descVal": 1,
+            "descStrPosKeyFromStat": "mindamage",
+            "descStrNegKeyFromStat": "mindamage"
+        },
+        {
+            "$comment": "Unpaired dmg-max — same idea: use the existing maxdamage stat key (ModStr1f = '%+d to Maximum Weapon Damage'). 'strModMaxDamage' does NOT exist as a shipped game string and must not be referenced.",
+            "stat": "dmg-max",
+            "descPriority": null,
+            "descPriorityFromStat": "maxdamage",
+            "descFunc": 1,
+            "descVal": 1,
+            "descStrPosKeyFromStat": "maxdamage",
+            "descStrNegKeyFromStat": "maxdamage"
+        },
+        {
+            "$comment": "Pull descstr keys directly from ItemStatCost.txt — armorclass → ModStr1i, item_armor_percent → Modstr2v — so mod-authored overrides win and keys stay consistent with item-modifiers.json.",
+            "stat": "ac",
+            "descPriority": null,
+            "descPriorityFromStat": "armorclass",
+            "descFunc": 1,
+            "descVal": 1,
+            "descStrPosKeyFromStat": "armorclass",
+            "descStrNegKeyFromStat": "armorclass"
+        },
+        {
+            "stat": "ac%",
+            "descPriority": null,
+            "descPriorityFromStat": "armorclass",
+            "descFunc": 4,
+            "descVal": 1,
+            "descStrPosKeyFromStat": "item_armor_percent",
+            "descStrNegKeyFromStat": "item_armor_percent"
+        },
+        {
+            "stat": "ethereal",
+            "descPriority": 1,
+            "descFunc": 1,
+            "descVal": 0,
+            "descStrPosKey": "strethereal",
+            "descStrNegKey": "strethereal"
+        },
+        {
+            "stat": "dmg-ltng",
+            "descPriority": null,
+            "descPriorityFromStat": "lightmindam",
+            "descFunc": 31,
+            "descVal": 3,
+            "descStrPosKey": "strModLightningDamageRange",
+            "descStrNegKey": "strModLightningDamageRange"
+        },
+        {
+            "stat": "dmg-cold",
+            "descPriority": null,
+            "descPriorityFromStat": "coldmindam",
+            "descFunc": 31,
+            "descVal": 3,
+            "descStrPosKey": "strModColdDamageRange",
+            "descStrNegKey": "strModColdDamageRange"
+        },
+        {
+            "stat": "dmg-fire",
+            "descPriority": null,
+            "descPriorityFromStat": "firemindam",
+            "descFunc": 31,
+            "descVal": 3,
+            "descStrPosKey": "strModFireDamageRange",
+            "descStrNegKey": "strModFireDamageRange"
+        },
+        {
+            "stat": "dmg-pois",
+            "descPriority": 92,
+            "descFunc": 30,
+            "descVal": 3,
+            "descStrPosKey": "strModPoisonDamageRange",
+            "descStrNegKey": "strModPoisonDamageRange"
+        },
+        {
+            "stat": "dmg-mag",
+            "descPriority": null,
+            "descPriorityFromStat": "magicmindam",
+            "descFunc": 31,
+            "descVal": 3,
+            "descStrPosKey": "strModMagicDamageRange",
+            "descStrNegKey": "strModMagicDamageRange"
+        },
+        {
+            "stat": "dmg-norm",
+            "descPriority": null,
+            "descPriorityFromStat": "mindamage",
+            "descFunc": 31,
+            "descVal": 3,
+            "descStrPosKey": "strModMinDamageRange",
+            "descStrNegKey": "strModMinDamageRange"
+        },
+        {
+            "stat": "res-all",
+            "descPriority": 34,
+            "descFunc": 19,
+            "descVal": 3,
+            "descStrPosKey": "strModAllResistances",
+            "descStrNegKey": "strModAllResistances"
+        },
+        {
+            "stat": "res-all-max",
+            "descPriority": 34,
+            "descFunc": 19,
+            "descVal": 3,
+            "descStrPosKey": "ModStrAllMaxRes",
+            "descStrNegKey": "ModStrAllMaxRes"
+        },
+        {
+            "stat": "all-stats",
+            "descPriority": 34,
+            "descFunc": 19,
+            "descVal": 3,
+            "descStrPosKey": "Moditem2allattrib",
+            "descStrNegKey": "Moditem2allattrib"
+        },
+        {
+            "stat": "extra-elem",
+            "descPriority": 88,
+            "descFunc": 19,
+            "descVal": 3,
+            "descStrPosKey": "allelemskilldmg",
+            "descStrNegKey": "allelemskilldmg"
+        },
+        {
+            "stat": "pierce-elem",
+            "descPriority": 87,
+            "descFunc": 19,
+            "descVal": 3,
+            "descStrPosKey": "PenetrateElePen",
+            "descStrNegKey": "PenetrateElePen"
+        },
+        {
+            "stat": "fireskill",
+            "descPriority": 157,
+            "descFunc": 19,
+            "descVal": 3,
+            "descStrPosKey": "ModStr3i",
+            "descStrNegKey": "ModStr3i"
+        },
+        {
+            "stat": "coldskill",
+            "descPriority": 157,
+            "descFunc": 19,
+            "descVal": 3,
+            "descStrPosKey": "ModStrcoldskill",
+            "descStrNegKey": "ModStrcoldskill"
+        },
+        {
+            "stat": "lightningskill",
+            "descPriority": 157,
+            "descFunc": 19,
+            "descVal": 3,
+            "descStrPosKey": "ModStrlightningskill",
+            "descStrNegKey": "ModStrlightningskill"
+        },
+        {
+            "stat": "poisonskill",
+            "descPriority": 157,
+            "descFunc": 19,
+            "descVal": 3,
+            "descStrPosKey": "ModStrpoisonskill",
+            "descStrNegKey": "ModStrpoisonskill"
+        },
+        {
+            "stat": "magicskill",
+            "descPriority": 157,
+            "descFunc": 19,
+            "descVal": 3,
+            "descStrPosKey": "ModStrmagicskill",
+            "descStrNegKey": "ModStrmagicskill"
+        }
+    ],
+    "statFixes": [
+        {
+            "$comment": "Fix item_numsockets: override priority, function, and description string",
+            "stat": "item_numsockets",
+            "descPriority": 1,
+            "descFunc": 29,
+            "descVal": 3,
+            "descStrPosKey": "Socketable",
+            "descStrNegKey": "Socketable"
+        }
+    ]
+}

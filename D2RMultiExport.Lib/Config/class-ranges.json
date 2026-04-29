@@ -1,0 +1,14 @@
+{
+    "_comment": "Class identity tables consumed by PropertyKeyResolver. Edit this file to retune classes without recompiling. 'classOrder' is the canonical class index used by skill 'charclass' columns (0..7). 'idRanges' maps a Skills.txt skill-id range to a class code, used by descfunc 27 (randclassskill) when a numeric parameter is supplied. The 'code' values must exist as keys in CharStats.txt (3-letter charstats codes).",
+    "classOrder": ["ama", "sor", "nec", "pal", "bar", "dru", "ass", "war"],
+    "idRanges": [
+        { "code": "ama", "min": 6,   "max": 35  },
+        { "code": "sor", "min": 36,  "max": 65  },
+        { "code": "nec", "min": 66,  "max": 95  },
+        { "code": "pal", "min": 96,  "max": 125 },
+        { "code": "bar", "min": 126, "max": 155 },
+        { "code": "dru", "min": 221, "max": 250 },
+        { "code": "ass", "min": 251, "max": 280 },
+        { "code": "war", "min": 373, "max": 402 }
+    ]
+}

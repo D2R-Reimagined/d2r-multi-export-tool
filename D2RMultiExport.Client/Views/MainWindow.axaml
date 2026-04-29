@@ -1,0 +1,132 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:D2RMultiExport.Client.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="720"
+        x:Class="D2RMultiExport.Client.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/icon.ico"
+        Title="D2RMultiExport - D2R Multi Export Tool"
+        Width="900" Height="720"
+        MinWidth="780" MinHeight="600"
+        WindowStartupLocation="CenterScreen">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <Window.Styles>
+        <!-- Slightly muted but still readable hint colour. The previous
+             #777777 hint text was unreadable on the default dark theme. -->
+        <Style Selector="TextBlock.hint">
+            <Setter Property="Foreground" Value="#B0B0B0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style Selector="Label.field">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="HorizontalAlignment" Value="Right"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="15" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto">
+
+        <!-- ─── Path inputs ─────────────────────────────────────────── -->
+        <Border Grid.Row="0" BorderBrush="#555" BorderThickness="1" CornerRadius="4"
+                Padding="12" Margin="0,0,0,12">
+            <Grid ColumnDefinitions="220,*,110" RowDefinitions="Auto,Auto,Auto,Auto">
+
+                <Label Grid.Row="0" Grid.Column="0" Classes="field" Content="Mod Excel Directory"/>
+                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ExcelPath}" Margin="0,3"/>
+                <Button Grid.Row="0" Grid.Column="2" Content="Browse..." Click="BrowseExcel_Click"
+                        HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
+
+                <Label Grid.Row="1" Grid.Column="0" Classes="field" Content="Mod JSON Strings Directory"/>
+                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TranslationsPath}" Margin="0,3"/>
+                <Button Grid.Row="1" Grid.Column="2" Content="Browse..." Click="BrowseTranslations_Click"
+                        HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
+
+                <Label Grid.Row="2" Grid.Column="0" Classes="field" Content="CASC Base Strings (optional)"
+                       ToolTip.Tip="Optional read-only CASC base strings used to fill keys missing from mod overrides."/>
+                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding BaseStringsPath}" Margin="0,3"/>
+                <Button Grid.Row="2" Grid.Column="2" Content="Browse..." Click="BrowseBaseStrings_Click"
+                        HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
+
+                <Label Grid.Row="3" Grid.Column="0" Classes="field" Content="Output Files Directory"/>
+                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding OutputPath}" Margin="0,3"/>
+                <Button Grid.Row="3" Grid.Column="2" Content="Browse..." Click="BrowseOutput_Click"
+                        HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
+            </Grid>
+        </Border>
+
+        <!-- ─── Pipeline options ────────────────────────────────────── -->
+        <Border Grid.Row="1" BorderBrush="#555" BorderThickness="1" CornerRadius="4"
+                Padding="12" Margin="0,0,0,12">
+            <StackPanel Spacing="6">
+                <TextBlock Text="Pipeline options" FontWeight="Bold"/>
+                <TextBlock Classes="hint"
+                           Text="Output is always the key-based bundle (keyed/*.json + strings/{lang}.json × 13) consumed by d2r-reimagined-website."/>
+                <CheckBox IsChecked="{Binding ContinueOnException}"
+                          Content="Continue on exception (record per-phase failures into the import-report instead of aborting)"/>
+                <CheckBox IsChecked="{Binding PrettyPrintJson}"
+                          Content="Pretty-print JSON"
+                          ToolTip.Tip="Indents all JSON exports."/>
+                <CheckBox IsChecked="{Binding EarlyStopSentinelEnabled}"
+                          Content="Cube: stop at grabber sentinel"
+                          ToolTip.Tip="Stop cube recipe import at the last useful recipe."/>
+                <CheckBox IsChecked="{Binding CubeRecipeUseDescription}"
+                          Content="Cube: include cubemain.txt description"
+                          ToolTip.Tip="Include the raw cubemain.txt description column in cube-recipe export."/>
+            </StackPanel>
+        </Border>
+
+        <!-- ─── Run button + progress bar ───────────────────────────── -->
+        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" Margin="0,0,0,8">
+            <Button Grid.Column="0" Content="Import and Export"
+                    Command="{Binding RunPipelineCommand}"
+                    Padding="20,6" FontWeight="Bold"/>
+            <!-- Real percentage progress bar driven by PipelineProgress milestones.
+                 ShowProgressText overlays the live "NN%" label so the user gets
+                 numeric feedback in addition to the bar fill. The bound
+                 ProgressTextFormat is updated by a 500ms DispatcherTimer in
+                 the view-model while IsBusy, cycling a trailing "." / ".." /
+                 "..." suffix so the overlay visibly animates between
+                 milestone phases. -->
+            <ProgressBar Grid.Column="1"
+                         Minimum="0" Maximum="100"
+                         Value="{Binding ProgressValue}"
+                         ShowProgressText="True"
+                         ProgressTextFormat="{Binding ProgressTextFormat}"
+                         Width="220" Height="18" Margin="12,0"
+                         VerticalAlignment="Center"
+                         IsVisible="{Binding IsBusy}"/>
+        </Grid>
+
+        <!-- ─── Live log panel ──────────────────────────────────────── -->
+        <Border Grid.Row="3" BorderBrush="#555" BorderThickness="1" CornerRadius="4"
+                Padding="6" Margin="0,0,0,8">
+            <Grid RowDefinitions="Auto,*">
+                <TextBlock Grid.Row="0" Text="Pipeline log"
+                           FontWeight="Bold" Margin="4,2,0,4"/>
+                <ListBox Grid.Row="1"
+                         x:Name="LogListBox"
+                         ItemsSource="{Binding LogLines}"
+                         FontFamily="Consolas, Menlo, Monospace"
+                         FontSize="12"
+                         Background="#111"
+                         Foreground="#DDD"
+                         BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+            </Grid>
+        </Border>
+
+        <!-- ─── Status line (always visible) ────────────────────────── -->
+        <TextBlock Grid.Row="4" Text="{Binding StatusText}"
+                   Foreground="#E0E0E0"
+                   TextWrapping="Wrap"
+                   Margin="2,0,2,4"/>
+    </Grid>
+</Window>

@@ -1,0 +1,71 @@
+﻿# EditorConfig — https://editorconfig.org/
+# Conventions are documented in detail in AGENTS.md; this file enforces the
+# subset that editors (Rider, Visual Studio, VS Code, etc.) can apply
+# automatically. Match existing source on anything not covered here.
+
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+end_of_line = crlf
+
+# Markdown — preserve trailing whitespace (line breaks) and let LF live too.
+[*.md]
+trim_trailing_whitespace = false
+end_of_line = lf
+
+# JSON / YAML config — 4-space to match the rest of the project (AGENTS.md
+# §"JSON conventions"). Keep YAML at 2-space; that's the ecosystem default
+# and what GitHub Actions / Dependabot expect.
+[*.{json,jsonc}]
+indent_size = 4
+
+[*.{yml,yaml}]
+indent_size = 2
+
+# Keep the bundled CASC-derived runes.txt in upstream formatting (AGENTS.md
+# explicitly forbids reformatting imported data).
+[**/Config/CASC_DATA/**]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+# C# — codify the conventions from AGENTS.md so editors enforce them on save.
+[*.cs]
+# File-scoped namespaces are mandatory.
+csharp_style_namespace_declarations = file_scoped:warning
+# Allman braces.
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+# Mixed var / explicit-type policy: AGENTS.md says "match the surrounding
+# code", so leave the var preferences as suggestions only.
+csharp_style_var_for_built_in_types = false:silent
+csharp_style_var_when_type_is_apparent = true:silent
+csharp_style_var_elsewhere = true:silent
+# Collection expressions / pattern matching are idiomatic in this codebase.
+dotnet_style_prefer_collection_expression = true:suggestion
+dotnet_style_namespace_match_folder = true:suggestion
+# Imports: System namespaces first, then alphabetical (matches existing files).
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+# Private fields use _camelCase (AGENTS.md §Naming).
+dotnet_naming_rule.private_fields_should_be_underscore_camel_case.severity = suggestion
+dotnet_naming_rule.private_fields_should_be_underscore_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_underscore_camel_case.style = underscore_camel_case
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel_case.required_prefix = _
+dotnet_naming_style.underscore_camel_case.capitalization = camel_case
+
+# C# project / solution / props files — 2-space is the SDK default.
+[*.{csproj,props,targets,sln}]
+indent_size = 2
+
+# Auto-generated / vendor files: don't fight the formatter.
+[*.{Designer.cs,g.cs,g.i.cs}]
+generated_code = true

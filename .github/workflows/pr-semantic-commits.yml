@@ -1,0 +1,31 @@
+﻿name: PR Semantic Commits
+
+# Mirrors the policy used in the sibling repo `reimagined-launcher`.
+# A PR passes if AT LEAST ONE commit on the PR branch follows the
+# Conventional Commits format. Per-commit linting at this strictness is
+# intentionally lenient — it covers the squash-merged case (the meaningful
+# subject only needs to land once) without blocking messy intermediate
+# commits.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  validate-commits:
+    name: Validate semantic commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate semantic commit messages
+        shell: pwsh
+        run: ./.github/scripts/Test-SemanticCommits.ps1 -BaseRef '${{ github.base_ref }}'

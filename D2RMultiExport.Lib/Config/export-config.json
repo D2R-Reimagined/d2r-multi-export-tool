@@ -1,0 +1,197 @@
+{
+    "$comment": "Configuration for d2r-multi-export export pipeline. Edit these instead of modifying code.",
+
+    "ignoredUniqueItems": [
+        "amulet of the viper",
+        "staff of kings",
+        "horadric staff",
+        "hell forge hammer",
+        "khalimflail",
+        "superkhalimflail",
+        "pliers",
+        "grabber",
+        "gem bag",
+        "Keychain",
+        "rainbow facet"
+    ],
+
+    "itemTypeNameNormalizations": {},
+
+    "vanillaUniqueMaxRow": 441,
+    "vanillaUniqueOverrides": [
+        "Cold Rupture",
+        "Flame Rift",
+        "Crack of the Heavens",
+        "Rotting Fissure",
+        "Bone Break",
+        "Black Cleft"
+    ],
+
+    "elementalDamageCodes": [
+        "dmg-fire",
+        "dmg-cold",
+        "dmg-ltng",
+        "dmg-pois",
+        "dmg-mag"
+    ],
+
+    "elementalMinMaxPairs": {
+        "fire-min": "fire-max",
+        "cold-min": "cold-max",
+        "ltng-min": "ltng-max",
+        "pois-min": "pois-max"
+    },
+
+    "cubeRecipeCoreItemCodes": [ "rin", "amu", "cm1", "cm2", "cm3", "jew" ],
+    "cubeRecipeAllowedCodes": [ "rin", "amu", "cm1", "cm2", "cm3", "cs1" ],
+
+    "charmCodeToName": {},
+    "blockedCubeInputCodes": [ "msf", "vip", "qf1", "qhr", "qey", "qbr" ],
+    "$skippedCubeRecipesNote": "Mirrors doc-generator's hardcoded cube skip rules. Use 'value' for exact match, or 'valueMin'/'valueMax' (inclusive) for ranges.",
+    "skippedCubeRecipes": [
+        { "op": 18, "param": 361, "value": 0 },
+        { "op": 15, "param": 362, "valueMin": 101 }
+    ],
+    "cubeRecipeNotes": [
+        {
+            "description": "potion alchemy",
+            "notes": [ "strCubeNoteEarlyGamePotion" ]
+        }
+    ],
+
+    "$ignoredPropertyCodesNote": "Property codes silently dropped from the export (formerly hardcoded in PropertyMapper).",
+    "ignoredPropertyCodes": [
+        "state",
+        "bloody",
+        "oskill_hide",
+        "dmg-throw",
+        "uberstone-property",
+        "ubertorch-property"
+    ],
+
+    "$magicNameOverridesNote": "Base item NameStr → magic-quality name key (e.g. 'aqv' Arrows → 'z01' Magic Arrows).",
+    "magicNameOverrides": {},
+
+    "$validRequiredClassNamesNote": "English class names accepted as RequiredClass when resolved from Equiv2. Treated as a literal pass-through into KeyedEquipment.RequiredClass on the wire.",
+    "validRequiredClassNames": [
+        "Sorceress",
+        "Barbarian",
+        "Druid",
+        "Assassin",
+        "Necromancer",
+        "Paladin",
+        "Amazon",
+        "Warlock"
+    ],
+
+    "$skippedAutoMagicGroupsNote": "AutoMagic.txt group ids skipped wholesale during keyed export.",
+    "skippedAutoMagicGroups": [ 0, 309, 310, 311, 312, 316, 319 ],
+
+    "$propertyPostCalcFilteredCodesNote": "Stat codes stripped from the property list AFTER DamageArmorCalculator has consumed them (formerly hardcoded in PropertyMapper.PostCalcFilter).",
+    "propertyPostCalcFilteredCodes": [ "dur" ],
+
+    "$propertyStatOverridesNote": "Stat-name remapping for property codes whose Properties.txt entry doesn't list a stat or lists the wrong one (formerly hardcoded in PropertyMapper.StatOverrides).",
+    "propertyStatOverrides": {
+        "indestruct": "item_indesctructible",
+        "str":        "strength"
+    },
+
+    "$propertyPriorityOverridesNote": "Display-priority overrides for property codes whose stat has no descpriority in ItemStatCost (formerly hardcoded in PropertyMapper.PriorityOverrides).",
+    "propertyPriorityOverrides": {
+        "fireskill": 151,
+        "coldskill": 151,
+        "ltngskill": 151,
+        "poisskill": 151,
+        "magskill":  151
+    },
+
+    "$propertyElementalExpansionsNote": "Multi-stat elemental properties expanded into separate min/max/len entries so MergeElementalTriplets can aggregate them (formerly hardcoded in PropertyMapper.ElementalExpansions).",
+    "propertyElementalExpansions": {
+        "dmg-cold": { "min": "cold-min", "max": "cold-max", "len": "cold-len" },
+        "dmg-pois": { "min": "pois-min", "max": "pois-max", "len": "pois-len" }
+    },
+
+    "$elementalDamagePairsNote": "Elemental min/max pairings used by PropertyCleanup.MergeElementalTriplets (formerly hardcoded in PropertyCleanup.ElementalPairs). The element label is raw English used only as an internal discriminator, not on the wire.",
+    "elementalDamagePairs": {
+        "cold-min": { "max": "cold-max", "element": "Cold" },
+        "fire-min": { "max": "fire-max", "element": "Fire" },
+        "ltng-min": { "max": "ltng-max", "element": "Lightning" },
+        "pois-min": { "max": "pois-max", "element": "Poison" }
+    },
+
+    "$splitElementalCodesNote": "Min/max/len elemental damage codes that ItemStatCost typically renders as bare numbers (formerly hardcoded in PropertyCleanup.SplitElementalCodes). Must survive UniqueImporter's bare-int filter so MergeElementalTriplets can aggregate them.",
+    "splitElementalCodes": [
+        "fire-min", "fire-max",
+        "cold-min", "cold-max", "cold-len",
+        "ltng-min", "ltng-max",
+        "pois-min", "pois-max", "pois-len"
+    ],
+
+    "$propertyMergeBlocklistNote": "Property codes that must NOT be merged across rows even when their (PropertyCode, Parameter) match (formerly hardcoded as `neverMerge` inside PropertyCleanup.CleanupDuplicates). `rip`/`randclassskill`/`skill-rand` carry distinct random-skill pools; `dmg%` is intentionally additive across multiple rolls.",
+    "propertyMergeBlocklist": [ "rip", "randclassskill", "skill-rand", "dmg%" ],
+
+    "$cubeGrabberSentinelsNote": "Early-stop sentinel codes for CubeMain.txt (formerly hardcoded in CubeRecipeImporter.GrabberSentinels). Once Input1 and Output both fall in this set the importer enters skip-but-continue mode.",
+    "cubeGrabberSentinels": [ "agr", "tgr", "sgr", "egr", "mgr", "rgr", "kgr" ],
+
+    "$cubeSocketPunchNote": "Post-sentinel allow-list for the socket-punch carve-out (formerly hardcoded in CubeRecipeImporter.SocketPunchEquipTokens / SocketPunchJewelQualities). Helm/Torso/Shield/Weapon + jewel × {mag|rar|uni} → useitem with Mod1 = sock.",
+    "cubeSocketPunch": {
+        "equipTokens":    [ "helm", "tors", "shld", "weap" ],
+        "jewelQualities": [ "mag", "rar", "uni" ]
+    },
+
+    "$cubeIngredientLabelsNote": "Raw English labels for cube ingredient/output qualifier tokens (formerly hardcoded in CubeRecipeImporter.InputDisplay / OutputDisplay). AGENTS.md documented exception #1 (cube recipe content ships raw English by design); only the storage location is JSON. Editing these does NOT need a code change.",
+    "cubeIngredientLabels": {
+        "input": {
+            "qty=#":  "Quantity",
+            "low":    "Low Quality",
+            "nor":    "Normal Quality",
+            "hiq":    "High Quality (Superior)",
+            "mag":    "Magic Item",
+            "set":    "Set Item",
+            "rar":    "Rare Item",
+            "uni":    "Unique Item",
+            "crf":    "Crafted Item",
+            "tmp":    "Tempered Item",
+            "nos":    "No Sockets",
+            "sock=#": "Item with Sockets (#)",
+            "sock":   "Item with Sockets",
+            "noe":    "Not Ethereal",
+            "eth":    "Ethereal",
+            "upg":    "Upgradeable",
+            "bas":    "Basic Item",
+            "exc":    "Exceptional Item",
+            "eli":    "Elite Item",
+            "nru":    "Not a Runeword"
+        },
+        "output": {
+            "Cow Portal":               "Cow Portal",
+            "Pandemonium Portal":       "Pandemonium Portal",
+            "Pandemonium Finale Portal":"Pandemonium Finale Portal",
+            "Red Portal":               "Red Portal",
+            "qty=#":                    "Quantity",
+            "pre=#":                    "Force Prefix (#)",
+            "suf=#":                    "Force Suffix (#)",
+            "low":                      "Low Quality Item",
+            "nor":                      "Normal Item",
+            "hiq":                      "High Quality Item (Superior)",
+            "mag":                      "Magic Item",
+            "set":                      "Set Item",
+            "rar":                      "Rare Item",
+            "uni":                      "Unique Item",
+            "crf":                      "Crafted Item",
+            "tmp":                      "Tempered Item",
+            "eth":                      "Ethereal Item",
+            "sock":                     "Item with Sockets",
+            "sock=#":                   "Item with Sockets (#)",
+            "mod":                      "Keep Modifiers",
+            "uns":                      "Unsocket (Destroy Socketed)",
+            "rem":                      "Remove Socketed (Return)",
+            "reg":                      "Regenerate Unique (Reroll if Base Upgraded)",
+            "exc":                      "Exceptional Item",
+            "eli":                      "Elite Item",
+            "rep":                      "Repair Item",
+            "rch":                      "Recharge Charges",
+            "lvl=#":                    "Set Level (#)"
+        }
+    }
+}
