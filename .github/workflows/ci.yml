@@ -1,4 +1,4 @@
-﻿name: CI
+﻿name: Build Check
 
 on:
   # Run on PRs against main only — once a PR's CI is green and it gets
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build:
-    name: Sanity build (Release, win-x64)
+    name: build-check
     runs-on: windows-latest
     env:
       DOTNET_NOLOGO: 'true'

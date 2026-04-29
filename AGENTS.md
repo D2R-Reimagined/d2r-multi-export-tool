@@ -340,12 +340,13 @@ Before submitting a change, verify:
 - [ ] The verified end-to-end command from `README.md` /
       `docs/TESTING.md` was run and `Export completed successfully.` was
       printed; `extras/import-report.txt` contains no new errors.
-- [ ] Solution builds cleanly: `dotnet build .\D2RMultiExport.sln`. (CI
-      runs the same command on every PR via
-      `.github/workflows/ci.yml`.)
+- [ ] Solution builds cleanly: `dotnet build .\D2RMultiExport.sln`. (The
+      **Build Check** workflow — `.github/workflows/ci.yml`, status
+      context `build-check` — runs the same command on every PR.)
 - [ ] At least one commit on the PR follows Conventional Commits
-      (see *Commits & releases* below). The
-      `.github/workflows/pr-semantic-commits.yml` check enforces this.
+      (see *Commits & releases* below). The **Validate Commits**
+      workflow — `.github/workflows/pr-semantic-commits.yml`, status
+      context `validate-commits` — enforces this.
 - [ ] Any `.txt` parsing issue encountered was fixed upstream in
       `..\d2r-dotnet-tools` (the `D2RReimaginedTools.FileExtensions`
       package), **not** worked around inline in this repo. The
@@ -359,9 +360,10 @@ Before submitting a change, verify:
 
 ### Conventional Commits
 
-PR-level CI (`pr-semantic-commits.yml`, mirroring the policy used in
-the sibling `reimagined-launcher` repo) enforces that **at least one**
-commit on the branch follows the Conventional Commits format:
+The **Validate Commits** workflow (`pr-semantic-commits.yml`, status
+context `validate-commits`, mirroring the policy used in the sibling
+`reimagined-launcher` repo) enforces that **at least one** commit on
+the branch follows the Conventional Commits format:
 
 ```
 type(scope?)!?: short, lowercase description

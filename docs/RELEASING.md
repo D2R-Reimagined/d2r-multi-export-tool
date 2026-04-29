@@ -76,14 +76,14 @@ is normally already in place.
 
 Before triggering a release, confirm:
 
-- [ ] `main` is green on the **CI** workflow (sanity build).
+- [ ] `main` is green on the **Build Check** workflow (`build-check`).
 - [ ] The smoke export from `docs\TESTING.md` runs cleanly against the
       current Reimagined mod tree (`Export completed successfully.`,
       no new errors in `extras\import-report.txt`).
 - [ ] The PR(s) merged since the last tag contain at least one
       well-formed Conventional Commit message — those subjects feed the
       release notes generator. Squash-merge with the PR title gives you
-      this for free, provided the **PR Semantic Commits** check passed.
+      this for free, provided the **Validate Commits** (`validate-commits`) check passed.
 
 ## Versioning policy
 

@@ -115,8 +115,8 @@ of downloading the prebuilt zip.
 dotnet build .\D2RMultiExport.sln
 ```
 
-CI runs the same command on every pull request via
-`.github/workflows/ci.yml`.
+The **Build Check** workflow (`.github/workflows/ci.yml`, status
+context `build-check`) runs the same command on every pull request.
 
 ## Run — CLI
 
