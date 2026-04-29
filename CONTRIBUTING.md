@@ -170,11 +170,13 @@ bundles include it.
    Allowed types: `feat | fix | docs | style | refactor | perf | test
    | build | ci | chore | revert`. Use `!` (e.g. `feat!:`) or a
    `BREAKING CHANGE:` body paragraph for breaking changes. The
-   `pr-semantic-commits` workflow enforces this on every PR; squash-
+   **Validate Commits** workflow (`pr-semantic-commits.yml`, status
+   context `validate-commits`) enforces this on every PR; squash-
    merging with the PR title as the commit subject is the intended
    workflow.
-3. **CI must pass.** `dotnet build .\D2RMultiExport.sln` is the same
-   command CI runs.
+3. **Build Check must pass.** `dotnet build .\D2RMultiExport.sln` is
+   the same command the **Build Check** workflow (`ci.yml`, status
+   context `build-check`) runs.
 4. **Smoke-test the export** if you touched the pipeline.
 5. **Don't leave a local `<ProjectReference>` swap** for
    `D2RReimaginedTools.FileExtensions` in `D2RMultiExport.Lib.csproj`

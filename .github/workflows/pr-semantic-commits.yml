@@ -1,4 +1,4 @@
-﻿name: PR Semantic Commits
+﻿name: Validate Commits
 
 # Mirrors the policy used in the sibling repo `reimagined-launcher`.
 # A PR passes if AT LEAST ONE commit on the PR branch follows the
@@ -18,11 +18,11 @@ permissions:
 
 jobs:
   validate-commits:
-    name: Validate semantic commit messages
+    name: validate-commits
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

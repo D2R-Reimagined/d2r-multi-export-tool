@@ -51,9 +51,12 @@ therefore narrow but non-empty:
    hashes (transitive NuGet swap, build non-determinism, unreviewed
    changes to the bundled `Config\` tree, or compromise of the
    release workflow) is in scope. The repo mitigates this with
-   `<RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>`
-   in `Directory.Build.props`, locked-mode CI restores, deterministic
-   builds, and Dependabot PRs that surface every package shift.
+   deterministic builds (`<Deterministic>true</Deterministic>` in
+   `Directory.Build.props`), an SDK pinned via `global.json`, the
+   per-file SHA-256 chain written into `manifest.json` on every
+   export, and Dependabot PRs (`.github/dependabot.yml`) that surface
+   every NuGet and `actions/*` version shift for review before it
+   lands on `main`.
 2. **Supply-chain integrity of the upstream parser.** Excel `.txt`
    parsing is delegated to the
    [`D2RReimaginedTools.FileExtensions`](https://www.nuget.org/packages/D2RReimaginedTools.FileExtensions)

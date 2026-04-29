@@ -29,10 +29,26 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
       ContinuousIntegrationBuild: 'true'
     steps:
+      # Mint an installation token from the org-wide D2R-Reimagined GitHub
+      # App so tags, pushes, and the Release itself are authored by the
+      # org bot (mirroring the sibling `reimagined-launcher` repo). The
+      # `D2RR_GH_APP_ID` and `D2RR_GH_APP_PRIVATE_KEY` secrets are managed
+      # at the org level and granted to this repo via the App's installed-
+      # repositories list.
+      - name: Create GitHub App token
+        id: app_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.D2RR_GH_APP_ID }}
+          private-key: ${{ secrets.D2RR_GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: write
+
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          token: ${{ steps.app_token.outputs.token }}
 
       - name: Resolve release version
         id: release_version
@@ -86,8 +102,8 @@ jobs:
         shell: pwsh
         run: |
           $dest = "${{ github.workspace }}\artifacts\D2RMultiExport"
-          Copy-Item -Force .\LICENSE         (Join-Path $dest 'LICENSE.txt')
-          Copy-Item -Force .\COPYING.AUTHORS (Join-Path $dest 'COPYING.AUTHORS')
+          Copy-Item -Force .\LICENSE    (Join-Path $dest 'LICENSE.txt')
+          Copy-Item -Force .\AUTHORS.md (Join-Path $dest 'AUTHORS.md')
           @"
           D2R Multi-Export Tool ${{ steps.release_version.outputs.tag }}
           ============================================================
@@ -132,6 +148,8 @@ jobs:
         shell: pwsh
         run: |
           $tag = '${{ steps.release_version.outputs.tag }}'
+          # Identity is cosmetic; the actual auth used by `git push` is the
+          # App-installation token persisted by `actions/checkout` above.
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git show-ref --verify --quiet "refs/tags/$tag"
@@ -177,6 +195,7 @@ jobs:
       - name: Create GitHub Release + attach zip
         uses: softprops/action-gh-release@v2
         with:
+          token:    ${{ steps.app_token.outputs.token }}
           tag_name: ${{ steps.release_version.outputs.tag }}
           name:     ${{ steps.release_version.outputs.tag }}
           body:     ${{ steps.release_notes.outputs.body }}

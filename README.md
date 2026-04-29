@@ -115,8 +115,8 @@ of downloading the prebuilt zip.
 dotnet build .\D2RMultiExport.sln
 ```
 
-CI runs the same command on every pull request via
-`.github/workflows/ci.yml`.
+The **Build Check** workflow (`.github/workflows/ci.yml`, status
+context `build-check`) runs the same command on every pull request.
 
 ## Run — CLI
 
@@ -195,7 +195,7 @@ import/export pipeline progress and per-phase issues live.
 ## License
 
 GPL-3.0-or-later — see [`LICENSE`](LICENSE) for the full license text
-and [`COPYING.AUTHORS`](COPYING.AUTHORS) for the project's copyright
-and authorship line.
+and [`AUTHORS.md`](AUTHORS.md) for the project's copyright and
+authorship line.
 
-Copyright © 2024–2026 D2R-Reimagined.
+Copyright © 2026 D2R-Reimagined.

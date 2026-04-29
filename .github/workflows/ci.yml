@@ -1,9 +1,11 @@
-﻿name: CI
+﻿name: Build Check
 
 on:
+  # Run on PRs against main only — once a PR's CI is green and it gets
+  # squash-merged, re-running the exact same build on the resulting `main`
+  # commit adds nothing (the tree was already validated on the PR head),
+  # so the redundant `push: main` trigger is intentionally omitted.
   pull_request:
-    branches: [ main ]
-  push:
     branches: [ main ]
   workflow_dispatch:
 
@@ -13,7 +15,7 @@ concurrency:
 
 jobs:
   build:
-    name: Sanity build (Release, win-x64)
+    name: build-check
     runs-on: windows-latest
     env:
       DOTNET_NOLOGO: 'true'

@@ -11,6 +11,20 @@ updates:
       prefix: "chore(deps)"
     labels:
       - "dependencies"
+    # Avalonia ships every package in the suite (Avalonia, Avalonia.Desktop,
+    # Avalonia.Themes.Fluent, Avalonia.Fonts.Inter, Avalonia.Diagnostics, ...)
+    # on the same release train, so a single upstream patch otherwise produces
+    # ~5 near-identical PRs in one Monday. Group them into a single PR per
+    # release; major versions still come in as their own grouped PR so Avalonia
+    # 11→12 stays reviewable separately.
+    groups:
+      avalonia:
+        patterns:
+          - "Avalonia"
+          - "Avalonia.*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
