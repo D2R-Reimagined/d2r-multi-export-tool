@@ -217,9 +217,11 @@ public sealed class UniqueImporter
     /// <c>Gelid-Affix*</c> groups) into a single parent <see cref="CubePropertyExport"/>
     /// whose <see cref="CubePropertyExport.Lines"/> contains one parent
     /// <see cref="KeyedLine"/>. The parent line carries the group's raw English
-    /// <see cref="KeyedLine.Code"/> (one of the documented English-passthrough
-    /// exceptions, alongside <c>PType</c> and <c>RequiredClass</c>) and the
-    /// group's <see cref="KeyedLine.PickMode"/>. Each resolved sub-property is
+    /// <see cref="KeyedLine.Code"/> (a structural identifier ignored by the
+    /// missing-translations audit, same shape as <c>PType</c>), the synthetic
+    /// <see cref="KeyedLine.NameKey"/> (<c>strPropertyGroupsProperty</c> →
+    /// "Random Grouped Affix") that the website resolves for the bucket
+    /// label, and the group's <see cref="KeyedLine.PickMode"/>. Each resolved sub-property is
     /// emitted as a child <see cref="KeyedLine"/> on
     /// <see cref="KeyedLine.Children"/>, carrying its own <see cref="KeyedLine.Chance"/>
     /// (the per-row <c>ChanceN</c> column verbatim).
@@ -308,7 +310,11 @@ public sealed class UniqueImporter
         {
             // Parent has no translation key/args of its own; the consumer
             // detects parent-ness by the presence of `code` + `children`.
+            // `NameKey` resolves to the synthetic "Random Grouped Affix"
+            // label so the website renders a localized header for the
+            // bucket while still branching on the raw `Code` identifier.
             Code = group.Code,
+            NameKey = Translation.SyntheticStringRegistry.Keys.PropertyGroupsProperty,
             PickMode = pickModeStr,
             Children = children
         };

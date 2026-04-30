@@ -4078,5 +4078,21 @@
         "ptBR": "",
         "ruRU": "",
         "zhCN": ""
+    },
+    {
+        "Key": "strPropertyGroupsProperty",
+        "enUS": "Random Grouped Affix",
+        "zhTW": "隨機群組詞綴",
+        "deDE": "Zufälliges gruppiertes Affix",
+        "esES": "Afijo agrupado aleatorio",
+        "frFR": "Affixe groupé aléatoire",
+        "itIT": "Affisso raggruppato casuale",
+        "koKR": "무작위 그룹 접사",
+        "plPL": "Losowy zgrupowany afiks",
+        "esMX": "Afijo agrupado aleatorio",
+        "jaJP": "ランダムなグループ化接辞",
+        "ptBR": "Afixo agrupado aleatório",
+        "ruRU": "Случайный сгруппированный аффикс",
+        "zhCN": "随机分组词缀"
     }
 ]

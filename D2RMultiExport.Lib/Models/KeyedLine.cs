@@ -141,16 +141,32 @@ public sealed class KeyedLine
     /// <summary>
     /// For parent lines representing a <c>propertygroups.txt</c> entry: the
     /// raw English group code from the <c>code</c> column (e.g.
-    /// <c>"Magnetic-Affix1"</c>, <c>"Gelid-Affix3"</c>). This is one of the
-    /// documented English-passthrough exceptions to the keyed-export rule —
-    /// the website branches on this literal to label the affix group, and the
-    /// audit ignores it via <c>D2RMultiExportPipeline.IdentifierOnlyProperties</c>
-    /// (entry <c>"Code"</c>). Null on child and non-group lines.
-    /// Serialized only when set.
+    /// <c>"Magnetic-Affix1"</c>, <c>"Gelid-Affix3"</c>). This is a
+    /// **structural identifier** the website branches on (same shape as the
+    /// <c>PType</c> Prefix/Suffix discriminator) — not a player-facing
+    /// string. The lowercase <c>code</c> field is registered in
+    /// <c>D2RMultiExportPipeline.IdentifierOnlyProperties</c> (entry
+    /// <c>"Code"</c>) so the missing-translations audit ignores its value.
+    /// The localized label for the affix bucket flows through
+    /// <see cref="NameKey"/> (synthetic <c>strPropertyGroupsProperty</c>).
+    /// Null on child and non-group lines. Serialized only when set.
     /// </summary>
     [JsonPropertyName("code")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Code { get; set; }
+
+    /// <summary>
+    /// For parent lines representing a <c>propertygroups.txt</c> entry: the
+    /// translation key the website should resolve to display a human-readable
+    /// label for the affix bucket (e.g. <c>strPropertyGroupsProperty</c> →
+    /// "Random Grouped Affix"). The raw English group <see cref="Code"/> is
+    /// retained as a structural identifier the website branches on, but
+    /// player-facing rendering goes through this localized key.
+    /// Null on child and non-group lines. Serialized only when set.
+    /// </summary>
+    [JsonPropertyName("nameKey")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NameKey { get; set; }
 
     /// <summary>
     /// For parent lines representing a <c>propertygroups.txt</c> entry: the
