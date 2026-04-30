@@ -105,6 +105,66 @@ public sealed class KeyedLine
     public int? ItemsRequired { get; set; }
 
     /// <summary>
+    /// For child lines under a <c>propertygroups.txt</c> parent entry: the raw
+    /// <c>ChanceN</c> column for this sub-property row. Null on parent lines and
+    /// on every line that did not originate from a property group.
+    ///
+    /// The numeric meaning depends on the parent's <see cref="PickMode"/>:
+    /// <list type="bullet">
+    ///   <item><description>relative pick weight when the parent's
+    ///   <c>PickMode</c> = <c>"2"</c> (the typical crafted-charm case — N rows
+    ///   are sampled from the group, each row's draw probability is
+    ///   <c>chance / Σchance</c>);</description></item>
+    ///   <item><description>direct percentage chance to fire on hit/cast for
+    ///   the other PickMode variants used by AutoMagic ranges.</description></item>
+    /// </list>
+    /// The exporter ships the value verbatim — no math is applied here — and
+    /// the website is expected to interpret it together with the parent's
+    /// <see cref="PickMode"/>. Serialized only when set.
+    /// </summary>
+    [JsonPropertyName("chance")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Chance { get; set; }
+
+    /// <summary>
+    /// For parent lines representing a <c>propertygroups.txt</c> entry assigned
+    /// to a unique item: the group's <c>PickMode</c> column verbatim (typically
+    /// <c>"2"</c> for crafted-charm affix groups). Lets the consumer interpret
+    /// each child line's <see cref="Chance"/> correctly without re-parsing the
+    /// source file. Null on child lines and on every other line.
+    /// Serialized only when set.
+    /// </summary>
+    [JsonPropertyName("pickMode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PickMode { get; set; }
+
+    /// <summary>
+    /// For parent lines representing a <c>propertygroups.txt</c> entry: the
+    /// raw English group code from the <c>code</c> column (e.g.
+    /// <c>"Magnetic-Affix1"</c>, <c>"Gelid-Affix3"</c>). This is one of the
+    /// documented English-passthrough exceptions to the keyed-export rule —
+    /// the website branches on this literal to label the affix group, and the
+    /// audit ignores it via <c>D2RMultiExportPipeline.IdentifierOnlyProperties</c>
+    /// (entry <c>"Code"</c>). Null on child and non-group lines.
+    /// Serialized only when set.
+    /// </summary>
+    [JsonPropertyName("code")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Code { get; set; }
+
+    /// <summary>
+    /// For parent lines representing a <c>propertygroups.txt</c> entry: the
+    /// resolved sub-property lines that belong to this group, in source-row
+    /// order. Each child carries its own <see cref="Chance"/> (interpreted
+    /// against the parent's <see cref="PickMode"/>); the parent itself has
+    /// no <see cref="Key"/> / <see cref="Args"/> payload. Null on every
+    /// non-parent line. Serialized only when set.
+    /// </summary>
+    [JsonPropertyName("children")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<KeyedLine>? Children { get; set; }
+
+    /// <summary>
     /// For set full-bonus lines: the bonus is granted only when the entire set is
     /// equipped. Mirrors the legacy "(full set)" suffix. Consumers can render
     /// their own localized "(full set)" label using this flag. Mutually exclusive

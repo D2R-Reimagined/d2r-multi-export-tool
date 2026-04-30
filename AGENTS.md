@@ -18,11 +18,12 @@ consumer. Read it in full before proposing changes.
 >    `<out>/keyed/*.json` must be a translation `key` (or a `KeyedLine`
 >    `{ key, args }`) — never a baked English sentence. The website resolves
 >    keys against `<out>/strings/<lang>.json` at runtime.
-> 3. **Three documented exceptions** to rule (2) — and only these three —
+> 3. **Four documented exceptions** to rule (2) — and only these four —
 >    are allowed to ship raw English / raw codes: cube recipe
->    `Description` text, the `PType` Prefix/Suffix discriminator, and the
->    `RequiredClass` literal used for class-required-equipment validation.
->    See *Exceptions* below.
+>    `Description` text, the `PType` Prefix/Suffix discriminator, the
+>    `RequiredClass` literal used for class-required-equipment validation,
+>    and the `propertygroups.txt` parent `code` (e.g. `Magnetic-Affix1`)
+>    on a `KeyedLine` group node. See *Exceptions* below.
 
 ---
 
@@ -268,9 +269,9 @@ matching CASC key, register it in `synthetic-strings.json`
 
 ## Documented exceptions
 
-These three — and only these three — are allowed to bypass the
+These four — and only these four — are allowed to bypass the
 key-everything rule. New exceptions require an explicit decision; do not
-add a fourth without updating this file.
+add a fifth without updating this file.
 
 ### 1. Cube recipe descriptions
 
@@ -311,6 +312,47 @@ literal for class-restriction styling, alongside the localized
 not change the allow-list to translation keys without coordinating a
 breaking change with the website.
 
+### 4. `propertygroups.txt` parent `code`
+
+When a unique item's property list references a `propertygroups.txt`
+entry (e.g. crafted charms reference `Magnetic-Affix1..6` /
+`Gelid-Affix*` groups), `UniqueImporter.ExpandPropertyGroup` emits a
+single parent `KeyedLine` carrying:
+
+- `code` — the raw English group code (`"Magnetic-Affix1"`,
+  `"Gelid-Affix3"`, …) verbatim from the propertygroups row,
+- `pickMode` — the group's `PickMode` column (typically `"2"` for
+  crafted-charm affix groups), and
+- `children` — the resolved sub-property `KeyedLine`s, each carrying
+  its own `chance` (the per-row `ChanceN` column verbatim — a relative
+  pick weight when `pickMode == "2"`, a percentage otherwise).
+
+The parent `code` is a **structural identifier** the website branches
+on (to label and group the affix bucket); there is no CASC translation
+key for these tokens. The lowercase `code` field is registered in
+`D2RMultiExportPipeline.IdentifierOnlyProperties` so the
+missing-translations audit ignores its value. `pickMode` is also a
+structural identifier (a numeric mode token) and `chance` is a number,
+so neither needs an audit-set entry. The keyed wire schema for the
+parent line therefore looks like:
+
+```jsonc
+{
+  "key": "",                 // parent has no template of its own
+  "args": [],
+  "code": "Magnetic-Affix1", // raw English passthrough
+  "pickMode": "2",
+  "children": [
+    { "key": "...", "args": [...], "chance": 100 },
+    { "key": "...", "args": [...], "chance":  50 }
+  ]
+}
+```
+
+Do **not** flatten the children back into siblings or stamp `pickMode`
+on every child — the parent/child hierarchy is part of the website
+contract.
+
 ---
 
 ## Working checklist for AI agents
@@ -334,7 +376,7 @@ Before submitting a change, verify:
 - [ ] If a new field carries a raw identifier (item code, class id,
       flag), it is added to `D2RMultiExportPipeline.IdentifierOnlyProperties`
       so it does not pollute the missing-translations audit.
-- [ ] If a fourth exception to the keyed-export rule is genuinely
+- [ ] If a fifth exception to the keyed-export rule is genuinely
       required, this file (`AGENTS.md`) is updated in the same change to
       document it.
 - [ ] The verified end-to-end command from `README.md` /

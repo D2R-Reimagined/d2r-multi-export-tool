@@ -212,42 +212,124 @@ public sealed class UniqueImporter
     }
 
     /// <summary>
-    /// Extracts only "charm-weight" from property groups as a flat property.
-    /// Other sub-properties are not shown in the main Properties list (matching old code).
+    /// Expands a <c>propertygroups.txt</c> entry referenced from a unique item's
+    /// property list (e.g. crafted charms reference <c>Magnetic-Affix1..6</c> /
+    /// <c>Gelid-Affix*</c> groups) into a single parent <see cref="CubePropertyExport"/>
+    /// whose <see cref="CubePropertyExport.Lines"/> contains one parent
+    /// <see cref="KeyedLine"/>. The parent line carries the group's raw English
+    /// <see cref="KeyedLine.Code"/> (one of the documented English-passthrough
+    /// exceptions, alongside <c>PType</c> and <c>RequiredClass</c>) and the
+    /// group's <see cref="KeyedLine.PickMode"/>. Each resolved sub-property is
+    /// emitted as a child <see cref="KeyedLine"/> on
+    /// <see cref="KeyedLine.Children"/>, carrying its own <see cref="KeyedLine.Chance"/>
+    /// (the per-row <c>ChanceN</c> column verbatim).
+    ///
+    /// The previous "<c>charm-weight</c> only" filter was a regression that
+    /// silently dropped the probabilistic affixes on items like
+    /// <c>Crafted Crack of the Heavens</c>. The earlier flat reshape (every
+    /// sub-property emitted as a sibling line stamped with chance+pickMode)
+    /// lost the parent/child hierarchy that the website renders against; this
+    /// implementation preserves it explicitly.
     /// </summary>
     private List<CubePropertyExport> ExpandPropertyGroup(PropertyGroupEntry group, int index, int itemLevel)
     {
-        var result = new List<CubePropertyExport>();
+        // Stringify the group's PickMode once so it can live on the parent line.
+        // Null when the group has no PickMode column populated (rare — treated
+        // as "always-on", no pickMode/chance written).
+        var pickModeStr = group.PickMode?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        var children = new List<KeyedLine>();
 
         foreach (var sub in group.SubProperties)
         {
             if (string.IsNullOrEmpty(sub.Property)) continue;
-
-            // Only extract charm-weight as a visible property
-            if (!string.Equals(sub.Property, "charm-weight", StringComparison.OrdinalIgnoreCase))
-                continue;
+            if (PropertyMapper.IsIgnored(sub.Property, _data.ExportConfig)) continue;
 
             try
             {
                 var resolved = PropertyMapper.Map(sub.Property, sub.Parameter, sub.Min, sub.Max, _data, itemLevel);
-                result.Add(new CubePropertyExport
+
+                // Skip rows that produced no keyed line and aren't recognised in
+                // Properties.txt — same gate as the main MapProperties loop, so
+                // unknown sub-property codes don't leak through silently.
+                if (resolved.Lines.Count == 0
+                    && !_data.Properties.ContainsKey(sub.Property)
+                    && !PropertyCleanup.IsSplitElementalCode(sub.Property, _data.ExportConfig))
+                    continue;
+
+                // Stamp the per-row ChanceN value on every line resolved for
+                // this sub-property. The parent's PickMode tells the consumer
+                // how to interpret the value; we don't repeat it on each child.
+                // chance==0 / null means "always-on" — leave the field unset.
+                foreach (var line in resolved.Lines)
                 {
-                    Index = index,
-                    PropertyCode = sub.Property,
-                    Priority = resolved.Priority,
-                    Min = sub.Min,
-                    Max = sub.Max,
-                    Parameter = sub.Parameter,
-                    Lines = resolved.Lines
-                });
+                    if (sub.Chance is > 0)
+                        line.Chance = sub.Chance;
+
+                    // Mod-added class-restricted random-skill-tab groups
+                    // (e.g. `skilltab-war` on Wraithstep) wrap a `skilltab`
+                    // sub-property whose Min/Max parameter range doesn't
+                    // resolve to a single tab id, so BuildSkillTab falls back
+                    // to strSkillTabBonusClassOnly with an empty class slot.
+                    // Mirror the doc-generator's hardcoded Wraithstep
+                    // workaround by rewriting such children into a
+                    // "+N Random Skill Tab (<Class> Only)" line scoped to
+                    // the configured class. The mapping lives in
+                    // export-config.json → customSkillTabAliases (parent
+                    // group code → 3-letter CharStats class code).
+                    if (_data.ExportConfig.CustomSkillTabAliases.TryGetValue(group.Code, out var aliasClassCode)
+                        && _data.CharStatsByCode.ContainsKey(aliasClassCode)
+                        && (line.Key == Translation.SyntheticStringRegistry.Keys.SkillTabBonusClassOnly
+                            || line.Key == Translation.SyntheticStringRegistry.Keys.SkillTabRandomClassOnly))
+                    {
+                        var bonus = (line.Args.Length > 0 && line.Args[0] is int v)
+                            ? v
+                            : (sub.Min ?? sub.Max ?? 0);
+                        line.Key = Translation.SyntheticStringRegistry.Keys.SkillTabRandomClassOnly;
+                        line.Args = [bonus];
+                        line.ClassOnly = Translation.PropertyKeyResolver.TryGetClassOnlyKey(aliasClassCode);
+                    }
+
+                    children.Add(line);
+                }
             }
             catch
             {
-                // Skip unresolvable
+                // Skip unresolvable sub-properties; the import-report's main
+                // MapProperties loop catches the rest.
             }
         }
 
-        return result;
+        // Empty group → emit nothing (matches doc-generator: a property group
+        // with no resolvable sub-properties produces no on-wire entry).
+        if (children.Count == 0) return [];
+
+        var parent = new KeyedLine
+        {
+            // Parent has no translation key/args of its own; the consumer
+            // detects parent-ness by the presence of `code` + `children`.
+            Code = group.Code,
+            PickMode = pickModeStr,
+            Children = children
+        };
+
+        return
+        [
+            new CubePropertyExport
+            {
+                Index = index,
+                PropertyCode = group.Code,
+                // Force propertygroup affixes to sort AFTER all standard
+                // properties (which use real ItemStatCost descPriority values,
+                // always >= 0). FlattenPropertiesByPriority sorts by Priority
+                // descending with source-index as a stable tiebreaker, so
+                // int.MinValue here pushes every group parent to the bottom
+                // while preserving the on-item order between groups.
+                Priority = int.MinValue,
+                PickMode = pickModeStr,
+                Lines = [parent]
+            }
+        ];
     }
 
     private static void AdjustRequirements(UniqueExport unique)
