@@ -62,6 +62,7 @@ public static class SyntheticStringRegistry
         public const string ItemExtraBlood           = "strItemExtraBlood";             // "Extra Blood"  (item_extrablood synthetic)
         public const string RequirementsReducedBy    = "strRequirementsReducedBy";      // "Requirements -%d%%"  (ease, when ItemStatCost has no descstr)
         public const string RequirementsIncreasedBy  = "strRequirementsIncreasedBy";    // "Requirements +%d%%"  (ease, when ItemStatCost has no descstr)
+        public const string PropertyGroupsProperty   = "strPropertyGroupsProperty";     // "Random Grouped Affix" (display label for propertygroups.txt parent lines)
         // NOTE: strModMinDamageRange / strModPoisonDamageRange are NOT registered here:
         // both are game-native CASC keys (extracted from item-modifiers.json via CascView),
         // so PropertyKeyResolver / PropertyCleanup reference them as bare string literals

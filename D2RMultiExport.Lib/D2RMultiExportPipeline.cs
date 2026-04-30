@@ -428,12 +428,15 @@ public sealed class D2RMultiExportPipeline
     /// One exception: a small set of property names carry pure identifiers — base
     /// item codes (<c>Code</c>, <c>NormCode</c>, <c>UberCode</c>, <c>UltraCode</c>),
     /// the <c>AutoPrefix</c> numeric token, the <c>Vanilla</c> Y/N flag, the
-    /// <c>PType</c> Prefix/Suffix discriminator, and class-id fields
-    /// (<c>RequiredClass</c>, <c>Class</c>, <c>ClassSpecific</c>) — that are emitted
-    /// for the website to use as lookup IDs but are NOT translation keys and must
-    /// NOT pollute the missing-translations audit. (E.g. unique items expose
-    /// <c>"Code": "cjw"</c> as the base-item identifier; the actual translation
-    /// key for the base item lives on <c>Equipment.NameKey</c>.)
+    /// <c>PType</c> Prefix/Suffix discriminator, class-id fields
+    /// (<c>RequiredClass</c>, <c>Class</c>, <c>ClassSpecific</c>), and the
+    /// camelCase <c>code</c> field on <c>propertygroups.txt</c> parent
+    /// <see cref="Models.KeyedLine"/>s (raw English group names like
+    /// <c>"Magnetic-Affix1"</c>) — that are emitted for the website to use as
+    /// lookup IDs but are NOT translation keys and must NOT pollute the
+    /// missing-translations audit. (E.g. unique items expose <c>"Code": "cjw"</c>
+    /// as the base-item identifier; the actual translation key for the base item
+    /// lives on <c>Equipment.NameKey</c>.)
     /// </summary>
     private static readonly HashSet<string> IdentifierOnlyProperties = new(StringComparer.Ordinal)
     {
@@ -447,6 +450,10 @@ public sealed class D2RMultiExportPipeline
         "RequiredClass",
         "Class",
         "ClassSpecific",
+        // KeyedLine.Code (camelCase) — raw English propertygroup name on
+        // parent lines; siblings PickMode/Children are not strings/objects
+        // that contain translation keys, so no extra entries are needed.
+        "code",
     };
 
     private static async Task<IReadOnlySet<string>> CollectReferencedKeysAsync(string keyedDir)

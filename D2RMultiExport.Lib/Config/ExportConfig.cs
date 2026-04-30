@@ -93,6 +93,17 @@ public sealed class ExportConfig
     [JsonPropertyName("propertyPriorityOverrides")]
     public Dictionary<string, int> PropertyPriorityOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Mod-added property codes that act as a class-restricted random skill tab
+    /// (e.g. <c>skilltab-war</c> on Wraithstep) but have no row in
+    /// <c>properties.txt</c>. Maps the property code to a 3-letter CharStats
+    /// class code (<c>war</c>, <c>nec</c>, …); <see cref="Translation.PropertyKeyResolver"/>
+    /// routes it through the same shape as <c>tab-rand</c> with the class
+    /// fixed. Mirrors the doc-generator's hardcoded Wraithstep workaround.
+    /// </summary>
+    [JsonPropertyName("customSkillTabAliases")]
+    public Dictionary<string, string> CustomSkillTabAliases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     [JsonPropertyName("propertyElementalExpansions")]
     public Dictionary<string, ElementalExpansion> PropertyElementalExpansions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -240,6 +251,8 @@ public sealed class ExportConfig
             PropertyStatOverrides = new Dictionary<string, string>(PropertyStatOverrides, StringComparer.OrdinalIgnoreCase);
         if (PropertyPriorityOverrides.Count > 0)
             PropertyPriorityOverrides = new Dictionary<string, int>(PropertyPriorityOverrides, StringComparer.OrdinalIgnoreCase);
+        if (CustomSkillTabAliases.Count > 0)
+            CustomSkillTabAliases = new Dictionary<string, string>(CustomSkillTabAliases, StringComparer.OrdinalIgnoreCase);
         if (PropertyElementalExpansions.Count > 0)
             PropertyElementalExpansions = new Dictionary<string, ElementalExpansion>(PropertyElementalExpansions, StringComparer.OrdinalIgnoreCase);
         if (ElementalDamagePairs.Count > 0)

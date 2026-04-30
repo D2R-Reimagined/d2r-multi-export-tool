@@ -105,6 +105,11 @@
         "magskill":  151
     },
 
+    "$customSkillTabAliasesNote": "Mod-added property codes that act as a class-restricted random skill tab (`+N Random Skill Tab (<Class> Only)`) but have no row in `properties.txt`. Maps the property code to a 3-letter CharStats class code; the resolver routes it through the same path as `tab-rand` with the class fixed. Mirrors the doc-generator's hardcoded Wraithstep workaround.",
+    "customSkillTabAliases": {
+        "skilltab-war": "war"
+    },
+
     "$propertyElementalExpansionsNote": "Multi-stat elemental properties expanded into separate min/max/len entries so MergeElementalTriplets can aggregate them (formerly hardcoded in PropertyMapper.ElementalExpansions).",
     "propertyElementalExpansions": {
         "dmg-cold": { "min": "cold-min", "max": "cold-max", "len": "cold-len" },

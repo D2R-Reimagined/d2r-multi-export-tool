@@ -193,19 +193,19 @@
     },
     {
         "Key": "strSkillRandom",
-        "enUS": "+%d Random Skill",
-        "zhTW": "+%d 隨機技能",
-        "deDE": "+%d zufällige Fertigkeit",
-        "esES": "+%d habilidad aleatoria",
-        "frFR": "+%d compétence aléatoire",
-        "itIT": "+%d abilità casuale",
-        "koKR": "+%d 무작위 기술",
-        "plPL": "+%d losowa umiejętność",
-        "esMX": "+%d habilidad aleatoria",
-        "jaJP": "+%d ランダムスキル",
-        "ptBR": "+%d habilidade aleatória",
-        "ruRU": "+%d случайный навык",
-        "zhCN": "+%d 随机技能"
+        "enUS": "+%d to (Random Class) Skill Levels",
+        "zhTW": "+%d 至（隨機職業）技能等級",
+        "deDE": "+%d zu Fertigkeitsstufen einer (zufälligen Klasse)",
+        "esES": "+%d a niveles de habilidad de (clase aleatoria)",
+        "frFR": "+%d aux niveaux de compétence de (classe aléatoire)",
+        "itIT": "+%d ai livelli abilità di (classe casuale)",
+        "koKR": "+%d (무작위 직업) 기술 레벨",
+        "plPL": "+%d do poziomów umiejętności (losowej klasy)",
+        "esMX": "+%d a niveles de habilidad de (clase aleatoria)",
+        "jaJP": "+%d （ランダムなクラス）のスキルレベル",
+        "ptBR": "+%d aos níveis de habilidade de (classe aleatória)",
+        "ruRU": "+%d к уровням умений (случайного класса)",
+        "zhCN": "+%d 至（随机职业）技能等级"
     },
     {
         "Key": "strSkillRandomClass",
@@ -4078,5 +4078,21 @@
         "ptBR": "",
         "ruRU": "",
         "zhCN": ""
+    },
+    {
+        "Key": "strPropertyGroupsProperty",
+        "enUS": "Random Grouped Affix",
+        "zhTW": "隨機群組詞綴",
+        "deDE": "Zufälliges gruppiertes Affix",
+        "esES": "Afijo agrupado aleatorio",
+        "frFR": "Affixe groupé aléatoire",
+        "itIT": "Affisso raggruppato casuale",
+        "koKR": "무작위 그룹 접사",
+        "plPL": "Losowy zgrupowany afiks",
+        "esMX": "Afijo agrupado aleatorio",
+        "jaJP": "ランダムなグループ化接辞",
+        "ptBR": "Afixo agrupado aleatório",
+        "ruRU": "Случайный сгруппированный аффикс",
+        "zhCN": "随机分组词缀"
     }
 ]
