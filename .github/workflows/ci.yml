@@ -1,12 +1,15 @@
 name: Build Check
 
 on:
-  # Run on PRs against main only — once a PR's CI is green and it gets
-  # squash-merged, re-running the exact same build on the resulting `main`
-  # commit adds nothing (the tree was already validated on the PR head),
-  # so the redundant `push: main` trigger is intentionally omitted.
+  # PR-only: post-squash `main` rebuilds the same tree the PR head already
+  # validated, so the `push: main` trigger is intentionally omitted.
+  # Draft PRs are skipped (no `ready_for_review` would fire CI; the
+  # job-level `if:` below also gates `synchronize`/`opened`/`reopened`
+  # while the PR is still a draft) to avoid ~3 min Windows runs on WIP
+  # pushes — promoting a draft fires CI exactly once.
   pull_request:
     branches: [ main ]
+    types: [ opened, reopened, synchronize, ready_for_review ]
   workflow_dispatch:
 
 concurrency:
@@ -16,6 +19,8 @@ concurrency:
 jobs:
   build:
     name: build-check
+    # Skip draft PRs; mirrors the trigger-types filter above.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: windows-latest
     env:
       DOTNET_NOLOGO: 'true'
