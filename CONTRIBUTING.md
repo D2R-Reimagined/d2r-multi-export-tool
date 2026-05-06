@@ -183,9 +183,13 @@ bundles include it.
    context `validate-commits`) enforces this on every PR; squash-
    merging with the PR title as the commit subject is the intended
    workflow.
-3. **Build Check must pass.** `dotnet build .\D2RMultiExport.sln` is
-   the same command the **Build Check** workflow (`ci.yml`, status
-   context `build-check`) runs.
+3. **Build locally before pushing.** Run
+   `dotnet build .\D2RMultiExport.sln` — that's the same command the
+   **Build Check** workflow (`ci.yml`) runs. Build Check is
+   **manual-only** (`workflow_dispatch`) to avoid burning ~3–4 Actions
+   minutes per commit on open PRs; trigger it from
+   **Actions → Build Check → Run workflow** before merge if you want a
+   clean-runner confirmation.
 4. **Smoke-test the export** if you touched the pipeline.
 5. **Don't leave a local `<ProjectReference>` swap** for
    `D2RReimaginedTools.FileExtensions` in `D2RMultiExport.Lib.csproj`

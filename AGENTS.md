@@ -138,7 +138,7 @@ Skip the smoke export only for documented non-pipeline changes (docs/comments/to
 - [ ] New raw-identifier fields added to `D2RMultiExportPipeline.IdentifierOnlyProperties`.
 - [ ] Fourth keyed-export exception (if genuinely needed) documented in this file in the same change.
 - [ ] Smoke export from `docs/TESTING.md` ran successfully (when pipeline touched).
-- [ ] `dotnet build .\D2RMultiExport.sln` clean (matches **Build Check** workflow `ci.yml`, status `build-check`).
+- [ ] `dotnet build .\D2RMultiExport.sln` clean locally (matches the manual-only **Build Check** workflow `ci.yml`, run on demand via `workflow_dispatch` before merge — no automatic PR trigger).
 - [ ] At least one commit follows Conventional Commits (`type(scope?)!?: lowercase description`; types: `feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`; `!` or `BREAKING CHANGE:` body for breaks). Enforced by `pr-semantic-commits.yml` (status `validate-commits`). Squash-merge with PR title is the intended flow.
 - [ ] No leftover local `<ProjectReference>` swap for `D2RReimaginedTools.FileExtensions` — committed `.csproj` uses `<PackageReference>`.
 
