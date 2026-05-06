@@ -50,8 +50,11 @@ public sealed class UniqueImporter
             var name = entry.Index ?? "";
             try
             {
-                // Skip disabled / level-0 / ignored items
-                if (entry.Disabled) continue;
+                // Skip disabled / level-0 / ignored items.
+                // A row is dropped only when it is both not spawnable AND explicitly
+                // disabled (`spawnable` column != 1 AND `disabled` column = 1) — rows
+                // that are disabled but still spawnable are kept for the export.
+                if (!entry.Spawnable && entry.Disabled) continue;
                 if (entry.Level == 0) continue;
                 if (config.IgnoredUniqueItemsSet.Any(ignored => name.Contains(ignored, StringComparison.OrdinalIgnoreCase)))
                     continue;
@@ -131,9 +134,9 @@ public sealed class UniqueImporter
             try
             {
                 // Check if this property code is a property group (e.g. "Gelid-Affix1")
-                if (_data.PropertyGroups.TryGetValue(prop.Property, out var directGroup))
+                if (PropertyGroupExpander.TryExpand(prop.Property, i, itemLevel, _data, out var groupExpansion))
                 {
-                    properties.AddRange(ExpandPropertyGroup(directGroup, i, itemLevel));
+                    properties.AddRange(groupExpansion);
                     continue;
                 }
 
@@ -211,132 +214,11 @@ public sealed class UniqueImporter
         return properties;
     }
 
-    /// <summary>
-    /// Expands a <c>propertygroups.txt</c> entry referenced from a unique item's
-    /// property list (e.g. crafted charms reference <c>Magnetic-Affix1..6</c> /
-    /// <c>Gelid-Affix*</c> groups) into a single parent <see cref="CubePropertyExport"/>
-    /// whose <see cref="CubePropertyExport.Lines"/> contains one parent
-    /// <see cref="KeyedLine"/>. The parent line carries the group's raw English
-    /// <see cref="KeyedLine.Code"/> (a structural identifier ignored by the
-    /// missing-translations audit, same shape as <c>PType</c>), the synthetic
-    /// <see cref="KeyedLine.NameKey"/> (<c>strPropertyGroupsProperty</c> →
-    /// "Random Grouped Affix") that the website resolves for the bucket
-    /// label, and the group's <see cref="KeyedLine.PickMode"/>. Each resolved sub-property is
-    /// emitted as a child <see cref="KeyedLine"/> on
-    /// <see cref="KeyedLine.Children"/>, carrying its own <see cref="KeyedLine.Chance"/>
-    /// (the per-row <c>ChanceN</c> column verbatim).
-    ///
-    /// The previous "<c>charm-weight</c> only" filter was a regression that
-    /// silently dropped the probabilistic affixes on items like
-    /// <c>Crafted Crack of the Heavens</c>. The earlier flat reshape (every
-    /// sub-property emitted as a sibling line stamped with chance+pickMode)
-    /// lost the parent/child hierarchy that the website renders against; this
-    /// implementation preserves it explicitly.
-    /// </summary>
-    private List<CubePropertyExport> ExpandPropertyGroup(PropertyGroupEntry group, int index, int itemLevel)
-    {
-        // Stringify the group's PickMode once so it can live on the parent line.
-        // Null when the group has no PickMode column populated (rare — treated
-        // as "always-on", no pickMode/chance written).
-        var pickModeStr = group.PickMode?.ToString(System.Globalization.CultureInfo.InvariantCulture);
-
-        var children = new List<KeyedLine>();
-
-        foreach (var sub in group.SubProperties)
-        {
-            if (string.IsNullOrEmpty(sub.Property)) continue;
-            if (PropertyMapper.IsIgnored(sub.Property, _data.ExportConfig)) continue;
-
-            try
-            {
-                var resolved = PropertyMapper.Map(sub.Property, sub.Parameter, sub.Min, sub.Max, _data, itemLevel);
-
-                // Skip rows that produced no keyed line and aren't recognised in
-                // Properties.txt — same gate as the main MapProperties loop, so
-                // unknown sub-property codes don't leak through silently.
-                if (resolved.Lines.Count == 0
-                    && !_data.Properties.ContainsKey(sub.Property)
-                    && !PropertyCleanup.IsSplitElementalCode(sub.Property, _data.ExportConfig))
-                    continue;
-
-                // Stamp the per-row ChanceN value on every line resolved for
-                // this sub-property. The parent's PickMode tells the consumer
-                // how to interpret the value; we don't repeat it on each child.
-                // chance==0 / null means "always-on" — leave the field unset.
-                foreach (var line in resolved.Lines)
-                {
-                    if (sub.Chance is > 0)
-                        line.Chance = sub.Chance;
-
-                    // Mod-added class-restricted random-skill-tab groups
-                    // (e.g. `skilltab-war` on Wraithstep) wrap a `skilltab`
-                    // sub-property whose Min/Max parameter range doesn't
-                    // resolve to a single tab id, so BuildSkillTab falls back
-                    // to strSkillTabBonusClassOnly with an empty class slot.
-                    // Mirror the doc-generator's hardcoded Wraithstep
-                    // workaround by rewriting such children into a
-                    // "+N Random Skill Tab (<Class> Only)" line scoped to
-                    // the configured class. The mapping lives in
-                    // export-config.json → customSkillTabAliases (parent
-                    // group code → 3-letter CharStats class code).
-                    if (_data.ExportConfig.CustomSkillTabAliases.TryGetValue(group.Code, out var aliasClassCode)
-                        && _data.CharStatsByCode.ContainsKey(aliasClassCode)
-                        && (line.Key == Translation.SyntheticStringRegistry.Keys.SkillTabBonusClassOnly
-                            || line.Key == Translation.SyntheticStringRegistry.Keys.SkillTabRandomClassOnly))
-                    {
-                        var bonus = (line.Args.Length > 0 && line.Args[0] is int v)
-                            ? v
-                            : (sub.Min ?? sub.Max ?? 0);
-                        line.Key = Translation.SyntheticStringRegistry.Keys.SkillTabRandomClassOnly;
-                        line.Args = [bonus];
-                        line.ClassOnly = Translation.PropertyKeyResolver.TryGetClassOnlyKey(aliasClassCode);
-                    }
-
-                    children.Add(line);
-                }
-            }
-            catch
-            {
-                // Skip unresolvable sub-properties; the import-report's main
-                // MapProperties loop catches the rest.
-            }
-        }
-
-        // Empty group → emit nothing (matches doc-generator: a property group
-        // with no resolvable sub-properties produces no on-wire entry).
-        if (children.Count == 0) return [];
-
-        var parent = new KeyedLine
-        {
-            // Parent has no translation key/args of its own; the consumer
-            // detects parent-ness by the presence of `code` + `children`.
-            // `NameKey` resolves to the synthetic "Random Grouped Affix"
-            // label so the website renders a localized header for the
-            // bucket while still branching on the raw `Code` identifier.
-            Code = group.Code,
-            NameKey = Translation.SyntheticStringRegistry.Keys.PropertyGroupsProperty,
-            PickMode = pickModeStr,
-            Children = children
-        };
-
-        return
-        [
-            new CubePropertyExport
-            {
-                Index = index,
-                PropertyCode = group.Code,
-                // Force propertygroup affixes to sort AFTER all standard
-                // properties (which use real ItemStatCost descPriority values,
-                // always >= 0). FlattenPropertiesByPriority sorts by Priority
-                // descending with source-index as a stable tiebreaker, so
-                // int.MinValue here pushes every group parent to the bottom
-                // while preserving the on-item order between groups.
-                Priority = int.MinValue,
-                PickMode = pickModeStr,
-                Lines = [parent]
-            }
-        ];
-    }
+    // The propertygroups.txt expansion helper used to live here as
+    // ExpandPropertyGroup; it now lives in PropertyGroupExpander so every
+    // importer (uniques, sets, runewords, cube recipes, magic affixes,
+    // automagic) emits the same strPropertyGroupsProperty parent line
+    // whenever a property code resolves to a group entry.
 
     private static void AdjustRequirements(UniqueExport unique)
     {

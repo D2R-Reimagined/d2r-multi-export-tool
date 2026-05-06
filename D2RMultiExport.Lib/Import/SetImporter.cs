@@ -94,7 +94,10 @@ public sealed class SetImporter
         {
             try
             {
-                if (string.IsNullOrEmpty(entry.Item) || entry.Disabled == true) continue;
+                if (string.IsNullOrEmpty(entry.Item)) continue;
+                // Skip rows whose `spawnable` column != 1 AND `disabled` column = 1
+                // (i.e. the row is both unreachable in-game and explicitly disabled).
+                if (entry.Spawnable != true && entry.Disabled == true) continue;
 
                 var isVanilla = (rawIndexByName.TryGetValue(entry.Index ?? "", out var rawIdx) && rawIdx <= _config.VanillaSetMaxRow);
                 entry.Vanilla = isVanilla ? 1 : 0;
@@ -121,6 +124,14 @@ public sealed class SetImporter
                         var mod = entry.Properties[i];
                         if (string.IsNullOrEmpty(mod.Code)) continue;
                         if (PropertyMapper.IsIgnored(mod.Code, _data.ExportConfig)) continue;
+                        // propertygroups.txt reference (e.g. crafted-affix groups
+                        // assigned to a set item) → expand into the parent
+                        // KeyedLine carrying strPropertyGroupsProperty.
+                        if (PropertyGroupExpander.TryExpand(mod.Code, i, export.ItemLevel, _data, out var groupExpansion))
+                        {
+                            properties.AddRange(groupExpansion);
+                            continue;
+                        }
                         var prop = PropertyMapper.Map(mod.Code, mod.Param, mod.Min, mod.Max, _data, export.ItemLevel);
                         properties.Add(new CubePropertyExport
                         {
@@ -166,6 +177,33 @@ public sealed class SetImporter
                         var mod = entry.AdditionalProperties[i];
                         if (string.IsNullOrEmpty(mod.Code)) continue;
                         if (PropertyMapper.IsIgnored(mod.Code, _data.ExportConfig)) continue;
+                        // propertygroups.txt reference on a set-item additional
+                        // property → expand into the parent KeyedLine carrying
+                        // strPropertyGroupsProperty. Stamp the per-N-items / full-set
+                        // metadata on the parent's children below.
+                        if (PropertyGroupExpander.TryExpand(mod.Code, export.Properties.Count, export.ItemLevel, _data, out var groupExpansion))
+                        {
+                            int? numberOfItemsRequired = addFunc == 2 ? (i / 2) + 2 : null;
+                            foreach (var groupProp in groupExpansion)
+                            {
+                                if (numberOfItemsRequired.HasValue)
+                                {
+                                    foreach (var parent in groupProp.Lines)
+                                    foreach (var child in parent.Children ?? new List<KeyedLine>())
+                                        child.ItemsRequired = numberOfItemsRequired;
+                                }
+                                if (addFunc == 0)
+                                {
+                                    export.Properties.Add(groupProp);
+                                }
+                                else
+                                {
+                                    groupProp.NumberOfItemsRequired = numberOfItemsRequired;
+                                    export.SetBonuses.Add(new List<CubePropertyExport> { groupProp });
+                                }
+                            }
+                            continue;
+                        }
 
                         var prop = PropertyMapper.Map(mod.Code, mod.Param, mod.Min, mod.Max, _data, export.ItemLevel);
 
@@ -248,6 +286,25 @@ public sealed class SetImporter
     {
         if (string.IsNullOrEmpty(code)) return;
         if (PropertyMapper.IsIgnored(code, _data.ExportConfig)) return;
+        // propertygroups.txt reference on a set partial/full bonus → expand
+        // into the parent KeyedLine. The (N Items) / (full set) metadata is
+        // stamped on the parent's children so the website still receives the
+        // bucket scope label.
+        if (PropertyGroupExpander.TryExpand(code, target.Count, 0, _data, out var groupExpansion))
+        {
+            foreach (var groupProp in groupExpansion)
+            {
+                foreach (var parent in groupProp.Lines)
+                foreach (var child in parent.Children ?? new List<KeyedLine>())
+                {
+                    if (numberOfItemsRequired.HasValue) child.ItemsRequired = numberOfItemsRequired;
+                    if (fullSet) child.FullSet = true;
+                }
+                groupProp.NumberOfItemsRequired = numberOfItemsRequired;
+                target.Add(groupProp);
+            }
+            return;
+        }
         var prop = PropertyMapper.Map(code, param, min, max, _data, 0);
         // Stamp each KeyedLine so consumers can render their own localized
         // "(N Items)" / "(full set)" labels.

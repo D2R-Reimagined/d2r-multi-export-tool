@@ -409,6 +409,16 @@ public static class KeyedJsonExporter
         {
             var prop = entry.Properties[i];
             if (!string.IsNullOrEmpty(prop.Code) && PropertyMapper.IsIgnored(prop.Code, data.ExportConfig)) continue;
+            // propertygroups.txt reference on a magic affix → emit the parent
+            // KeyedLine carrying strPropertyGroupsProperty (with chance-stamped
+            // children) so magic affixes surface property groups the same way
+            // uniques/sets/runewords do.
+            if (Import.PropertyGroupExpander.TryExpand(prop.Code, i, entry.Level, data, out var groupExpansion))
+            {
+                foreach (var groupProp in groupExpansion)
+                    lines.AddRange(groupProp.Lines);
+                continue;
+            }
             var resolved = PropertyMapper.Map(prop.Code ?? "", prop.Parameter, prop.Min, prop.Max, data, entry.Level);
             if (resolved.Lines.Count > 0)
             {
@@ -527,11 +537,22 @@ public static class KeyedJsonExporter
 
             // Resolve property lines once per affix row.
             var lines = new List<KeyedLine>();
+            int propIndex = 0;
             foreach (var prop in am.Properties)
             {
-                if (string.IsNullOrEmpty(prop.Code) || PropertyMapper.IsIgnored(prop.Code, data.ExportConfig)) continue;
+                if (string.IsNullOrEmpty(prop.Code) || PropertyMapper.IsIgnored(prop.Code, data.ExportConfig)) { propIndex++; continue; }
+                // propertygroups.txt reference on an automagic row → emit the
+                // parent KeyedLine carrying strPropertyGroupsProperty.
+                if (Import.PropertyGroupExpander.TryExpand(prop.Code, propIndex, am.Level, data, out var groupExpansion))
+                {
+                    foreach (var groupProp in groupExpansion)
+                        lines.AddRange(groupProp.Lines);
+                    propIndex++;
+                    continue;
+                }
                 var resolved = PropertyMapper.Map(prop.Code, prop.Parameter, prop.Min, prop.Max, data, am.Level);
                 if (resolved.Lines.Count > 0) lines.AddRange(resolved.Lines);
+                propIndex++;
             }
             if (lines.Count == 0) continue;
 

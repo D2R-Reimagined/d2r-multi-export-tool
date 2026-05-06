@@ -252,6 +252,18 @@ public sealed class CubeRecipeImporter
             var max = ImportReflection.GetInt(entry, $"Mod{i}Max{suffix}");
             var modChance = ImportReflection.GetInt(entry, $"Mod{i}Chance{suffix}");
 
+            // propertygroups.txt reference on a cube-recipe Mod slot → expand
+            // into the parent KeyedLine carrying strPropertyGroupsProperty.
+            if (PropertyGroupExpander.TryExpand(propCode, i, 99, _data, out var groupExpansion))
+            {
+                foreach (var groupProp in groupExpansion)
+                {
+                    groupProp.ModChance = modChance;
+                    output.Properties.Add(groupProp);
+                }
+                continue;
+            }
+
             var resolved = PropertyMapper.Map(propCode, param, min, max, _data, 99);
             output.Properties.Add(new CubePropertyExport
             {
