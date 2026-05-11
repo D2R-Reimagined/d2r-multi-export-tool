@@ -481,3 +481,4 @@ $RECYCLE.BIN/
 # Custom project artifacts
 REBUILD_SUMMARY.md
 /test-output
+/.junie

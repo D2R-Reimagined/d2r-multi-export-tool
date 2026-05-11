@@ -159,6 +159,14 @@ public sealed class RunewordImporter
                         var mod = entry.Mods[i];
                         if (string.IsNullOrEmpty(mod.Code)) continue;
                         if (PropertyMapper.IsIgnored(mod.Code, _data.ExportConfig)) continue;
+                        // propertygroups.txt reference on a runeword's direct mods
+                        // → expand into the parent KeyedLine carrying
+                        // strPropertyGroupsProperty.
+                        if (PropertyGroupExpander.TryExpand(mod.Code, i, itemLevel, _data, out var groupExpansion))
+                        {
+                            export.Properties.AddRange(groupExpansion);
+                            continue;
+                        }
                         var resolved = PropertyMapper.Map(mod.Code, mod.Param, mod.Min, mod.Max, _data, itemLevel);
                         export.Properties.Add(new CubePropertyExport
                         {
@@ -244,6 +252,25 @@ public sealed class RunewordImporter
         {
             if (string.IsNullOrEmpty(gp.Code)) continue;
             if (PropertyMapper.IsIgnored(gp.Code, _data.ExportConfig)) continue;
+            // propertygroups.txt reference on a constituent rune/gem property
+            // → expand into the parent KeyedLine carrying
+            // strPropertyGroupsProperty. Qualifier is stamped on every child
+            // so the website can render the "(Weapon)/(Shield)/(Armor)" tail.
+            if (PropertyGroupExpander.TryExpand(gp.Code, target.Count, itemLevel, _data, out var groupExpansion))
+            {
+                foreach (var groupProp in groupExpansion)
+                {
+                    if (qualifier != null)
+                    {
+                        foreach (var parent in groupProp.Lines)
+                        foreach (var child in parent.Children ?? new List<KeyedLine>())
+                            child.Qualifier = qualifier;
+                    }
+                    groupProp.Suffix = addSuffix ? suffix.Trim() : "";
+                    target.Add(groupProp);
+                }
+                continue;
+            }
             var prop = PropertyMapper.Map(gp.Code, gp.Parameter, gp.Min, gp.Max, _data, itemLevel);
             var actualSuffix = addSuffix ? suffix.Trim() : "";
 
