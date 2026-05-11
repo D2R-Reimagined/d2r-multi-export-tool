@@ -512,6 +512,9 @@ public sealed class DataLoader
             foreach (var entry in prefixes)
             {
                 if (string.IsNullOrEmpty(entry.Name)) continue;
+                // Skip rows whose `spawnable` column != 1 — these affixes are
+                // disabled in the source `.txt` and never roll in-game.
+                if (entry.Spawnable != true) continue;
                 _data.MagicPrefixes.Add(MapMagicAffix(entry));
             }
 
@@ -519,6 +522,9 @@ public sealed class DataLoader
             foreach (var entry in suffixes)
             {
                 if (string.IsNullOrEmpty(entry.Name)) continue;
+                // Skip rows whose `spawnable` column != 1 — these affixes are
+                // disabled in the source `.txt` and never roll in-game.
+                if (entry.Spawnable != true) continue;
                 _data.MagicSuffixes.Add(MapMagicAffix(entry));
             }
 
