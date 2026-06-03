@@ -1648,6 +1648,22 @@
         "zhCN": "返还宝石袋，并更新宝石点数"
     },
     {
+        "Key": "strCubeInputAnyItem",
+        "enUS": "Any Item",
+        "zhTW": "任意物品",
+        "deDE": "Beliebiger Gegenstand",
+        "esES": "Cualquier objeto",
+        "frFR": "N’importe quel objet",
+        "itIT": "Qualsiasi oggetto",
+        "koKR": "아무 아이템",
+        "plPL": "Dowolny przedmiot",
+        "esMX": "Cualquier objeto",
+        "jaJP": "任意のアイテム",
+        "ptBR": "Qualquer item",
+        "ruRU": "Любой предмет",
+        "zhCN": "任意物品"
+    },
+    {
         "Key": "strCubeNameUnknown",
         "enUS": "Unknown",
         "zhTW": "未知",

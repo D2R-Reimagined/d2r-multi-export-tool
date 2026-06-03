@@ -62,12 +62,10 @@ public static class CubeQualifierKeyMap
             ["exc"] = SyntheticStringRegistry.Keys.CubeQualifierExceptionalItem,
             ["eli"] = SyntheticStringRegistry.Keys.CubeQualifierEliteItem,
             ["rep"] = SyntheticStringRegistry.Keys.CubeQualifierRepairItem,
-            ["rch"] = SyntheticStringRegistry.Keys.CubeQualifierRechargeCharges,
-            // Output-only English literals embedded in CubeMain.txt for portals.
-            ["Cow Portal"] = SyntheticStringRegistry.Keys.CubeNoteCowPortal,
-            ["Pandemonium Portal"] = SyntheticStringRegistry.Keys.CubeNotePandemoniumPortal,
-            ["Pandemonium Finale Portal"] = SyntheticStringRegistry.Keys.CubeNotePandemoniumFinalePortal,
-            ["Red Portal"] = SyntheticStringRegistry.Keys.CubeNoteRedPortal
+            ["rch"] = SyntheticStringRegistry.Keys.CubeQualifierRechargeCharges
+            // NOTE: the portal literals (Cow/Pandemonium/Red Portal) are NOT qualifiers —
+            // they are the recipe's product and are resolved as the output *name* via
+            // CubeRecipeImporter.SpecialTokenKeys, not here.
         };
 
     /// <summary>

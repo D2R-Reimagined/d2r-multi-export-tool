@@ -169,10 +169,6 @@
             "nru":    "Not a Runeword"
         },
         "output": {
-            "Cow Portal":               "Cow Portal",
-            "Pandemonium Portal":       "Pandemonium Portal",
-            "Pandemonium Finale Portal":"Pandemonium Finale Portal",
-            "Red Portal":               "Red Portal",
             "qty=#":                    "Quantity",
             "pre=#":                    "Force Prefix (#)",
             "suf=#":                    "Force Suffix (#)",

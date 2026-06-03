@@ -153,6 +153,7 @@ public static class SyntheticStringRegistry
         public const string CubeOutputUseTypeOfInput1     = "strCubeOutputUseTypeOfInput1";     // "Use Type of Input 1"
         public const string CubeOutputUseItemFromInput1   = "strCubeOutputUseItemFromInput1";   // "Use Item from Input 1"
         public const string CubeOutputReturnGemBag        = "strCubeOutputReturnGemBag";        // "Return Gem Bag, Update Gem Credits"
+        public const string CubeInputAnyItem              = "strCubeInputAnyItem";              // "Any Item"  (the "any" wildcard input token)
         public const string CubeNameUnknown               = "strCubeNameUnknown";               // "Unknown"
 
         // ── Cube ingredient / output qualifier labels (CubeRecipeImporter.InputDisplay/OutputDisplay) ──
