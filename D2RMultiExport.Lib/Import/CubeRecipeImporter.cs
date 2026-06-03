@@ -197,6 +197,15 @@ public sealed class CubeRecipeImporter
 
         foreach (var p in parts)
         {
+            // Portal-generating outputs (Cow/Pandemonium/Red Portal) are the recipe's
+            // actual *product*, not a qualifier — treat them as the main token so the
+            // output Name resolves to the portal's synthetic key instead of "Unknown".
+            if (SpecialTokenKeys.ContainsKey(p))
+            {
+                mainCode = p;
+                continue;
+            }
+
             string? friendly = null;
             if (p.StartsWith("qty="))
             {
@@ -339,7 +348,71 @@ public sealed class CubeRecipeImporter
         if (_data.ItemTypesByName.TryGetValue(code, out var itByName))
             return (itByName.Name, KeyedLine.Of(itByName.Index));
 
+        // Specific unique-item / set-item targeting recipes (e.g. the uber-charm
+        // upgrade chain: "Hellfire Torch", "Annihilus", "Obsidian Beacon",
+        // "Black Soulstone") carry the full item *name* in their CubeMain input/
+        // output code column rather than a base-item code. Resolve those against
+        // the already-imported unique/set collections (uniques/sets run before
+        // cube recipes in the pipeline). Each unique/set carries its Index as the
+        // translation key, so the keyed bundle stays fully keyed.
+        if (UniqueNamesByIndex.TryGetValue(code, out var uniqueName))
+            return (uniqueName.Name, KeyedLine.Of(uniqueName.Key));
+        if (SetItemNamesByIndex.TryGetValue(code, out var setName))
+            return (setName.Name, KeyedLine.Of(setName.Key));
+
+        // Special non-item tokens that the game treats specially rather than as a
+        // base/unique item: the portal-generating outputs (Cow Portal, the two
+        // Pandemonium portals, the Red Portal — the latter shipped with
+        // ",lvl=#"/",qty=#" suffixes that ParseOutput strips before this lookup),
+        // and the "any" wildcard input. None map to a CASC item name, so each is
+        // resolved to its registered synthetic key (see SyntheticStringRegistry).
+        if (SpecialTokenKeys.TryGetValue(code, out var specialKey))
+            return (_data.Translations.GetValue(specialKey), KeyedLine.Of(specialKey));
+
         return (null, null);
+    }
+
+    /// <summary>
+    /// Maps cube tokens that are not real items (portal-generating outputs and the
+    /// <c>any</c> wildcard input) to the synthetic translation keys that carry their
+    /// player-facing names, so they no longer fall through to <c>strCubeNameUnknown</c>.
+    /// </summary>
+    private static readonly Dictionary<string, string> SpecialTokenKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Cow Portal"]               = SyntheticStringRegistry.Keys.CubeNoteCowPortal,
+        ["Pandemonium Portal"]       = SyntheticStringRegistry.Keys.CubeNotePandemoniumPortal,
+        ["Pandemonium Finale Portal"] = SyntheticStringRegistry.Keys.CubeNotePandemoniumFinalePortal,
+        ["Red Portal"]               = SyntheticStringRegistry.Keys.CubeNoteRedPortal,
+        ["any"]                      = SyntheticStringRegistry.Keys.CubeInputAnyItem,
+    };
+
+    // Lazily-built lookups from item-name (CubeMain code column) to the resolved
+    // English display name + the translation key (the item's Index). Populated on
+    // first use because uniques/sets are imported into GameData before cube
+    // recipes run, so the collections are fully available here.
+    private Dictionary<string, (string Name, string Key)>? _uniqueNamesByIndex;
+    private Dictionary<string, (string Name, string Key)>? _setItemNamesByIndex;
+
+    private Dictionary<string, (string Name, string Key)> UniqueNamesByIndex =>
+        _uniqueNamesByIndex ??= BuildNameLookup(
+            _data.Uniques.Select(u => (u.Index, u.Name)));
+
+    private Dictionary<string, (string Name, string Key)> SetItemNamesByIndex =>
+        _setItemNamesByIndex ??= BuildNameLookup(
+            _data.Sets.SelectMany(s => s.SetItems).Select(si => (si.Index, si.Name)));
+
+    private static Dictionary<string, (string Name, string Key)> BuildNameLookup(
+        IEnumerable<(string Index, string Name)> source)
+    {
+        var lookup = new Dictionary<string, (string Name, string Key)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (index, name) in source)
+        {
+            if (string.IsNullOrEmpty(index)) continue;
+            // First writer wins — mirrors the importers' rawIndexByName dedupe.
+            if (!lookup.ContainsKey(index))
+                lookup[index] = (name, index);
+        }
+        return lookup;
     }
 
     private bool InputsContainGemBag(D2RReimaginedTools.Models.CubeMain entry)

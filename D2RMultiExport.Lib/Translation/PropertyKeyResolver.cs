@@ -429,8 +429,16 @@ public static class PropertyKeyResolver
                 };
             }
 
-            case 27: // random-skill / +N to (Skill) (Class Only)
-                return BuildRandomSkill(p, data);
+            case 27:
+                // item_singleskill (descfunc 27) is shared by two opposite
+                // properties whose column meanings are reversed:
+                //   skill      → Parameter = the skill, Min/Max = +level range (fixed skill)
+                //   skill-rand → Parameter = +level amount, Min/Max = skill-id range (random roll)
+                // Only skill-rand is a genuine random roll; everything else is a
+                // fixed single skill and must keep its Min/Max level range.
+                return string.Equals(p.PropertyCode, "skill-rand", System.StringComparison.OrdinalIgnoreCase)
+                    ? BuildRandomSkill(p, data)
+                    : BuildFixedSkill(p, data);
 
             case 28: // "+%d to %s"
             {
@@ -521,7 +529,9 @@ public static class PropertyKeyResolver
             return new KeyedLine
             {
                 Key = SyntheticStringRegistry.Keys.SkillTabRandomClassOnly,
-                Args = [p.Min ?? 0],
+                // Preserve the +level range (e.g. 1-3); ToRangeArgs collapses min==max
+                // to a single arg so single-value tabs stay backward-compatible.
+                Args = ToRangeArgs(p.Min, p.Max),
                 ClassOnly = ResolveClassOnlyKey(p.Parameter)
             };
         }
@@ -530,10 +540,11 @@ public static class PropertyKeyResolver
         {
             // Unknown tab id — fall back to a bare line carrying the raw
             // parameter so consumers can at least see the unresolved tab.
+            var unknownArgs = new List<object>(ToRangeArgs(p.Min, p.Max)) { p.Parameter ?? "", "" };
             return new KeyedLine
             {
                 Key = SyntheticStringRegistry.Keys.SkillTabBonusClassOnly,
-                Args = [p.Min ?? 0, p.Parameter ?? "", ""]
+                Args = [.. unknownArgs]
             };
         }
 
@@ -561,7 +572,9 @@ public static class PropertyKeyResolver
         return new KeyedLine
         {
             Key = tabKey,
-            Args = [p.Min ?? 0],
+            // Preserve the +level range (e.g. Darkforce Spawn skilltab 1-3); ToRangeArgs
+            // collapses min==max to a single arg so single-value tabs are unchanged.
+            Args = ToRangeArgs(p.Min, p.Max),
             ClassOnly = classCode != null ? ResolveClassOnlyKey(classCode) : null
         };
     }
@@ -584,43 +597,66 @@ public static class PropertyKeyResolver
         return new KeyedLine { Key = templateKey, Args = [p.Min ?? 0, level, skill.NameKey] };
     }
 
-    private static KeyedLine BuildRandomSkill(ExportProperty p, GameData data)
+    /// <summary>
+    /// Renders a fixed single class skill (<c>skill</c> property): <c>Parameter</c>
+    /// names the skill and <c>Min</c>/<c>Max</c> carry the +level range, which is
+    /// preserved on the wire as <c>[min, max, skill(, classOnly)]</c>.
+    /// </summary>
+    private static KeyedLine BuildFixedSkill(ExportProperty p, GameData data)
     {
         var skill = data.ResolveSkill(p.Parameter);
-        if (skill != null)
+        if (skill == null)
         {
-            // Skill carries CharClass — emit the (Class Only) composite when applicable.
-            if (!string.IsNullOrEmpty(skill.CharClass) && data.CharStatsByCode.ContainsKey(skill.CharClass))
-            {
-                return new KeyedLine
-                {
-                    Key = SyntheticStringRegistry.Keys.SkillRandomFromSkillClass,
-                    // Third arg = ${code}Only translation key, e.g. "NecOnly"
-                    Args = [p.Min ?? 0, skill.NameKey, ResolveClassOnlyKey(skill.CharClass)]
-                };
-            }
+            // Unresolved skill — surface the raw parameter, still carrying the range.
             return new KeyedLine
             {
                 Key = SyntheticStringRegistry.Keys.SkillRandomFromSkill,
-                Args = [p.Min ?? 0, skill.NameKey]
+                Args = [p.Min ?? 0, p.Max ?? 0, p.Parameter ?? ""]
             };
         }
 
-        if (int.TryParse(p.Parameter, out var n))
+        // Skill carries CharClass — emit the (Class Only) composite when applicable.
+        if (!string.IsNullOrEmpty(skill.CharClass) && data.CharStatsByCode.ContainsKey(skill.CharClass))
         {
-            // strSkillRandomClass is "+%d Random %s Skill" — %s is the bare
-            // class-name key ("Amazon", "Necromancer", "Warlock", …) so the
-            // website translates it cleanly. Falls back to the raw code only
-            // when the skill-range bucket can't resolve.
-            var classCode = ClassRangeConfig.CodeForSkillRange(p.Min, p.Max);
+            return new KeyedLine
+            {
+                Key = SyntheticStringRegistry.Keys.SkillRandomFromSkillClass,
+                // [min, max, skill, classOnly] — the level range is kept (e.g. Boneshade +3-5);
+                // the website renders the range and appends the class qualifier.
+                Args = [p.Min ?? 0, p.Max ?? 0, skill.NameKey, ResolveClassOnlyKey(skill.CharClass)]
+            };
+        }
+        return new KeyedLine
+        {
+            Key = SyntheticStringRegistry.Keys.SkillRandomFromSkill,
+            Args = [p.Min ?? 0, p.Max ?? 0, skill.NameKey]
+        };
+    }
+
+    /// <summary>
+    /// Renders a genuine random-skill roll (<c>skill-rand</c> property): the +level
+    /// amount is the <c>Parameter</c>, and <c>Min</c>/<c>Max</c> are a skill-id range
+    /// that may map to a single class's skill pool.
+    /// </summary>
+    private static KeyedLine BuildRandomSkill(ExportProperty p, GameData data)
+    {
+        int amount = TryParseInt(p.Parameter) ?? p.Min ?? 0;
+
+        // strSkillRandomClass is "+%d Random %s Skill" — %s is the bare class-name
+        // key ("Amazon", "Necromancer", "Warlock", …) so the website translates it
+        // cleanly. Falls back to the class-less "+%d Random Skill" when the skill-id
+        // range doesn't bucket to a single class.
+        var classCode = ClassRangeConfig.CodeForSkillRange(p.Min, p.Max);
+        if (classCode != null)
+        {
             return new KeyedLine
             {
                 Key = SyntheticStringRegistry.Keys.SkillRandomClass,
-                Args = [n, classCode != null ? ResolveClassNameKey(classCode) : ""]
+                Args = [amount, ResolveClassNameKey(classCode)]
             };
         }
 
-        return new KeyedLine { Key = SyntheticStringRegistry.Keys.SkillRandom, Args = [p.Min ?? 0] };
+        return new KeyedLine { Key = SyntheticStringRegistry.Keys.SkillRandom, Args = [amount] };
     }
 
 
