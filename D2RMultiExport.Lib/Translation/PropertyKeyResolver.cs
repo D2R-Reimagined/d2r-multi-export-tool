@@ -349,10 +349,10 @@ public static class PropertyKeyResolver
                     return new KeyedLine
                     {
                         Key = templateKey,
-                        Args = [p.Min ?? 0, s16.NameKey]
+                        Args = [.. ToRangeArgs(p.Min, p.Max), s16.NameKey]
                     };
                 }
-                return new KeyedLine { Key = templateKey, Args = [p.Min ?? 0, p.Parameter ?? ""] };
+                return new KeyedLine { Key = templateKey, Args = [.. ToRangeArgs(p.Min, p.Max), p.Parameter ?? ""] };
             }
 
             case 19: // by-character-level / per-level template
@@ -405,9 +405,11 @@ public static class PropertyKeyResolver
                         monsterRef = m.NameStr ?? p.Parameter;
                     else if (int.TryParse(p.Parameter, out var idx) && data.MonStatsByIndex.TryGetValue(idx, out var mIdx))
                         monsterRef = mIdx.NameStr ?? p.Parameter;
-                    return new KeyedLine { Key = templateKey, Args = [p.Min ?? 0, monsterRef] };
+                    // Preserve the chance range (e.g. 5-10%% Reanimate as ...); ToRangeArgs
+                    // collapses min==max to a single arg so fixed-chance rows are unchanged.
+                    return new KeyedLine { Key = templateKey, Args = [.. ToRangeArgs(p.Min, p.Max), monsterRef] };
                 }
-                return new KeyedLine { Key = templateKey, Args = [p.Min ?? 0, ""] };
+                return new KeyedLine { Key = templateKey, Args = [.. ToRangeArgs(p.Min, p.Max), ""] };
             }
 
             case 24: // "Level %d %s (%d/%d Charges)"
@@ -456,8 +458,8 @@ public static class PropertyKeyResolver
             {
                 var s28 = data.ResolveSkill(p.Parameter);
                 if (s28 != null)
-                    return new KeyedLine { Key = templateKey, Args = [p.Min ?? 0, s28.NameKey] };
-                return new KeyedLine { Key = templateKey, Args = [p.Min ?? 0, p.Parameter ?? ""] };
+                    return new KeyedLine { Key = templateKey, Args = [.. ToRangeArgs(p.Min, p.Max), s28.NameKey] };
+                return new KeyedLine { Key = templateKey, Args = [.. ToRangeArgs(p.Min, p.Max), p.Parameter ?? ""] };
             }
 
             case 29: // sockets
