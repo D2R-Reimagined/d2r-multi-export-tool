@@ -169,76 +169,81 @@ public sealed class SetImporter
                 export.Properties = properties;
 
                 // Additional properties (Set bonuses on the item)
-                if (entry.AdditionalProperties != null)
+                //
+                // The upstream parser collapses the aprop{N}{a|b} columns into a
+                // gap-free list, discarding which physical column each bonus came
+                // from. For `add func = 2` the item count that unlocks a bonus is
+                // dictated by its column pair (aprop1 → 2 items, aprop2 → 3, …,
+                // aprop5 → 6), so we must read the typed columns directly here:
+                // iterating the collapsed list and deriving the count from its list
+                // index mis-reports sparse rows (e.g. Trang-Oul's Scales only fills
+                // aprop2a and aprop4a, which collapsed to indices 0/1 and both
+                // showed "2 items required" instead of 3 and 5).
+                int addFunc = entry.AddFunc ?? 0;
+                foreach (var (mod, columnPair) in EnumerateAdditionalMods(entry))
                 {
-                    int addFunc = entry.AddFunc ?? 0;
-                    for (int i = 0; i < entry.AdditionalProperties.Count; i++)
+                    if (PropertyMapper.IsIgnored(mod.Code!, _data.ExportConfig)) continue;
+                    // aprop column-pair N is granted once (N + 1) set items are worn.
+                    int? numberOfItemsRequired = addFunc == 2 ? columnPair + 1 : null;
+                    // propertygroups.txt reference on a set-item additional
+                    // property → expand into the parent KeyedLine carrying
+                    // strPropertyGroupsProperty. Stamp the per-N-items / full-set
+                    // metadata on the parent's children below.
+                    if (PropertyGroupExpander.TryExpand(mod.Code!, export.Properties.Count, export.ItemLevel, _data, out var groupExpansion))
                     {
-                        var mod = entry.AdditionalProperties[i];
-                        if (string.IsNullOrEmpty(mod.Code)) continue;
-                        if (PropertyMapper.IsIgnored(mod.Code, _data.ExportConfig)) continue;
-                        // propertygroups.txt reference on a set-item additional
-                        // property → expand into the parent KeyedLine carrying
-                        // strPropertyGroupsProperty. Stamp the per-N-items / full-set
-                        // metadata on the parent's children below.
-                        if (PropertyGroupExpander.TryExpand(mod.Code, export.Properties.Count, export.ItemLevel, _data, out var groupExpansion))
+                        foreach (var groupProp in groupExpansion)
                         {
-                            int? numberOfItemsRequired = addFunc == 2 ? (i / 2) + 2 : null;
-                            foreach (var groupProp in groupExpansion)
-                            {
-                                if (numberOfItemsRequired.HasValue)
-                                {
-                                    foreach (var parent in groupProp.Lines)
-                                    foreach (var child in parent.Children ?? new List<KeyedLine>())
-                                        child.ItemsRequired = numberOfItemsRequired;
-                                }
-                                if (addFunc == 0)
-                                {
-                                    export.Properties.Add(groupProp);
-                                }
-                                else
-                                {
-                                    groupProp.NumberOfItemsRequired = numberOfItemsRequired;
-                                    export.SetBonuses.Add(new List<CubePropertyExport> { groupProp });
-                                }
-                            }
-                            continue;
-                        }
-
-                        var prop = PropertyMapper.Map(mod.Code, mod.Param, mod.Min, mod.Max, _data, export.ItemLevel);
-
-                        if (addFunc == 0)
-                        {
-                            export.Properties.Add(new CubePropertyExport
-                            {
-                                Index = export.Properties.Count,
-                                PropertyCode = mod.Code,
-                                Priority = prop.Priority,
-                                Lines = prop.Lines
-                            });
-                        }
-                        else
-                        {
-                            int? numberOfItemsRequired = addFunc == 2 ? (i / 2) + 2 : null;
-                            // Stamp the KeyedLines for set-item per-N-items bonuses so the
-                            // wire format carries the required item count.
                             if (numberOfItemsRequired.HasValue)
                             {
-                                foreach (var line in prop.Lines)
-                                {
-                                    line.ItemsRequired = numberOfItemsRequired;
-                                }
+                                foreach (var parent in groupProp.Lines)
+                                foreach (var child in parent.Children ?? new List<KeyedLine>())
+                                    child.ItemsRequired = numberOfItemsRequired;
                             }
-                            var bonusProp = new CubePropertyExport
+                            if (addFunc == 0)
                             {
-                                Index = 0, // Since it's a list of lists with one item each?
-                                PropertyCode = mod.Code,
-                                Priority = prop.Priority,
-                                Lines = prop.Lines,
-                                NumberOfItemsRequired = numberOfItemsRequired
-                            };
-                            export.SetBonuses.Add(new List<CubePropertyExport> { bonusProp });
+                                export.Properties.Add(groupProp);
+                            }
+                            else
+                            {
+                                groupProp.NumberOfItemsRequired = numberOfItemsRequired;
+                                export.SetBonuses.Add(new List<CubePropertyExport> { groupProp });
+                            }
                         }
+                        continue;
+                    }
+
+                    var prop = PropertyMapper.Map(mod.Code!, mod.Param, mod.Min, mod.Max, _data, export.ItemLevel);
+
+                    if (addFunc == 0)
+                    {
+                        export.Properties.Add(new CubePropertyExport
+                        {
+                            Index = export.Properties.Count,
+                            PropertyCode = mod.Code,
+                            Priority = prop.Priority,
+                            Lines = prop.Lines
+                        });
+                    }
+                    else
+                    {
+                        // Stamp the KeyedLines for set-item per-N-items bonuses so the
+                        // wire format carries the required item count.
+                        if (numberOfItemsRequired.HasValue)
+                        {
+                            foreach (var line in prop.Lines)
+                            {
+                                line.ItemsRequired = numberOfItemsRequired;
+                            }
+                        }
+                        var bonusProp = new CubePropertyExport
+                        {
+                            Index = 0, // Since it's a list of lists with one item each?
+                            PropertyCode = mod.Code,
+                            Priority = prop.Priority,
+                            Lines = prop.Lines,
+                            NumberOfItemsRequired = numberOfItemsRequired
+                        };
+                        export.SetBonuses.Add(new List<CubePropertyExport> { bonusProp });
                     }
                 }
 
@@ -257,6 +262,43 @@ public sealed class SetImporter
         }
 
         return setItemMap;
+    }
+
+    /// <summary>
+    /// Yields each populated SetItems.txt additional-property column together with
+    /// its 1-based column-pair index (aprop1a/1b → 1, aprop2a/2b → 2, …, aprop5a/5b → 5).
+    /// The upstream parser exposes <see cref="D2RReimaginedTools.Models.SetItem.AdditionalProperties"/>
+    /// as a gap-collapsed list that loses the originating column, so the typed
+    /// AProp{N}{A|B} fields are read directly to preserve the item-count mapping
+    /// used for <c>add func = 2</c> bonuses.
+    /// </summary>
+    private static IEnumerable<(D2RReimaginedTools.Models.SetItemMod Mod, int ColumnPair)> EnumerateAdditionalMods(D2RReimaginedTools.Models.SetItem entry)
+    {
+        var columns = new (int Pair, string? Code, string? Param, int? Min, int? Max)[]
+        {
+            (1, entry.AProp1A, entry.APar1A, entry.AMin1A, entry.AMax1A),
+            (1, entry.AProp1B, entry.APar1B, entry.AMin1B, entry.AMax1B),
+            (2, entry.AProp2A, entry.APar2A, entry.AMin2A, entry.AMax2A),
+            (2, entry.AProp2B, entry.APar2B, entry.AMin2B, entry.AMax2B),
+            (3, entry.AProp3A, entry.APar3A, entry.AMin3A, entry.AMax3A),
+            (3, entry.AProp3B, entry.APar3B, entry.AMin3B, entry.AMax3B),
+            (4, entry.AProp4A, entry.APar4A, entry.AMin4A, entry.AMax4A),
+            (4, entry.AProp4B, entry.APar4B, entry.AMin4B, entry.AMax4B),
+            (5, entry.AProp5A, entry.APar5A, entry.AMin5A, entry.AMax5A),
+            (5, entry.AProp5B, entry.APar5B, entry.AMin5B, entry.AMax5B),
+        };
+
+        foreach (var col in columns)
+        {
+            if (string.IsNullOrEmpty(col.Code)) continue;
+            yield return (new D2RReimaginedTools.Models.SetItemMod
+            {
+                Code = col.Code,
+                Param = col.Param,
+                Min = col.Min,
+                Max = col.Max
+            }, col.Pair);
+        }
     }
 
     private void MapSetBonuses(D2RReimaginedTools.Models.Sets entry, SetExport set)
