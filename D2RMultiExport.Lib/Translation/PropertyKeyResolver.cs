@@ -412,20 +412,32 @@ public static class PropertyKeyResolver
 
             case 24: // "Level %d %s (%d/%d Charges)"
             {
+                // descfunc 24 (item_charged_skill) column semantics per the data guide
+                // (ItemModsSetChargedSkill):
+                //   Parameter → the skill id/name
+                //   Min       → drives MaxCharges (number of charges), not the level:
+                //                 == 0 → defaults to 5 charges
+                //                 <  0 → |min| + |min| * itemLevel / 8 (capped at 255)
+                //                 >  0 → used as-is (capped at 255)
+                //   Max       → the skill's level
+                // The synthetic template strSkillCharges is "Level %d %s (%d/%d Charges)",
+                // so Args = [level, skillNameKey, charges, charges].
+                int level24 = p.Max ?? 0;
+                int charges24 = ComputeChargedSkillCharges(p.Min ?? 0, itemLevel);
+
                 var s24 = data.ResolveSkill(p.Parameter);
                 if (s24 != null)
                 {
-                    // Min holds skill level, Max holds max-charges in the legacy semantics; current uses are flipped per resolver.
                     return new KeyedLine
                     {
                         Key = SyntheticStringRegistry.Keys.SkillCharges,
-                        Args = [p.Min ?? 0, s24.NameKey, p.Max ?? 0, p.Max ?? 0]
+                        Args = [level24, s24.NameKey, charges24, charges24]
                     };
                 }
                 return new KeyedLine
                 {
                     Key = SyntheticStringRegistry.Keys.SkillCharges,
-                    Args = [p.Min ?? 0, p.Parameter ?? "", p.Max ?? 0, p.Max ?? 0]
+                    Args = [level24, p.Parameter ?? "", charges24, charges24]
                 };
             }
 
@@ -660,6 +672,31 @@ public static class PropertyKeyResolver
     }
 
 
+
+    /// <summary>
+    /// Computes the MaxCharges value for an <c>item_charged_skill</c> (descfunc 24)
+    /// property from its <c>Min</c> column, following the game's
+    /// ItemModsSetChargedSkill rules:
+    ///   - <c>min == 0</c> → defaults to 5 charges;
+    ///   - <c>min &lt; 0</c> → <c>|min| + |min| * itemLevel / 8</c>;
+    ///   - <c>min &gt; 0</c> → used as-is.
+    /// The result is clamped to the game's 255 charge cap.
+    /// </summary>
+    private static int ComputeChargedSkillCharges(int min, int itemLevel)
+    {
+        int charges;
+        if (min == 0)
+            charges = 5;
+        else if (min < 0)
+        {
+            int abs = -min;
+            charges = abs + abs * itemLevel / 8;
+        }
+        else
+            charges = min;
+
+        return Math.Min(charges, 255);
+    }
 
     private static object[] ToRangeArgs(int? min, int? max)
     {
