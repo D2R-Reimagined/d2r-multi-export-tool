@@ -33,8 +33,12 @@ public static class RequirementHelper
 
         foreach (var prop in properties)
         {
-            // Sum explicit increases: item_levelreq
-            if (string.Equals(prop.PropertyCode, "item_levelreq", StringComparison.OrdinalIgnoreCase))
+            // Sum explicit increases: item_levelreq. Source files often reference
+            // this through a Properties.txt alias (for example Runes.txt uses
+            // `levelreq`, which maps to stat1=`item_levelreq`), so resolve the
+            // property code through the properties table instead of only matching
+            // the final stat name literally.
+            if (IsExplicitRequiredLevelIncrease(data, prop.PropertyCode))
             {
                 explicitIncrease += prop.Max ?? prop.Min ?? 0;
                 continue;
@@ -70,5 +74,16 @@ public static class RequirementHelper
 
         var afterExplicit = currentReq + explicitIncrease;
         return Math.Max(afterExplicit, maxImplied);
+    }
+
+    private static bool IsExplicitRequiredLevelIncrease(GameData data, string? propertyCode)
+    {
+        if (string.IsNullOrWhiteSpace(propertyCode)) return false;
+
+        if (string.Equals(propertyCode, "item_levelreq", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return data.Properties.TryGetValue(propertyCode, out var property)
+               && string.Equals(property.Stat1, "item_levelreq", StringComparison.OrdinalIgnoreCase);
     }
 }
