@@ -517,7 +517,10 @@ public static class PropertyKeyResolver
             return new KeyedLine
             {
                 Key = charStat.StrAllSkills!,
-                Args = [p.Min ?? 0]
+                // Preserve the +level range (e.g. Gillian's Brazier / Warlock's Touch
+                // roll min-max); ToRangeArgs collapses min==max to a single arg so
+                // fixed single-value class-skill bonuses are unchanged.
+                Args = ToRangeArgs(p.Min, p.Max)
             };
         }
 
@@ -525,7 +528,7 @@ public static class PropertyKeyResolver
         // template (typically ModStr3a "+%d to Amazon Skill Levels"). This
         // keeps the line renderable while clearly signalling the unresolved
         // class; downstream consumers can decide how to surface it.
-        return new KeyedLine { Key = templateKey, Args = [p.Min ?? 0] };
+        return new KeyedLine { Key = templateKey, Args = ToRangeArgs(p.Min, p.Max) };
     }
 
     private static KeyedLine BuildSkillTab(ExportProperty p, GameData data)
