@@ -76,6 +76,45 @@ public static class RequirementHelper
         return Math.Max(afterExplicit, maxImplied);
     }
 
+    /// <summary>
+    /// Adjusts an equipment's strength/dexterity requirements based on any "ease"
+    /// (item_req_percent) properties on the item. In this mod, a positive ease value
+    /// increases requirements by that percentage ("Requirements Increased By %d%%").
+    ///
+    /// This MUST be called before the requirement KeyedLines are baked (i.e. before
+    /// <see cref="DamageArmorCalculator.Apply"/> invokes
+    /// <see cref="EquipmentHelper.AppendFinalRequirementLines"/>); the keyed wire
+    /// output is generated from those lines, not from the string field alone.
+    /// </summary>
+    public static void ApplyEaseAdjustment(ExportEquipment equipment, IEnumerable<CubePropertyExport> properties)
+    {
+        if (equipment == null || properties == null) return;
+
+        var easeProps = properties.Where(p => p.IsEase).ToList();
+        if (easeProps.Count == 0) return;
+
+        var minEase = easeProps.Sum(p => p.Min ?? 0);
+        var maxEase = easeProps.Sum(p => p.Max ?? 0);
+        if (minEase == 0 && maxEase == 0) return;
+
+        equipment.RequiredStrength = AdjustStat(equipment.RequiredStrength, minEase, maxEase);
+        equipment.RequiredDexterity = AdjustStat(equipment.RequiredDexterity, minEase, maxEase);
+    }
+
+    private static string? AdjustStat(string? baseStatStr, int minEase, int maxEase)
+    {
+        if (string.IsNullOrEmpty(baseStatStr) || baseStatStr == "0") return baseStatStr;
+        if (!int.TryParse(baseStatStr, out var baseStat)) return baseStatStr;
+
+        var val1 = (int)Math.Floor(baseStat * (100.0 + minEase) / 100.0);
+        var val2 = (int)Math.Floor(baseStat * (100.0 + maxEase) / 100.0);
+
+        var finalMin = Math.Min(val1, val2);
+        var finalMax = Math.Max(val1, val2);
+
+        return finalMin == finalMax ? finalMin.ToString() : $"{finalMin}-{finalMax}";
+    }
+
     private static bool IsExplicitRequiredLevelIncrease(GameData data, string? propertyCode)
     {
         if (string.IsNullOrWhiteSpace(propertyCode)) return false;

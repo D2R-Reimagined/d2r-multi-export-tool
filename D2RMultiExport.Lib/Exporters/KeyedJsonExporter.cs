@@ -157,6 +157,7 @@ public static class KeyedJsonExporter
         // `Index` is the translation-lookup key (SetItems.txt `index`).
         public string Index { get; set; } = "";
         public string SetName { get; set; } = "";
+        public int Rarity { get; set; }
         public int ItemLevel { get; set; }
         public int RequiredLevel { get; set; }
         public string Code { get; set; } = "";
@@ -334,6 +335,7 @@ public static class KeyedJsonExporter
         Vanilla = i.Vanilla,
         Index = i.Index,
         SetName = i.SetName,
+        Rarity = i.Rarity,
         ItemLevel = i.ItemLevel,
         RequiredLevel = i.RequiredLevel,
         Code = i.Code,

@@ -108,6 +108,7 @@ public sealed class SetImporter
                     Index = entry.Index ?? "",
                     SetName = entry.Set ?? "",
                     Code = entry.Item,
+                    Rarity = entry.Rarity ?? 0,
                     ItemLevel = entry.Level ?? 0,
                     RequiredLevel = entry.LevelRequirement ?? 0,
                     Vanilla = isVanilla ? "Y" : "N"
@@ -148,6 +149,13 @@ public sealed class SetImporter
                 }
 
                 var equipment = EquipmentHelper.MapToExport(baseEq, export.Name, properties, _data, _config, export.ItemLevel);
+
+                // Adjust str/dex requirements based on "ease" properties BEFORE
+                // DamageArmorCalculator.Apply bakes the requirement KeyedLines.
+                if (equipment != null)
+                {
+                    RequirementHelper.ApplyEaseAdjustment(equipment, properties);
+                }
 
                 // Apply damage/armor calculations (enhanced damage, defense, elemental, smite, durability)
                 if (equipment != null && baseEq != null)

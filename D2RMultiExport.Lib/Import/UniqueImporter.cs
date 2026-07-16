@@ -69,6 +69,16 @@ public sealed class UniqueImporter
 
                 var equipment = EquipmentHelper.MapToExport(baseEq, name, properties, _data, config, entry.Level);
 
+                // Adjust str/dex requirements based on "ease" properties BEFORE
+                // DamageArmorCalculator.Apply bakes the requirement KeyedLines
+                // (via EquipmentHelper.AppendFinalRequirementLines). Adjusting
+                // afterwards only mutated the string field, which the keyed wire
+                // output ignores, so the ease modifier never reached the export.
+                if (equipment != null)
+                {
+                    RequirementHelper.ApplyEaseAdjustment(equipment, properties);
+                }
+
                 // Apply damage/armor calculations (enhanced damage, defense, elemental, smite, durability)
                 if (equipment != null && baseEq != null)
                 {
@@ -101,9 +111,6 @@ public sealed class UniqueImporter
                     DamageArmorEnhanced = properties.Any(p => p.PropertyCode == "ac%" || p.PropertyCode == "dmg%"),
                     Equipment = equipment?.ToSlim()
                 };
-
-                // Adjust requirements based on "ease" properties
-                AdjustRequirements(unique);
 
                 result.AddItem(unique);
             }
@@ -220,34 +227,4 @@ public sealed class UniqueImporter
     // automagic) emits the same strPropertyGroupsProperty parent line
     // whenever a property code resolves to a group entry.
 
-    private static void AdjustRequirements(UniqueExport unique)
-    {
-        if (unique.Equipment == null || unique.Properties.Count == 0) return;
-
-        var easeProps = unique.Properties
-            .Where(p => p.IsEase)
-            .ToList();
-        if (easeProps.Count == 0) return;
-
-        var minEase = easeProps.Sum(p => p.Min ?? 0);
-        var maxEase = easeProps.Sum(p => p.Max ?? 0);
-        if (minEase == 0 && maxEase == 0) return;
-
-        unique.Equipment.RequiredStrength = AdjustStat(unique.Equipment.RequiredStrength, minEase, maxEase);
-        unique.Equipment.RequiredDexterity = AdjustStat(unique.Equipment.RequiredDexterity, minEase, maxEase);
-    }
-
-    private static string? AdjustStat(string? baseStatStr, int minEase, int maxEase)
-    {
-        if (string.IsNullOrEmpty(baseStatStr) || baseStatStr == "0") return baseStatStr;
-        if (!int.TryParse(baseStatStr, out var baseStat)) return baseStatStr;
-
-        var val1 = (int)Math.Floor(baseStat * (100.0 + minEase) / 100.0);
-        var val2 = (int)Math.Floor(baseStat * (100.0 + maxEase) / 100.0);
-
-        var finalMin = Math.Min(val1, val2);
-        var finalMax = Math.Max(val1, val2);
-
-        return finalMin == finalMax ? finalMin.ToString() : $"{finalMin}-{finalMax}";
-    }
 }

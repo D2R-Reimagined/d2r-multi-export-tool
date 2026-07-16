@@ -82,6 +82,7 @@ public sealed class SetItemExport
     public string Name { get; set; } = "";
     public string Index { get; set; } = "";
     public string SetName { get; set; } = "";
+    public int Rarity { get; set; }
     public int ItemLevel { get; set; }
     public int RequiredLevel { get; set; }
     public string Code { get; set; } = "";
