@@ -149,6 +149,13 @@ public sealed class SetImporter
 
                 var equipment = EquipmentHelper.MapToExport(baseEq, export.Name, properties, _data, _config, export.ItemLevel);
 
+                // Adjust str/dex requirements based on "ease" properties BEFORE
+                // DamageArmorCalculator.Apply bakes the requirement KeyedLines.
+                if (equipment != null)
+                {
+                    RequirementHelper.ApplyEaseAdjustment(equipment, properties);
+                }
+
                 // Apply damage/armor calculations (enhanced damage, defense, elemental, smite, durability)
                 if (equipment != null && baseEq != null)
                 {
