@@ -108,6 +108,7 @@ public sealed class SetImporter
                     Index = entry.Index ?? "",
                     SetName = entry.Set ?? "",
                     Code = entry.Item,
+                    Rarity = entry.Rarity ?? 0,
                     ItemLevel = entry.Level ?? 0,
                     RequiredLevel = entry.LevelRequirement ?? 0,
                     Vanilla = isVanilla ? "Y" : "N"
