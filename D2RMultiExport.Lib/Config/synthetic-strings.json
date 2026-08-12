@@ -880,6 +880,22 @@
         "zhCN": "需求力量：%d"
     },
     {
+        "Key": "strRequiredStrengthRange",
+        "enUS": "Required Strength: %d-%d",
+        "zhTW": "需求力量：%d-%d",
+        "deDE": "Benötigte Stärke: %d-%d",
+        "esES": "Fuerza requerida: %d-%d",
+        "frFR": "Force requise : %d-%d",
+        "itIT": "Forza richiesta: %d-%d",
+        "koKR": "필요 힘: %d-%d",
+        "plPL": "Wymagana siła: %d-%d",
+        "esMX": "Fuerza requerida: %d-%d",
+        "jaJP": "必要筋力: %d-%d",
+        "ptBR": "Força requerida: %d-%d",
+        "ruRU": "Требуемая сила: %d-%d",
+        "zhCN": "需求力量：%d-%d"
+    },
+    {
         "Key": "strRequiredDexterity",
         "enUS": "Required Dexterity: %d",
         "zhTW": "需求敏捷：%d",
@@ -896,6 +912,22 @@
         "zhCN": "需求敏捷：%d"
     },
     {
+        "Key": "strRequiredDexterityRange",
+        "enUS": "Required Dexterity: %d-%d",
+        "zhTW": "需求敏捷：%d-%d",
+        "deDE": "Benötigte Geschicklichkeit: %d-%d",
+        "esES": "Destreza requerida: %d-%d",
+        "frFR": "Dextérité requise : %d-%d",
+        "itIT": "Destrezza richiesta: %d-%d",
+        "koKR": "필요 민첩: %d-%d",
+        "plPL": "Wymagana zręczność: %d-%d",
+        "esMX": "Destreza requerida: %d-%d",
+        "jaJP": "必要敏捷性: %d-%d",
+        "ptBR": "Destreza requerida: %d-%d",
+        "ruRU": "Требуемая ловкость: %d-%d",
+        "zhCN": "需求敏捷：%d-%d"
+    },
+    {
         "Key": "strRequiredLevel",
         "enUS": "Required Level: %d",
         "zhTW": "需求等級：%d",
@@ -910,6 +942,22 @@
         "ptBR": "Nível requerido: %d",
         "ruRU": "Требуемый уровень: %d",
         "zhCN": "需求等级：%d"
+    },
+    {
+        "Key": "strRequiredLevelRange",
+        "enUS": "Required Level: %d-%d",
+        "zhTW": "需求等級：%d-%d",
+        "deDE": "Benötigte Stufe: %d-%d",
+        "esES": "Nivel requerido: %d-%d",
+        "frFR": "Niveau requis : %d-%d",
+        "itIT": "Livello richiesto: %d-%d",
+        "koKR": "요구 레벨: %d-%d",
+        "plPL": "Wymagany poziom: %d-%d",
+        "esMX": "Nivel requerido: %d-%d",
+        "jaJP": "必要レベル: %d-%d",
+        "ptBR": "Nível requerido: %d-%d",
+        "ruRU": "Требуемый уровень: %d-%d",
+        "zhCN": "需求等级：%d-%d"
     },
     {
         "Key": "strRequiredClass",

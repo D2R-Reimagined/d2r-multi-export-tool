@@ -92,15 +92,35 @@ public static class EquipmentLineBuilder
     }
 
     /// <summary>Required strength / dexterity / level numerics.</summary>
-    public static void AppendRequirements(List<KeyedLine> target, int? reqStr, int? reqDex, int? reqLevel, string? reqClass)
+    public static void AppendRequirements(List<KeyedLine> target, string? reqStr, string? reqDex, int? reqLevel, string? reqClass)
     {
-        if (reqStr.HasValue && reqStr.Value > 0)
-            target.Add(KeyedLine.Of(RequiredStrength, reqStr.Value));
-        if (reqDex.HasValue && reqDex.Value > 0)
-            target.Add(KeyedLine.Of(RequiredDexterity, reqDex.Value));
+        AppendRequirement(target, RequiredStrength, RequiredStrengthRange, reqStr);
+        AppendRequirement(target, RequiredDexterity, RequiredDexterityRange, reqDex);
+
         if (reqLevel.HasValue && reqLevel.Value > 1)
             target.Add(KeyedLine.Of(RequiredLevel, reqLevel.Value));
+
         if (!string.IsNullOrEmpty(reqClass))
             target.Add(KeyedLine.Of(RequiredClass, reqClass));
+    }
+
+    private static void AppendRequirement(List<KeyedLine> target, string scalarKey, string rangeKey, string? value)
+    {
+        if (string.IsNullOrEmpty(value) || value == "0") return;
+
+        if (value.Contains('-'))
+        {
+            var parts = value.Split('-');
+            if (parts.Length == 2 && int.TryParse(parts[0], out var min) && int.TryParse(parts[1], out var max))
+            {
+                target.Add(KeyedLine.Of(rangeKey, min, max));
+                return;
+            }
+        }
+
+        if (int.TryParse(value, out var scalar) && scalar > 0)
+        {
+            target.Add(KeyedLine.Of(scalarKey, scalar));
+        }
     }
 }

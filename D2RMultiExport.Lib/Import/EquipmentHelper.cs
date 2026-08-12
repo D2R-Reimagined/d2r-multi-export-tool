@@ -167,9 +167,7 @@ public static class EquipmentHelper
     public static void AppendFinalRequirementLines(ExportEquipment export, bool indestructible)
     {
         EquipmentLineBuilder.AppendDurability(export.Lines, export.Durability, indestructible);
-        int? reqStr = int.TryParse(export.RequiredStrength, out var rs) ? rs : null;
-        int? reqDex = int.TryParse(export.RequiredDexterity, out var rd) ? rd : null;
-        EquipmentLineBuilder.AppendRequirements(export.Lines, reqStr, reqDex, export.RequiredLevel,
+        EquipmentLineBuilder.AppendRequirements(export.Lines, export.RequiredStrength, export.RequiredDexterity, export.RequiredLevel,
             string.IsNullOrEmpty(export.RequiredClass) ? null : export.RequiredClass);
     }
 
