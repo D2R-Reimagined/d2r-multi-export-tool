@@ -100,8 +100,11 @@ public static class SyntheticStringRegistry
         public const string SmiteDamage              = "strSmiteDamage";                // "Smite Damage: %d to %d"
         public const string KickDamage               = "strKickDamage";                 // "Kick Damage: %d to %d"
         public const string RequiredStrength         = "strRequiredStrength";           // "Required Strength: %d"
+        public const string RequiredStrengthRange    = "strRequiredStrengthRange";      // "Required Strength: %d-%d"
         public const string RequiredDexterity        = "strRequiredDexterity";          // "Required Dexterity: %d"
+        public const string RequiredDexterityRange   = "strRequiredDexterityRange";     // "Required Dexterity: %d-%d"
         public const string RequiredLevel            = "strRequiredLevel";              // "Required Level: %d"
+        public const string RequiredLevelRange       = "strRequiredLevelRange";         // "Required Level: %d-%d"
         public const string RequiredClass            = "strRequiredClass";              // "(%s Only)"
         public const string ItemTypeName             = "strItemTypeName";               // pass-through for ItemType labels we don't have keys for
 
