@@ -76,6 +76,13 @@ public sealed class ExportConfig
     public List<string> ValidRequiredClassNames { get; set; } = [];
 
     /// <summary>
+    /// Maps each skills.txt three-letter class code to its three localized
+    /// skill-tree category keys in skilldesc.txt page order.
+    /// </summary>
+    [JsonPropertyName("skillTreeCategoryKeys")]
+    public Dictionary<string, List<string>> SkillTreeCategoryKeys { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// AutoMagic group ids skipped wholesale during the keyed export. Mirrors the
     /// formerly hardcoded <c>KeyedJsonExporter.SkippedAutoMagicGroups</c> set.
     /// </summary>

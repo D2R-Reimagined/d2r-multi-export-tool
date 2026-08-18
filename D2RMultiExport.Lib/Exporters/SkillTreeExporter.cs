@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+using System.Text.Json;
+using D2RMultiExport.Lib.Models;
+
+namespace D2RMultiExport.Lib.Exporters;
+
+/// <summary>
+/// Projects the class-owned rows from skills.txt and skilldesc.txt into the
+/// localized, layout-aware skill-tree bundle consumed by the website planner.
+/// </summary>
+internal static class SkillTreeExporter
+{
+    public static async Task ExportAsync(
+        string keyedDir,
+        GameData data,
+        JsonSerializerOptions options)
+    {
+        var classes = data.Skills.Values
+            .Where(static skill => !string.IsNullOrWhiteSpace(skill.CharClass))
+            .GroupBy(static skill => skill.CharClass!, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static group => group.Min(static skill => skill.Id))
+            .Select(group => MapClass(group.Key, group, data))
+            .Where(static skillClass => skillClass.Tabs.Any(static tab => tab.Skills.Count > 0))
+            .ToList();
+
+        if (classes.Count == 0) return;
+
+        var path = Path.Combine(keyedDir, "skills.json");
+        await using var stream = File.Create(path);
+        await JsonSerializer.SerializeAsync(stream, classes, options);
+    }
+
+    private static KeyedSkillClass MapClass(
+        string classCode,
+        IEnumerable<SkillEntry> skills,
+        GameData data)
+    {
+        var className = data.ResolveClassName(classCode);
+        var classSkills = skills.OrderBy(static skill => skill.Id).ToList();
+
+        return new KeyedSkillClass
+        {
+            Class = className,
+            ClassCode = classCode,
+            NameKey = className,
+            Tabs = Enumerable.Range(1, 3)
+                .Select(page => new KeyedSkillTab
+                {
+                    Page = page,
+                    NameKey = ResolveCategoryKey(classCode, className, page, data),
+                    Skills = classSkills
+                        .Where(skill => data.SkillDescs.TryGetValue(skill.SkillDesc ?? "", out var desc)
+                            && desc.Page == page
+                            && desc.Row > 0
+                            && desc.Column > 0)
+                        .Select(skill => MapSkill(skill, data))
+                        .OrderBy(static skill => skill.Row)
+                        .ThenBy(static skill => skill.Column)
+                        .ToList()
+                })
+                .ToList()
+        };
+    }
+
+    private static KeyedSkill MapSkill(SkillEntry skill, GameData data)
+    {
+        data.SkillDescs.TryGetValue(skill.SkillDesc ?? "", out var desc);
+
+        return new KeyedSkill
+        {
+            Id = skill.Id,
+            Code = skill.Skill,
+            NameKey = skill.NameKey,
+            ShortDescriptionKey = desc?.ShortString,
+            DescriptionKey = desc?.LongString,
+            Row = desc?.Row ?? 0,
+            Column = desc?.Column ?? 0,
+            RequiredLevel = skill.RequiredLevel,
+            MaxLevel = skill.MaxLevel,
+            PrerequisiteIds = skill.Prerequisites
+                .Select(data.ResolveSkill)
+                .Where(static prerequisite => prerequisite is not null)
+                .Select(static prerequisite => prerequisite!.Id)
+                .Distinct()
+                .ToList()
+        };
+    }
+
+    private static string ResolveCategoryKey(string classCode, string className, int page, GameData data)
+    {
+        if (data.ExportConfig.SkillTreeCategoryKeys.TryGetValue(classCode, out var keys)
+            && keys.Count >= page
+            && !string.IsNullOrWhiteSpace(keys[page - 1]))
+        {
+            return keys[page - 1];
+        }
+
+        var prefix = className.Length >= 2 ? className[..2] : className;
+        return $"SkillCategory{prefix}{page}";
+    }
+
+    private sealed class KeyedSkillClass
+    {
+        public string Class { get; set; } = "";
+        public string ClassCode { get; set; } = "";
+        public string NameKey { get; set; } = "";
+        public List<KeyedSkillTab> Tabs { get; set; } = [];
+    }
+
+    private sealed class KeyedSkillTab
+    {
+        public int Page { get; set; }
+        public string NameKey { get; set; } = "";
+        public List<KeyedSkill> Skills { get; set; } = [];
+    }
+
+    private sealed class KeyedSkill
+    {
+        public int Id { get; set; }
+        public string Code { get; set; } = "";
+        public string NameKey { get; set; } = "";
+        public string? ShortDescriptionKey { get; set; }
+        public string? DescriptionKey { get; set; }
+        public int Row { get; set; }
+        public int Column { get; set; }
+        public int RequiredLevel { get; set; }
+        public int MaxLevel { get; set; }
+        public List<int> PrerequisiteIds { get; set; } = [];
+    }
+}
