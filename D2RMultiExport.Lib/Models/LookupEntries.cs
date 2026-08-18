@@ -92,6 +92,8 @@ public sealed class SkillEntry
     public string? CharClass { get; init; }
     public string? SkillDesc { get; init; }
     public int RequiredLevel { get; init; }
+    public int MaxLevel { get; init; }
+    public List<string> Prerequisites { get; init; } = [];
 
     /// <summary>
     /// Resolved display name from translation (legacy English-text resolver path only).
@@ -117,6 +119,11 @@ public sealed class SkillDescEntry
 {
     public required string SkillDesc { get; init; }
     public string? NameString { get; init; }
+    public string? ShortString { get; init; }
+    public string? LongString { get; init; }
+    public int Page { get; init; }
+    public int Row { get; init; }
+    public int Column { get; init; }
 
     public override string ToString() => SkillDesc;
 }
