@@ -187,7 +187,10 @@ public sealed class DataLoader
                     LongString = entry.LongString,
                     Page = entry.SkillPage ?? 0,
                     Row = entry.SkillRow ?? 0,
-                    Column = entry.SkillColumn ?? 0
+                    Column = entry.SkillColumn ?? 0,
+                    DescriptionLines = ReadDescriptionLines(entry),
+                    DetailLines = ReadDetailLines(entry),
+                    SynergyLines = ReadSynergyLines(entry)
                 };
             }
         }
@@ -195,6 +198,64 @@ public sealed class DataLoader
         {
             _pipeline.AddError("SkillDesc", "skilldesc.txt", $"Failed to load: {ex.Message}", ex);
         }
+    }
+
+    // skilldesc.txt repeats the same five-column group (function, textA, textB, calcA,
+    // calcB) across three differently-sized blocks. The typed row DTO flattens them into
+    // numbered properties, so each block is read by hand rather than by index.
+
+    private static List<SkillDescLine> ReadDescriptionLines(D2RReimaginedTools.Models.SkillDesc entry) =>
+    [
+        .. new[]
+        {
+            MakeDescLine(entry.DescriptionLine1, entry.DescriptionTextA1, entry.DescriptionTextB1, entry.DescriptionCalculationA1, entry.DescriptionCalculationB1),
+            MakeDescLine(entry.DescriptionLine2, entry.DescriptionTextA2, entry.DescriptionTextB2, entry.DescriptionCalculationA2, entry.DescriptionCalculationB2),
+            MakeDescLine(entry.DescriptionLine3, entry.DescriptionTextA3, entry.DescriptionTextB3, entry.DescriptionCalculationA3, entry.DescriptionCalculationB3),
+            MakeDescLine(entry.DescriptionLine4, entry.DescriptionTextA4, entry.DescriptionTextB4, entry.DescriptionCalculationA4, entry.DescriptionCalculationB4),
+            MakeDescLine(entry.DescriptionLine5, entry.DescriptionTextA5, entry.DescriptionTextB5, entry.DescriptionCalculationA5, entry.DescriptionCalculationB5),
+            MakeDescLine(entry.DescriptionLine6, entry.DescriptionTextA6, entry.DescriptionTextB6, entry.DescriptionCalculationA6, entry.DescriptionCalculationB6)
+        }.OfType<SkillDescLine>()
+    ];
+
+    private static List<SkillDescLine> ReadDetailLines(D2RReimaginedTools.Models.SkillDesc entry) =>
+    [
+        .. new[]
+        {
+            MakeDescLine(entry.Dsc2Line1, entry.Dsc2TextA1, entry.Dsc2TextB1, entry.Dsc2CalculationA1, entry.Dsc2CalculationB1),
+            MakeDescLine(entry.Dsc2Line2, entry.Dsc2TextA2, entry.Dsc2TextB2, entry.Dsc2CalculationA2, entry.Dsc2CalculationB2),
+            MakeDescLine(entry.Dsc2Line3, entry.Dsc2TextA3, entry.Dsc2TextB3, entry.Dsc2CalculationA3, entry.Dsc2CalculationB3),
+            MakeDescLine(entry.Dsc2Line4, entry.Dsc2TextA4, entry.Dsc2TextB4, entry.Dsc2CalculationA4, entry.Dsc2CalculationB4),
+            MakeDescLine(entry.Dsc2Line5, entry.Dsc2TextA5, entry.Dsc2TextB5, entry.Dsc2CalculationA5, entry.Dsc2CalculationB5)
+        }.OfType<SkillDescLine>()
+    ];
+
+    private static List<SkillDescLine> ReadSynergyLines(D2RReimaginedTools.Models.SkillDesc entry) =>
+    [
+        .. new[]
+        {
+            MakeDescLine(entry.Dsc3Line1, entry.Dsc3TextA1, entry.Dsc3TextB1, entry.Dsc3CalculationA1, entry.Dsc3CalculationB1),
+            MakeDescLine(entry.Dsc3Line2, entry.Dsc3TextA2, entry.Dsc3TextB2, entry.Dsc3CalculationA2, entry.Dsc3CalculationB2),
+            MakeDescLine(entry.Dsc3Line3, entry.Dsc3TextA3, entry.Dsc3TextB3, entry.Dsc3CalculationA3, entry.Dsc3CalculationB3),
+            MakeDescLine(entry.Dsc3Line4, entry.Dsc3TextA4, entry.Dsc3TextB4, entry.Dsc3CalculationA4, entry.Dsc3CalculationB4),
+            MakeDescLine(entry.Dsc3Line5, entry.Dsc3TextA5, entry.Dsc3TextB5, entry.Dsc3CalculationA5, entry.Dsc3CalculationB5),
+            MakeDescLine(entry.Dsc3Line6, entry.Dsc3TextA6, entry.Dsc3TextB6, entry.Dsc3CalculationA6, entry.Dsc3CalculationB6),
+            MakeDescLine(entry.Dsc3Line7, entry.Dsc3TextA7, entry.Dsc3TextB7, entry.Dsc3CalculationA7, entry.Dsc3CalculationB7)
+        }.OfType<SkillDescLine>()
+    ];
+
+    private static SkillDescLine? MakeDescLine(string? function, string? textA, string? textB, string? calcA, string? calcB)
+    {
+        if (!int.TryParse(function, out var parsed) || parsed == 0) return null;
+        if (string.IsNullOrWhiteSpace(textA)) return null;
+
+        return new SkillDescLine
+        {
+            Function = parsed,
+            TextA = textA.Trim(),
+            TextB = string.IsNullOrWhiteSpace(textB) ? null : textB.Trim(),
+            CalcA = string.IsNullOrWhiteSpace(calcA) ? null : calcA.Trim(),
+            CalcB = string.IsNullOrWhiteSpace(calcB) ? null : calcB.Trim()
+        };
     }
 
     private async Task LoadSkillsAsync()
@@ -246,7 +307,8 @@ public sealed class DataLoader
                         .Select(static prerequisite => prerequisite!)
                         .ToList(),
                     Name = localizedName ?? entry.Skill,
-                    NameKey = !string.IsNullOrEmpty(nameKey) ? nameKey : entry.Skill
+                    NameKey = !string.IsNullOrEmpty(nameKey) ? nameKey : entry.Skill,
+                    SourceRow = entry
                 };
                 _data.Skills[entry.Skill] = skill;
                 _data.SkillsById[id] = skill;

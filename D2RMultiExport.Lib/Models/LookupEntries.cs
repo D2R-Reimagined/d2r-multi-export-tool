@@ -109,6 +109,14 @@ public sealed class SkillEntry
     /// </summary>
     public string NameKey { get; set; } = "";
 
+    /// <summary>
+    /// The parsed <c>skills.txt</c> row this entry was projected from. Retained so
+    /// <c>SkillCalculator</c> can read the ~60 scaling columns (Param/Calc/EMin/HitShift/…)
+    /// a description calc can reference without mirroring every one of them onto this type.
+    /// Null only if the row could not be parsed.
+    /// </summary>
+    public D2RReimaginedTools.Models.Skills? SourceRow { get; init; }
+
     public override string ToString() => Name;
 }
 
@@ -125,7 +133,29 @@ public sealed class SkillDescEntry
     public int Row { get; init; }
     public int Column { get; init; }
 
+    /// <summary>The <c>descline1..6</c> block — the stat lines D2 shows in the skill tooltip.</summary>
+    public List<SkillDescLine> DescriptionLines { get; init; } = [];
+
+    /// <summary>The <c>dsc2line1..5</c> block — supplementary lines (mana cost, casting delay, …).</summary>
+    public List<SkillDescLine> DetailLines { get; init; } = [];
+
+    /// <summary>The <c>dsc3line1..7</c> block — the "Receives Bonuses From" synergy list.</summary>
+    public List<SkillDescLine> SynergyLines { get; init; } = [];
+
     public override string ToString() => SkillDesc;
+}
+
+/// <summary>
+/// One <c>descline</c> / <c>dsc2line</c> / <c>dsc3line</c> column group: the description
+/// function id plus its four sibling columns, still unevaluated.
+/// </summary>
+public sealed class SkillDescLine
+{
+    public required int Function { get; init; }
+    public string? TextA { get; init; }
+    public string? TextB { get; init; }
+    public string? CalcA { get; init; }
+    public string? CalcB { get; init; }
 }
 
 /// <summary>

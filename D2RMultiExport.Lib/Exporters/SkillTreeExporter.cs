@@ -65,9 +65,11 @@ internal static class SkillTreeExporter
     private static KeyedSkill MapSkill(SkillEntry skill, GameData data)
     {
         data.SkillDescs.TryGetValue(skill.SkillDesc ?? "", out var desc);
+        data.SkillDescriptions.TryGetValue(skill.Id, out var descriptions);
 
         return new KeyedSkill
         {
+            Descriptions = descriptions,
             Id = skill.Id,
             Code = skill.Skill,
             NameKey = skill.NameKey,
@@ -126,5 +128,11 @@ internal static class SkillTreeExporter
         public int RequiredLevel { get; set; }
         public int MaxLevel { get; set; }
         public List<int> PrerequisiteIds { get; set; } = [];
+
+        /// <summary>
+        /// What the skill actually does, solved for every level the planner can display.
+        /// Null for skills whose <c>skilldesc.txt</c> row carries no description lines.
+        /// </summary>
+        public SkillDescriptionSet? Descriptions { get; set; }
     }
 }

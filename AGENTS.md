@@ -14,9 +14,9 @@ Rules for AI agents editing `d2r-multi-export-tool` — exporter producing the k
 |---|---|
 | `D2RMultiExport.Lib/` | Core import → translation → export pipeline. |
 | `D2RMultiExport.Lib/Config/` | Bundled JSON config + `*Config.cs` POCOs. `CASC_DATA/runes.txt` ships; users supply `data\local\lng\strings\*.json` via `--base-strings`. **Optional, not committed**: `supplemental-translations.json` — `TranslationService.LoadSupplementalAsync` guards with `File.Exists`; intentionally not in `<None Update>`. |
-| `D2RMultiExport.Lib/Import/` | One importer per `.txt` family: `UniqueImporter`, `SetImporter`, `RunewordImporter`, `CubeRecipeImporter`; helpers `PropertyMapper`, `EquipmentHelper`, `RequirementHelper`, `DamageArmorCalculator`, `PropertyCleanup`, `DataLoader`. |
+| `D2RMultiExport.Lib/Import/` | One importer per `.txt` family: `UniqueImporter`, `SetImporter`, `RunewordImporter`, `CubeRecipeImporter`, `SkillDescriptionImporter`; helpers `PropertyMapper`, `EquipmentHelper`, `RequirementHelper`, `DamageArmorCalculator`, `PropertyCleanup`, `SkillCalculator`, `DataLoader`. |
 | `D2RMultiExport.Lib/Translation/` | `PropertyKeyResolver`, `SyntheticStringRegistry`, `MultiLanguageTranslationService`, `TranslationService` (enUS descfunc probing + missing-translations audit), `EquipmentLineBuilder`, `CubeQualifierKeyMap`. **No parallel English-string property renderer exists** — old `PropertyStringResolver`/`DisplayString`/`PropertyString` was removed. To render English, resolve `KeyedLine` against `strings/enUS.json`. |
-| `D2RMultiExport.Lib/Exporters/` | `KeyedJsonExporter` (`keyed/*.json`), `LanguageBundleExporter` (`strings/<lang>.json`). |
+| `D2RMultiExport.Lib/Exporters/` | `KeyedJsonExporter` (`keyed/*.json`), `SkillTreeExporter` (`keyed/skills.json`), `LanguageBundleExporter` (`strings/<lang>.json`). |
 | `D2RMultiExport.Lib/Models/` | DTOs (`ExportModels.cs`). |
 | `D2RMultiExport.Lib/ErrorHandling/` | `ImportResult<T>` + per-phase error collection. |
 | `D2RMultiExport.Lib/D2RMultiExportPipeline.cs` | Orchestration (load → import → resolve → export → audit). |
@@ -97,6 +97,57 @@ Every player-facing field in `<out>/keyed/*.json` is either a translation **key*
 
 **3. Class-required equipment.** `KeyedEquipment.RequiredClass` ships the literal English class name (`"Sorceress"`, `"Barbarian"`, …). Allow-list: `export-config.json` → `validRequiredClassNames`, exposed as `ExportConfig.ValidRequiredClassNamesSet`. The list **only gates** — the resolved string is written through as-is. The website branches on this exact literal alongside the localized `KeyedLine` from `PropertyKeyResolver.TryGetClassOnlyKey`. Don't change to translation keys without coordinating a breaking change with the website.
 
+## Skill descriptions (not an exception)
+
+`keyed/skills.json` carries what each skill *does*, not just its name. Every class skill
+gets a `Descriptions` object holding the three boxes D2's own tooltip uses — `Stats`
+(`descline1..6`), `Details` (`dsc2line1..5`), `Synergies` (`dsc3line1..7`) — plus the
+`MaxLevel` its value tables reach.
+
+```jsonc
+{
+  "Id": 36, "Code": "Fire Bolt", "NameKey": "skillname36",
+  "Descriptions": {
+    "MaxLevel": 45,
+    "Stats": [
+      { "key": "StrSkill5", "values": [[3,4,6, /* … */], [6,7,9, /* … */]] },
+      { "key": "StrSkill120", "values": [[1,1,1,1,2, /* … */]] }
+    ],
+    "Details":   [ { "key": "StrSkill3", "values": [[2.5]] } ],
+    "Synergies": [ { "key": "Firedplev", "args": ["skillname47"], "values": [[14]] } ]
+  }
+}
+```
+
+Each line keeps the `KeyedLine` contract (camel-cased `key`/`args`, resolved against
+`strings/<lang>.json`) with two additions:
+
+- `values` — one table per numeric argument, indexed by `level - 1`, because the same line
+  reads differently at every skill level. Numbers are still finalized here; the client only
+  picks an index. The exporter drops each table's constant tail, so **consumers must clamp
+  the index to the last element**. Written on one line by `LevelTableConverter` — do not
+  remove it, the tables are ~300k numbers across the export.
+- `pluralKey` — the `desctextB` plural template for the description functions that ship a
+  singular/plural pair. The client picks it whenever the rendered value is not exactly 1.
+
+Layout lives in `Config/skill-desc-functions.json` (description function id → `layout` +
+`plural`/`nameArg` flags); the arithmetic lives in `Import/SkillCalculator.cs`. Reach for
+the config first — a new description function is data, not code.
+
+**Documented limits.** `SkillCalculator` drops a line rather than guessing, and
+`extras/import-report.txt` lists every drop. It cannot resolve:
+
+- `miss('firewall'.rang)` and the `m1en`/`m1eo`/`m1rn` missile symbols — missiles.txt is
+  not loaded. Loading it is the single biggest coverage win left.
+- `sklvl('Tainted Fire Ball'.lvl.edmn)` — a minion skill evaluated at the minion's level.
+- `ulvl` (character level), `mael`, `mps`, and the `ma··` mastery aggregates.
+
+Two things resolve to **0** on purpose, matching what the game shows a character with no
+other points and no gear: another skill's level (`skill('Fire Ball'.blvl)`, i.e. synergy
+terms) and gear-accumulated stats (`stat('extra_skelewarriors'.accr)`). The synergy list is
+exported alongside precisely so the website can show which skills feed this one without the
+exporter inventing an allocation.
+
 ## Property groups (not an exception)
 
 When a unique's properties reference `propertygroups.txt` (e.g. crafted charms with `Magnetic-Affix1..6`/`Gelid-Affix*`), `UniqueImporter.ExpandPropertyGroup` emits a parent `KeyedLine`:
@@ -157,6 +208,9 @@ Release/branding/icon workflow and full human-contributor onboarding: [`CONTRIBU
 | Add a synthetic player-facing string | `synthetic-strings.json` |
 | Override a stat's display formatting | `stat-overrides.json` (+ `StatOverrideConfig.cs`) |
 | Adjust per-class skill/level ranges | `class-ranges.json` (+ `ClassRangeConfig.cs`) |
+| Teach the exporter a new skilldesc description function | `skill-desc-functions.json` (+ `SkillDescFunctionConfig.cs`) |
+| Change how far past `maxlvl` skill descriptions are solved | `export-config.json` → `skillDescriptionBonusLevels` |
+| Resolve a new skilldesc calc symbol | `Import/SkillCalculator.cs` |
 | Resolve a property to a translation key | `Translation/PropertyKeyResolver.cs` |
 | Change wire shape of a keyed export | `Models/ExportModels.cs` + `Exporters/KeyedJsonExporter.cs` together |
 | Add a new identifier-only property | `D2RMultiExportPipeline.IdentifierOnlyProperties` |

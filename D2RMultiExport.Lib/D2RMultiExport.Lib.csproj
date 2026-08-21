@@ -24,6 +24,9 @@
     <None Update="Config\class-ranges.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="Config\skill-desc-functions.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <!--
       Bundled CASC-derived data. This folder ships only the canonical
       runes.txt used by the runeword importer to flag vanilla runewords.

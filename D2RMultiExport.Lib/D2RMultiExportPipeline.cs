@@ -228,6 +228,7 @@ public sealed class D2RMultiExportPipeline
             // Synthetic seed already loaded above for the enUS-only descfunc resolver;
             // reuse the cached value here instead of re-parsing the file.
             await ClassRangeConfig.LoadAsync(_configPath);
+            await SkillDescFunctionConfig.LoadAsync(_configPath);
         });
         // The combined Config/synthetic-strings.json (D2R flat row layout) carries
         // both the enUS seed and every translator-supplied per-language column.
@@ -328,6 +329,10 @@ public sealed class D2RMultiExportPipeline
                       CubeRecipeUseDescription = CubeRecipeUseDescription
                   }.ImportAsync(),
             r => Data.CubeRecipes = r);
+
+        await RunImportPhaseAsync("SkillDescription", "skilldesc.txt", "skill descriptions", "skill", "Skill descriptions",
+            () => new SkillDescriptionImporter(Data, exportConfig.SkillDescriptionBonusLevels).ImportAsync(),
+            r => Data.SkillDescriptions = r.ToDictionary(static set => set.SkillId));
 
         // 6. Export — key-based bundle is the only output. The website consumes
         //    keyed/*.json + strings/{lang}.json × 13 and uses manifest.json

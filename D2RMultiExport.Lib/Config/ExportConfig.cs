@@ -83,6 +83,14 @@ public sealed class ExportConfig
     public Dictionary<string, List<string>> SkillTreeCategoryKeys { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// How far past a skill's <c>maxlvl</c> the exported per-level description tables
+    /// reach, so the website can preview what +skills gear does to a maxed skill. Zero
+    /// stops the tables at the hard-point cap.
+    /// </summary>
+    [JsonPropertyName("skillDescriptionBonusLevels")]
+    public int SkillDescriptionBonusLevels { get; set; } = 20;
+
+    /// <summary>
     /// AutoMagic group ids skipped wholesale during the keyed export. Mirrors the
     /// formerly hardcoded <c>KeyedJsonExporter.SkippedAutoMagicGroups</c> set.
     /// </summary>
