@@ -56,6 +56,8 @@ public static class KeyedJsonExporter
             await WriteJsonAsync(Path.Combine(keyedDir, "cube-recipes.json"), rows, options);
         }
 
+        await SkillTreeExporter.ExportAsync(keyedDir, data, options);
+
         // Aggregated automagic-group lookup, keyed by automagic.txt `group`.
         // Built once and shared by both armor and weapon emission so each base
         // item can attach the grouped affix bonuses associated with its

@@ -182,7 +182,12 @@ public sealed class DataLoader
                 _data.SkillDescs[entry.SkillName] = new SkillDescEntry
                 {
                     SkillDesc = entry.SkillName,
-                    NameString = entry.NameString
+                    NameString = entry.NameString,
+                    ShortString = entry.ShortString,
+                    LongString = entry.LongString,
+                    Page = entry.SkillPage ?? 0,
+                    Row = entry.SkillRow ?? 0,
+                    Column = entry.SkillColumn ?? 0
                 };
             }
         }
@@ -235,6 +240,11 @@ public sealed class DataLoader
                     CharClass = entry.CharClass,
                     SkillDesc = entry.SkillDesc,
                     RequiredLevel = int.TryParse(entry.ReqLevel, out var rl) ? rl : 0,
+                    MaxLevel = int.TryParse(entry.MaxLvl, out var maxLevel) ? maxLevel : 0,
+                    Prerequisites = new[] { entry.ReqSkill1, entry.ReqSkill2, entry.ReqSkill3 }
+                        .Where(static prerequisite => !string.IsNullOrWhiteSpace(prerequisite))
+                        .Select(static prerequisite => prerequisite!)
+                        .ToList(),
                     Name = localizedName ?? entry.Skill,
                     NameKey = !string.IsNullOrEmpty(nameKey) ? nameKey : entry.Skill
                 };

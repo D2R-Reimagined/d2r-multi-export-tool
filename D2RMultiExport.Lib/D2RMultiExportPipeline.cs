@@ -429,7 +429,7 @@ public sealed class D2RMultiExportPipeline
     /// item codes (<c>Code</c>, <c>NormCode</c>, <c>UberCode</c>, <c>UltraCode</c>),
     /// the <c>AutoPrefix</c> numeric token, the <c>Vanilla</c> Y/N flag, the
     /// <c>PType</c> Prefix/Suffix discriminator, class-id fields
-    /// (<c>RequiredClass</c>, <c>Class</c>, <c>ClassSpecific</c>), and the
+    /// (<c>RequiredClass</c>, <c>Class</c>, <c>ClassSpecific</c>, <c>ClassCode</c>), and the
     /// camelCase <c>code</c> field on <c>propertygroups.txt</c> parent
     /// <see cref="Models.KeyedLine"/>s (raw English group names like
     /// <c>"Magnetic-Affix1"</c>) — that are emitted for the website to use as
@@ -450,6 +450,7 @@ public sealed class D2RMultiExportPipeline
         "RequiredClass",
         "Class",
         "ClassSpecific",
+        "ClassCode",
         // KeyedLine.Code (camelCase) — raw English propertygroup name on
         // parent lines; siblings PickMode/Children are not strings/objects
         // that contain translation keys, so no extra entries are needed.

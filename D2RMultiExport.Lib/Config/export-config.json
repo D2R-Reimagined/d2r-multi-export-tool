@@ -84,6 +84,18 @@
         "Warlock"
     ],
 
+    "$skillTreeCategoryKeysNote": "Localized tree title keys in skilldesc.txt SkillPage order for each skills.txt charclass code.",
+    "skillTreeCategoryKeys": {
+        "ama": [ "SkillCategoryAm3", "SkillCategoryAm2", "SkillCategoryAm1" ],
+        "sor": [ "SkillCategorySo3", "SkillCategorySo2", "SkillCategorySo1" ],
+        "nec": [ "SkillCategoryNe3", "SkillCategoryNe2", "SkillCategoryNe1" ],
+        "pal": [ "SkillCategoryPa3", "SkillCategoryPa2", "SkillCategoryPa1" ],
+        "bar": [ "SkillCategoryBa3", "SkillCategoryBa2", "SkillCategoryBa1" ],
+        "dru": [ "SkillCategoryDr3", "SkillCategoryDr2", "SkillCategoryDr1" ],
+        "ass": [ "SkillCategoryAs3", "SkillCategoryAs2", "SkillCategoryAs1" ],
+        "war": [ "SkillCategoryWa1", "SkillCategoryWa2", "SkillCategoryWa3" ]
+    },
+
     "$skippedAutoMagicGroupsNote": "AutoMagic.txt group ids skipped wholesale during keyed export.",
     "skippedAutoMagicGroups": [ 0, 309, 310, 311, 312, 316, 319 ],
 
