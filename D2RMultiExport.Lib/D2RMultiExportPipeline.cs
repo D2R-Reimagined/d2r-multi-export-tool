@@ -87,6 +87,9 @@ public sealed class D2RMultiExportPipeline
     /// <summary>Optional path to the read-only CASC base strings (fills any keys missing from mod overrides).</summary>
     public string? BaseStringsPath { get; set; }
 
+    /// <summary>Optional extracted vanilla D2R data root used as the sprite fallback beneath mod overrides.</summary>
+    public string? BaseAssetsPath { get; set; }
+
     /// <summary>
     /// Total number of milestone phases reported via <see cref="ReportPhase"/>
     /// during a normal <see cref="RunAsync"/> invocation. Kept in sync with the
@@ -344,6 +347,22 @@ public sealed class D2RMultiExportPipeline
         await RunPhaseAsync("Export", "keyed/*.json", async () =>
         {
             await KeyedJsonExporter.ExportAsync(_exportPath, Data, PrettyPrintJson);
+            await ItemPresentationExporter.ExportAsync(
+                _exportPath,
+                _excelPath,
+                BaseAssetsPath,
+                Data,
+                PrettyPrintJson);
+            await SkillIconExporter.ExportAsync(
+                _exportPath,
+                _excelPath,
+                BaseAssetsPath,
+                Data);
+            await ItemStatPresentationExporter.ExportAsync(
+                _exportPath,
+                _excelPath,
+                Data,
+                PrettyPrintJson);
         });
 
         // 6a. Compute the set of every string that actually appears as a value inside
@@ -460,6 +479,7 @@ public sealed class D2RMultiExportPipeline
         // parent lines; siblings PickMode/Children are not strings/objects
         // that contain translation keys, so no extra entries are needed.
         "code",
+        "Sprite",
     };
 
     private static async Task<IReadOnlySet<string>> CollectReferencedKeysAsync(string keyedDir)

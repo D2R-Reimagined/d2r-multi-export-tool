@@ -188,6 +188,7 @@ public sealed class DataLoader
                     Page = entry.SkillPage ?? 0,
                     Row = entry.SkillRow ?? 0,
                     Column = entry.SkillColumn ?? 0,
+                    IconCel = entry.IconCel,
                     DescriptionLines = ReadDescriptionLines(entry),
                     DetailLines = ReadDetailLines(entry),
                     SynergyLines = ReadSynergyLines(entry)
@@ -466,6 +467,11 @@ public sealed class DataLoader
                     UberCode = entry.UberCode,
                     UltraCode = entry.UltraCode,
                     AutoPrefix = entry.AutoPrefix,
+                    InventoryWidth = entry.InvWidth ?? 1,
+                    InventoryHeight = entry.InvHeight ?? 1,
+                    InventoryFile = entry.InvFile,
+                    UniqueInventoryFile = entry.UniqueInvFile,
+                    SetInventoryFile = entry.SetInvFile,
                     Name = _data.Translations.GetValue(entry.NameStr)
                 };
             }
@@ -513,6 +519,11 @@ public sealed class DataLoader
                     UberCode = entry.UberCode,
                     UltraCode = entry.UltraCode,
                     AutoPrefix = entry.AutoPrefix,
+                    InventoryWidth = entry.InvWidth ?? 1,
+                    InventoryHeight = entry.InvHeight ?? 1,
+                    InventoryFile = entry.InvFile,
+                    UniqueInventoryFile = entry.UniqueInvFile,
+                    SetInventoryFile = entry.SetInvFile,
                     Name = _data.Translations.GetValue(entry.NameStr)
                 };
             }
@@ -540,6 +551,9 @@ public sealed class DataLoader
                     Type2 = entry.Type2,
                     Level = entry.Level ?? 0,
                     LevelReq = entry.LevelReq ?? 0,
+                    InventoryWidth = entry.InvWidth ?? 1,
+                    InventoryHeight = entry.InvHeight ?? 1,
+                    InventoryFile = entry.InvFile,
                     Name = _data.Translations.GetValue(entry.NameStr)
                 };
             }

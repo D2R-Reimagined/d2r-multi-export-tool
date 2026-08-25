@@ -104,6 +104,8 @@ public sealed class SetImporter
 
                 var export = new SetItemExport
                 {
+                    FileIndex = int.TryParse(entry.Id, out var fileIndex) ? fileIndex : rawIdx - 1,
+                    InventoryFile = entry.InventoryFile,
                     Name = _data.Translations.GetValue(entry.Index ?? ""),
                     Index = entry.Index ?? "",
                     SetName = entry.Set ?? "",

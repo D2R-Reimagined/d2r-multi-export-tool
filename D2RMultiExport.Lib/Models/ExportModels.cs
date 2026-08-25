@@ -8,6 +8,11 @@ namespace D2RMultiExport.Lib.Models;
 /// </summary>
 public sealed class UniqueExport
 {
+    [JsonIgnore]
+    public int FileIndex { get; set; }
+
+    [JsonIgnore]
+    public string? InventoryFile { get; set; }
     public string Type { get; set; } = "";
     public string Vanilla { get; set; } = "N";
     public string Name { get; set; } = "";
@@ -77,6 +82,11 @@ public sealed class SetExport
 /// </summary>
 public sealed class SetItemExport
 {
+    [JsonIgnore]
+    public int FileIndex { get; set; }
+
+    [JsonIgnore]
+    public string? InventoryFile { get; set; }
     public string Type { get; set; } = "";
     public string Vanilla { get; set; } = "N";
     public string Name { get; set; } = "";

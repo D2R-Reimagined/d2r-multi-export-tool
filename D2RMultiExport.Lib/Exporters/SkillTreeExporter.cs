@@ -75,6 +75,9 @@ internal static class SkillTreeExporter
             NameKey = skill.NameKey,
             ShortDescriptionKey = desc?.ShortString,
             DescriptionKey = desc?.LongString,
+            Icon = desc?.IconCel is >= 0 && !string.IsNullOrWhiteSpace(skill.CharClass)
+                ? $"sprites/skills/{skill.CharClass!.ToLowerInvariant()}-{desc.IconCel.Value}.webp"
+                : null,
             Row = desc?.Row ?? 0,
             Column = desc?.Column ?? 0,
             RequiredLevel = skill.RequiredLevel,
@@ -123,6 +126,7 @@ internal static class SkillTreeExporter
         public string NameKey { get; set; } = "";
         public string? ShortDescriptionKey { get; set; }
         public string? DescriptionKey { get; set; }
+        public string? Icon { get; set; }
         public int Row { get; set; }
         public int Column { get; set; }
         public int RequiredLevel { get; set; }

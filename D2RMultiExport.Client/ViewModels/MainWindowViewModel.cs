@@ -27,6 +27,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _baseStringsPath;
 
     [ObservableProperty]
+    private string _baseAssetsPath;
+
+    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunPipelineCommand))]
     private string _outputPath;
 
@@ -90,6 +93,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _excelPath = _settings.ExcelPath;
         _translationsPath = _settings.TranslationsPath;
         _baseStringsPath = _settings.BaseStringsPath;
+        _baseAssetsPath = _settings.BaseAssetsPath;
         _outputPath = _settings.OutputPath;
         _prettyPrintJson = _settings.PrettyPrintJson;
         _continueOnException = _settings.ContinueOnException;
@@ -135,6 +139,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _settings.ExcelPath = ExcelPath;
         _settings.TranslationsPath = TranslationsPath;
         _settings.BaseStringsPath = BaseStringsPath;
+        _settings.BaseAssetsPath = BaseAssetsPath;
         _settings.OutputPath = OutputPath;
         _settings.PrettyPrintJson = PrettyPrintJson;
         _settings.ContinueOnException = ContinueOnException;
@@ -174,6 +179,7 @@ public partial class MainWindowViewModel : ViewModelBase
             CubeRecipeUseDescription = CubeRecipeUseDescription,
             ContinueOnException = ContinueOnException,
             BaseStringsPath = string.IsNullOrWhiteSpace(BaseStringsPath) ? null : BaseStringsPath,
+            BaseAssetsPath = string.IsNullOrWhiteSpace(BaseAssetsPath) ? null : BaseAssetsPath,
             Progress = new Progress<string>(line =>
             {
                 StatusText = line;

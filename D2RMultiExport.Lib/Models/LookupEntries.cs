@@ -132,6 +132,7 @@ public sealed class SkillDescEntry
     public int Page { get; init; }
     public int Row { get; init; }
     public int Column { get; init; }
+    public int? IconCel { get; init; }
 
     /// <summary>The <c>descline1..6</c> block — the stat lines D2 shows in the skill tooltip.</summary>
     public List<SkillDescLine> DescriptionLines { get; init; } = [];
@@ -250,6 +251,11 @@ public sealed class EquipmentEntry
     public string? UberCode { get; init; }
     public string? UltraCode { get; init; }
     public int? AutoPrefix { get; init; }
+    public int InventoryWidth { get; init; } = 1;
+    public int InventoryHeight { get; init; } = 1;
+    public string? InventoryFile { get; init; }
+    public string? UniqueInventoryFile { get; init; }
+    public string? SetInventoryFile { get; init; }
 
     /// <summary>
     /// Resolved display name from translation.
@@ -279,6 +285,9 @@ public sealed class MiscEntry
     public string? Type2 { get; init; }
     public int Level { get; init; }
     public int LevelReq { get; init; }
+    public int InventoryWidth { get; init; } = 1;
+    public int InventoryHeight { get; init; } = 1;
+    public string? InventoryFile { get; init; }
 
     /// <summary>
     /// Resolved display name from translation.
