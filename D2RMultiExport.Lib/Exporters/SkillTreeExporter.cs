@@ -64,6 +64,7 @@ internal static class SkillTreeExporter
 
     private static KeyedSkill MapSkill(SkillEntry skill, GameData data)
     {
+        data.SkillDescs.TryGetValue(skill.SkillDesc ?? "", out var desc);
         data.SkillDescriptions.TryGetValue(skill.Id, out var descriptions);
 
         return new KeyedSkill
