@@ -142,7 +142,6 @@ public sealed class SkillDescEntry
 
     /// <summary>The <c>dsc3line1..7</c> block — the "Receives Bonuses From" synergy list.</summary>
     public List<SkillDescLine> SynergyLines { get; init; } = [];
-
     public override string ToString() => SkillDesc;
 }
 
