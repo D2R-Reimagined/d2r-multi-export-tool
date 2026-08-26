@@ -16,6 +16,9 @@ export pipeline, especially:
 - `D2RMultiExport.Lib\Import\UniqueImporter.cs`
 - `D2RMultiExport.Lib\Import\DamageArmorCalculator.cs`
 - `D2RMultiExport.Lib\Models\KeyedLine.cs`
+- `D2RMultiExport.Lib\Import\SkillCalculator.cs`
+- `D2RMultiExport.Lib\Import\SkillDescriptionImporter.cs`
+- `D2RMultiExport.Lib\Exporters\SkillTreeExporter.cs`
 
 ## 1. Build
 
@@ -86,7 +89,46 @@ Failure modes seen historically (do not let any of these reappear):
 - `{ "key": "ModStre9u", "args": [1] }` — missing the seconds arg; the
   template renders with a stray unsubstituted `%d`.
 
-### 3.2 Adding a new fixture
+### 3.2 Skill descriptions — per-level value tables
+
+`keyed/skills.json` must carry a `Descriptions` block per class skill. Fire Bolt is the
+canonical check because it exercises every moving part: elemental damage through
+`HitShift`, a self-referential `Calc` column, a fractional mana cost, and the synergy list.
+
+```powershell
+Select-String -Path .\test-output\keyed\skills.json -Pattern '"Code": "Fire Bolt"' -Context 0,24
+```
+
+Expected (levels 1 / 10 / 25 shown; tables are indexed by `level - 1`):
+
+| Line | Key | Level 1 | Level 10 | Level 25 |
+|---|---|---|---|---|
+| Fire damage | `StrSkill5` | 3-6 | 17-22 | 80-100 |
+| Projectiles | `StrSkill120` | 1 | 3 | 5 |
+| Mana cost | `StrSkill3` | 2.5 | 2.5 | 2.5 |
+
+Plus three `Synergies` entries: `Sksyn` (`args: ["skillname36"]`), and `Firedplev` for
+`skillname47` / `skillname56` with `values: [[14]]`.
+
+Failure modes to watch for:
+
+- **Mana cost `2`** — the `usmc / 256` division was truncated to an integer somewhere; the
+  game shows 2.5. `SkillDescriptionImporter` divides in floating point on purpose.
+- **`"values"` spread across many lines** — `LevelTableConverter` stopped being applied.
+  The tables are ~300k numbers; indenting them multiplies the file several times over.
+- **1 projectile at every level** — `skill('Fire Bolt'.blvl)` inside the skill's own
+  `Calc1` resolved to 0 instead of the level being rendered. Self-references are the level;
+  *other* skills are 0.
+- **A jump in warning count** in `extras\import-report.txt`. The `SkillDescription`
+  category is expected to warn (missile and minion-level symbols are documented gaps in
+  `AGENTS.md`) — the count moving is the signal, not its presence.
+
+The importer probes every key it emits, so a skill template the mod never translated shows
+up in `extras\missing-translations.txt`. One is currently expected — `skillnameskele`, the
+synergy-source name on Teeth / Bone Spear / Bone Spirit, which has no row in the mod's
+string files. Fix it in `data\local\lng\strings`, not here.
+
+### 3.3 Adding a new fixture
 
 When a bug is fixed for a specific item, add a row to the table above
 with the item name, code (from `armor.txt` / `weapons.txt`), the

@@ -8,6 +8,11 @@ namespace D2RMultiExport.Lib.Models;
 /// </summary>
 public sealed class UniqueExport
 {
+    [JsonIgnore]
+    public int FileIndex { get; set; }
+
+    [JsonIgnore]
+    public string? InventoryFile { get; set; }
     public string Type { get; set; } = "";
     public string Vanilla { get; set; } = "N";
     public string Name { get; set; } = "";
@@ -77,6 +82,11 @@ public sealed class SetExport
 /// </summary>
 public sealed class SetItemExport
 {
+    [JsonIgnore]
+    public int FileIndex { get; set; }
+
+    [JsonIgnore]
+    public string? InventoryFile { get; set; }
     public string Type { get; set; } = "";
     public string Vanilla { get; set; } = "N";
     public string Name { get; set; } = "";
@@ -400,4 +410,80 @@ public sealed class ExportProperty
     public List<KeyedLine> Lines { get; set; } = [];
 
     public override string ToString() => PropertyCode;
+}
+
+/// <summary>
+/// Every description line D2 renders for one skill, split into the three boxes the game's
+/// own tooltip uses, with each line's numbers already solved for every displayable skill
+/// level. Keyed by <c>skills.txt</c> <c>*Id</c> in <see cref="GameData.SkillDescriptions"/>.
+/// </summary>
+public sealed class SkillDescriptionSet
+{
+    [JsonIgnore]
+    public int SkillId { get; set; }
+
+    /// <summary>
+    /// Highest level the <see cref="SkillDescriptionLine.Values"/> tables cover — the
+    /// skill's <c>maxlvl</c> plus the configured bonus-level headroom, so the website can
+    /// preview what +skills gear does without the exporter shipping an unbounded table.
+    /// </summary>
+    public int MaxLevel { get; set; }
+
+    /// <summary>Main tooltip stats (<c>descline1..6</c>): damage, duration, radius, …</summary>
+    public List<SkillDescriptionLine> Stats { get; set; } = [];
+
+    /// <summary>Supplementary lines (<c>dsc2line1..5</c>): mana cost, casting delay, …</summary>
+    public List<SkillDescriptionLine> Details { get; set; } = [];
+
+    /// <summary>The "Receives Bonuses From" list (<c>dsc3line1..7</c>).</summary>
+    public List<SkillDescriptionLine> Synergies { get; set; } = [];
+
+    [JsonIgnore]
+    public bool IsEmpty => Stats.Count == 0 && Details.Count == 0 && Synergies.Count == 0;
+}
+
+/// <summary>
+/// One rendered description line. Shares <see cref="KeyedLine"/>'s camel-cased wire shape
+/// and the same contract — <see cref="Key"/> is looked up in <c>strings/{lang}.json</c> and
+/// the arguments are splatted positionally — but the numeric arguments arrive as one
+/// per-level table rather than a single finalized value, because the same line renders
+/// differently at every skill level.
+///
+/// Argument order on the wire is <see cref="Args"/> first (translation keys feeding the
+/// template's leading <c>%s</c>), then one value per entry in <see cref="Values"/>, taken
+/// at the level being displayed.
+/// </summary>
+public sealed class SkillDescriptionLine
+{
+    /// <summary>Translation key of the template, from the <c>desctextA</c> column.</summary>
+    [JsonPropertyName("key")]
+    public string Key { get; set; } = "";
+
+    /// <summary>
+    /// Plural template (<c>desctextB</c>) for the description functions that ship a
+    /// singular/plural pair. The website picks this one whenever the rendered value is not
+    /// exactly 1. Serialized only when the function supplies it.
+    /// </summary>
+    [JsonPropertyName("pluralKey")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PluralKey { get; set; }
+
+    /// <summary>
+    /// Leading string arguments — translation keys, typically the name of the skill that
+    /// grants a synergy bonus. Serialized only when present.
+    /// </summary>
+    [JsonPropertyName("args")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Args { get; set; }
+
+    /// <summary>
+    /// One table per numeric argument, indexed by <c>level - 1</c>. Tables stop at the last
+    /// level whose value differs from its predecessor, so a line that does not scale ships a
+    /// single entry — consumers clamp the index to the last element.
+    /// Serialized only when the description function takes numeric arguments.
+    /// </summary>
+    [JsonPropertyName("values")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonConverter(typeof(LevelTableConverter))]
+    public List<double[]>? Values { get; set; }
 }

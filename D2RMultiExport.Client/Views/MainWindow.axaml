@@ -36,7 +36,7 @@
         <!-- ─── Path inputs ─────────────────────────────────────────── -->
         <Border Grid.Row="0" BorderBrush="#555" BorderThickness="1" CornerRadius="4"
                 Padding="12" Margin="0,0,0,12">
-            <Grid ColumnDefinitions="220,*,110" RowDefinitions="Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="220,*,110" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
 
                 <Label Grid.Row="0" Grid.Column="0" Classes="field" Content="Mod Excel Directory"/>
                 <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ExcelPath}" Margin="0,3"/>
@@ -54,9 +54,15 @@
                 <Button Grid.Row="2" Grid.Column="2" Content="Browse..." Click="BrowseBaseStrings_Click"
                         HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
 
-                <Label Grid.Row="3" Grid.Column="0" Classes="field" Content="Output Files Directory"/>
-                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding OutputPath}" Margin="0,3"/>
-                <Button Grid.Row="3" Grid.Column="2" Content="Browse..." Click="BrowseOutput_Click"
+                <Label Grid.Row="3" Grid.Column="0" Classes="field" Content="CASC Base Data (optional)"
+                       ToolTip.Tip="Optional extracted vanilla D2R data root. Mod item sprites override vanilla sprites and all referenced assets are converted to WebP."/>
+                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding BaseAssetsPath}" Margin="0,3"/>
+                <Button Grid.Row="3" Grid.Column="2" Content="Browse..." Click="BrowseBaseAssets_Click"
+                        HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
+
+                <Label Grid.Row="4" Grid.Column="0" Classes="field" Content="Output Files Directory"/>
+                <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding OutputPath}" Margin="0,3"/>
+                <Button Grid.Row="4" Grid.Column="2" Content="Browse..." Click="BrowseOutput_Click"
                         HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
             </Grid>
         </Border>

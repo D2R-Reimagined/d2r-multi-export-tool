@@ -50,6 +50,13 @@ public sealed class GameData
     public List<CubeRecipeExport> CubeRecipes { get; set; } = [];
 
     /// <summary>
+    /// Per-level skill description lines, keyed by <c>skills.txt</c> <c>*Id</c>. Populated
+    /// by <see cref="Import.SkillDescriptionImporter"/> and attached to each skill by
+    /// <c>SkillTreeExporter</c>.
+    /// </summary>
+    public Dictionary<int, SkillDescriptionSet> SkillDescriptions { get; set; } = [];
+
+    /// <summary>
     /// Resolves a 3-letter class code (e.g. "sor") or full class name to the display class name.
     /// </summary>
     public string ResolveClassName(string? code)

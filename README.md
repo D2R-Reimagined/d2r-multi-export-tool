@@ -82,6 +82,10 @@ or the site needs them to. It is not a general-purpose D2R data dumper.
   `extras\missing-translations.txt` reports keys after a run, extract
   `data\local\lng\strings\*.json` from a D2R install with CascView and
   pass that directory via `--base-strings`.
+- Optional: an extracted vanilla D2R `data` root. Pass it with
+  `--base-assets` to export vanilla item art beneath any matching mod
+  overrides. The exporter decodes D2R's SpA1 `.sprite` files and writes
+  quality-92 WebP files; it does not redistribute source game assets.
 
 ## Releases
 
@@ -128,6 +132,7 @@ The console tool exposes a single `export` command.
 | `--mod-strings` | `--translations`, `-t` | Path to the mod's `data\local\lng\strings` directory |
 | `--out` | `--export`, `-o` | Output directory for the generated bundle |
 | `--base-strings` | `-b` | *(optional)* Path to a CASC dump of the base-game `local\lng\strings` dir, used as fallback for keys the mod doesn't override |
+| `--base-assets` | | *(optional)* Path to an extracted vanilla D2R data root; matching Reimagined sprites override vanilla assets and referenced item art is converted to WebP |
 | `--config` | | *(optional)* Override the bundled `Config\` directory |
 | `--pretty` | | Pretty-print JSON (default `true`) |
 | `--early-stop` | | Stop importing `CubeMain.txt` at the first sentinel row (default `true`) |
@@ -141,6 +146,7 @@ dotnet run --project .\D2RMultiExport.Console -- export `
   --excel        "..\d2r-reimagined-mod\data\global\excel" `
   --mod-strings  "..\d2r-reimagined-mod\data\local\lng\strings" `
   --base-strings "<path-to-CascView-extracted-strings>" `
+  --base-assets  "<path-to-extracted-D2R-data-root>" `
   --out          ".\test-output"
 ```
 
@@ -171,7 +177,12 @@ import/export pipeline progress and per-phase issues live.
 │   ├── runewords.json
 │   ├── sets.json
 │   ├── uniques.json
+│   ├── item-presentation.json
 │   └── cube-recipes.json
+├── sprites/
+│   ├── items/              # referenced vanilla + mod item art as WebP
+│   └── ui/
+│       └── inventory.webp  # Reimagined inventory/equipment panel
 ├── strings/
 │   ├── enUS.json
 │   ├── deDE.json

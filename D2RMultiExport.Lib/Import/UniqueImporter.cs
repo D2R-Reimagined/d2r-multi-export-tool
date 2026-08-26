@@ -94,6 +94,10 @@ public sealed class UniqueImporter
 
                 var unique = new UniqueExport
                 {
+                    // The save format stores the zero-based UniqueItems.txt row,
+                    // including disabled rows, rather than the table's `id` value.
+                    FileIndex = rawRow > 0 ? rawRow - 1 : entry.ID,
+                    InventoryFile = entry.InvFile,
                     // Use the canonical itype index (e.g. "h2hitype") instead
                     // of the English ItemTypeName so the website resolves the
                     // type label via strings/<lang>.json the same way weapons

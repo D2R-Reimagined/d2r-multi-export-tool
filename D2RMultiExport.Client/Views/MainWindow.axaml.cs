@@ -133,6 +133,22 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void BrowseBaseAssets_Click(object? sender, RoutedEventArgs e)
+    {
+        var vm = DataContext as MainWindowViewModel;
+        var result = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Select Extracted Vanilla D2R Data Root (optional)",
+            AllowMultiple = false,
+            SuggestedStartLocation = await ResolveStartFolderAsync(vm?.BaseAssetsPath)
+        });
+
+        if (result.Count > 0 && vm is not null)
+        {
+            vm.BaseAssetsPath = result[0].Path.LocalPath;
+        }
+    }
+
     private async void BrowseOutput_Click(object? sender, RoutedEventArgs e)
     {
         var vm = DataContext as MainWindowViewModel;

@@ -1,0 +1,23 @@
+{
+    "$comment": "Layout table for the skilldesc.txt 'descline'/'dsc2line'/'dsc3line' description functions. Each key is the numeric column value; the object describes how the sibling desctextA / desctextB / desccalcA / desccalcB columns bind to the translated template. Add a row here (no recompile) when a mod introduces a description function the exporter has not seen — unknown functions are skipped and reported as warnings in extras/import-report.txt.",
+
+    "$layoutNote": "layout: 'textOnly' = template takes no numeric argument; 'singleValue' = one argument from calcA; 'valueWithDivisor' = one argument, calcA / calcB (calcB defaults to 1); 'twoValues' = two arguments, calcA then calcB; 'sumOfValues' = one argument, calcA + calcB.",
+    "$pluralNote": "plural: desctextA is the singular template and desctextB the plural one; the website picks by the rendered value (1 => singular).",
+    "$nameArgNote": "nameArg: desctextB is not a template but a translation key spliced in as the template's leading %s argument (synergy / bonus-source lines).",
+
+    "functions": {
+        "12": { "layout": "valueWithDivisor" },
+        "13": { "layout": "sumOfValues" },
+        "18": { "layout": "textOnly" },
+        "31": { "layout": "valueWithDivisor", "plural": true },
+        "36": { "layout": "valueWithDivisor", "plural": true },
+        "40": { "layout": "textOnly", "nameArg": true },
+        "56": { "layout": "textOnly" },
+        "74": { "layout": "valueWithDivisor" },
+        "75": { "layout": "twoValues" },
+        "76": { "layout": "singleValue", "nameArg": true },
+        "77": { "layout": "twoValues", "nameArg": true },
+        "78": { "layout": "textOnly", "nameArg": true },
+        "79": { "layout": "valueWithDivisor", "nameArg": true }
+    }
+}

@@ -95,7 +95,10 @@
         "ass": [ "SkillCategoryAs3", "SkillCategoryAs2", "SkillCategoryAs1" ],
         "war": [ "SkillCategoryWa1", "SkillCategoryWa2", "SkillCategoryWa3" ]
     },
-
+  
+    "$skillDescriptionBonusLevelsNote": "Levels past each skill's maxlvl that the exported per-level description tables cover, so the planner can preview +skills gear. 0 stops at the hard-point cap.",
+    "skillDescriptionBonusLevels": 20,
+  
     "$skippedAutoMagicGroupsNote": "AutoMagic.txt group ids skipped wholesale during keyed export.",
     "skippedAutoMagicGroups": [ 0, 309, 310, 311, 312, 316, 319 ],
 

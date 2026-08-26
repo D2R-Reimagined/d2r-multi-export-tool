@@ -21,6 +21,11 @@ var baseStringsOption = new Option<string?>("--base-strings", "-b")
     Description = "Optional path to the read-only CASC base strings dir (used to fill keys missing from the mod overrides). Example: C:\\z_Casc\\data\\data\\local\\lng\\strings"
 };
 
+var baseAssetsOption = new Option<string?>("--base-assets")
+{
+    Description = "Optional path to an extracted vanilla D2R data root. Vanilla HD sprites are overlaid by matching mod sprites and exported as WebP."
+};
+
 var exportOption = new Option<string>("--export", "--out", "-o")
 {
     Description = "Path for generated export",
@@ -58,7 +63,7 @@ var continueOnExceptionOption = new Option<bool>("--continue-on-exception")
 
 var exportCommand = new Command("export", "Import game data and export the key-based JSON bundle (keyed/*.json + strings/{lang}.json × 13)")
 {
-    excelOption, modStringsOption, baseStringsOption, exportOption, configOption,
+    excelOption, modStringsOption, baseStringsOption, baseAssetsOption, exportOption, configOption,
     prettyOption,
     earlyStopOption, cubeRecipeDescOption, continueOnExceptionOption
 };
@@ -68,6 +73,7 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
     var excel        = parseResult.GetValue(excelOption)!;
     var modStrings   = parseResult.GetValue(modStringsOption)!;
     var baseStrings  = parseResult.GetValue(baseStringsOption);
+    var baseAssets   = parseResult.GetValue(baseAssetsOption);
     var export       = parseResult.GetValue(exportOption)!;
     var config       = parseResult.GetValue(configOption);
 
@@ -75,6 +81,7 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
     {
         PrettyPrintJson           = parseResult.GetValue(prettyOption),
         BaseStringsPath           = baseStrings,
+        BaseAssetsPath            = baseAssets,
         EarlyStopSentinelEnabled  = parseResult.GetValue(earlyStopOption),
         CubeRecipeUseDescription  = parseResult.GetValue(cubeRecipeDescOption),
         ContinueOnException       = parseResult.GetValue(continueOnExceptionOption),

@@ -9,6 +9,7 @@ public sealed class AppSettings
     public string ExcelPath { get; set; } = string.Empty;
     public string TranslationsPath { get; set; } = string.Empty;
     public string BaseStringsPath { get; set; } = string.Empty;
+    public string BaseAssetsPath { get; set; } = string.Empty;
     public string OutputPath { get; set; } = string.Empty;
     public bool PrettyPrintJson { get; set; } = true;
     public bool ContinueOnException { get; set; } = false;
