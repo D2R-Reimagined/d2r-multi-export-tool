@@ -19,8 +19,8 @@ namespace D2RMultiExport.Lib.Translation;
 ///   • Rune lore prefix     leading <c>*</c> on a line
 ///   • Rune number suffix   text after <c> ÿc9(</c>
 ///   • Rune ranges          <c>(# ##)</c> patterns
-///   • PICK UP suffix       <c>~PICK UP~</c> or <c>~Pick Up~</c> (newline-separated)
-///   • Trailing newlines    <c>\\n</c>, <c>\n</c>, <c>\r</c>
+///   • PICK UP suffix       <c>~PICK UP~</c> or <c>~Pick Up~</c>
+///   • Line breaks          <c>\\n</c>, <c>\n</c>, <c>\r</c> reflowed into one paragraph
 /// </summary>
 public sealed class MultiLanguageTranslationService
 {
@@ -353,12 +353,11 @@ public sealed class MultiLanguageTranslationService
         // the rendered string. Color codes are stripped further down so the
         // suffix becomes the bare "(#2)" form.
 
-        // Truncate at the first newline — this dumps "~PICK UP~" and other multi-line lore.
-        int nlIdx = input.IndexOfAny(['\n', '\r']);
-        if (nlIdx >= 0) input = input[..nlIdx];
-
-        // Drop the literal "\\n" sequence the game uses for soft line breaks.
-        input = input.Replace("\\n", " ");
+        // The game wraps long descriptions across several lines to fit its own tooltips. The
+        // website lays them out itself, so the lines are reflowed into one paragraph rather
+        // than the string being cut at the first break — that used to discard everything
+        // past line one of every skill description.
+        input = ReflowLines(input);
 
         // Strip "(# ##)" range placeholders the game uses on rune descriptions.
         // Pattern variants: "(#)", "(#-#)", "(# ##)", "(##)"
@@ -372,23 +371,84 @@ public sealed class MultiLanguageTranslationService
         input = System.Text.RegularExpressions.Regex.Replace(input, @"~[Pp][Ii][Cc][Kk] [Uu][Pp]~", "");
 
         // Strip D2R inline color codes (\u00FF + 'c' + 1-char selector).
-        if (input.IndexOf('\u00FF') >= 0)
-        {
-            var sb = new System.Text.StringBuilder(input.Length);
-            for (int i = 0; i < input.Length; i++)
-            {
-                if (input[i] == '\u00FF' && i + 2 < input.Length && input[i + 1] == 'c')
-                {
-                    i += 2; continue;
-                }
-                sb.Append(input[i]);
-            }
-            input = sb.ToString();
-        }
+        input = StripColorCodes(input);
 
         // Strip embedded standalone '*' chars (NOT after we already handled the leading one).
         input = input.Replace("*", "");
 
+        // Joining lines and removing markers can leave runs of spaces where the game had a
+        // break between two stripped fragments.
+        input = System.Text.RegularExpressions.Regex.Replace(input, @"[ \t]{2,}", " ");
+
         return input.Trim();
     }
+
+    /// <summary>
+    /// Joins the lines of a multi-line game string into a single paragraph. Runs of line
+    /// breaks — including the blank line the game puts between a heading and its body —
+    /// collapse to one separator: a space, or nothing when the characters on either side
+    /// are Chinese or Japanese, whose scripts do not space their words. Lines carrying only
+    /// a "~Pick Up~" marker are dropped rather than folded into the sentence.
+    /// </summary>
+    private static string ReflowLines(string input)
+    {
+        // The game uses both a real newline and the literal two-character "\n" soft break.
+        input = input.Replace("\\n", "\n");
+        if (input.IndexOfAny(['\n', '\r']) < 0) return input;
+
+        var sb = new System.Text.StringBuilder(input.Length);
+        foreach (var line in input.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var text = line.Trim();
+            if (text.Length == 0 || IsPickUpMarker(text)) continue;
+            if (sb.Length > 0 && !(IsUnspacedScript(sb[^1]) && IsUnspacedScript(text[0]))) sb.Append(' ');
+            sb.Append(text);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// True when a line carries nothing but the game's "pick up" hint. That hint is
+    /// translated into all 13 languages, so the test is the tilde delimiters wrapping the
+    /// whole line rather than the English words — which also keeps it away from the tilde
+    /// the Korean strings use as a range separator ("-10%% ~ -25%%"), since those lines
+    /// carry plenty of other text.
+    /// </summary>
+    private static bool IsPickUpMarker(string line)
+    {
+        var text = StripColorCodes(line).Trim();
+        return text.Length > 2
+            && text[0] == '~'
+            && text[^1] == '~'
+            && text.IndexOf('~', 1, text.Length - 2) < 0;
+    }
+
+    /// <summary>Removes D2R inline color codes (<c>\u00FF</c> + <c>'c'</c> + 1-char selector).</summary>
+    private static string StripColorCodes(string input)
+    {
+        if (input.IndexOf('\u00FF') < 0) return input;
+
+        var sb = new System.Text.StringBuilder(input.Length);
+        for (int i = 0; i < input.Length; i++)
+        {
+            if (input[i] == '\u00FF' && i + 2 < input.Length && input[i + 1] == 'c')
+            {
+                i += 2; continue;
+            }
+            sb.Append(input[i]);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// True for the CJK ranges that run words together without spaces: Han ideographs,
+    /// Japanese kana, and the punctuation and full-width forms that sit alongside them.
+    /// Hangul is deliberately excluded — Korean does space its words.
+    /// </summary>
+    private static bool IsUnspacedScript(char c)
+        => c is >= '\u3000' and <= '\u30FF'   // CJK punctuation, hiragana, katakana
+        || c is >= '\u3400' and <= '\u4DBF'   // CJK unified ideographs extension A
+        || c is >= '\u4E00' and <= '\u9FFF'   // CJK unified ideographs
+        || c is >= '\uF900' and <= '\uFAFF'   // CJK compatibility ideographs
+        || c is >= '\uFF01' and <= '\uFF60';  // full-width forms
 }
