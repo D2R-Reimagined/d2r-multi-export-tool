@@ -45,6 +45,20 @@ public sealed class UniqueImporter
                 rawIndexByName[idx] = i + 1; // 1-based including header
         }
 
+        // The binary unique ID is the zero-based UniqueItems.txt row position after
+        // the game's legacy Expansion marker is removed. Other section-header rows
+        // still consume IDs, so neither the physical row nor the informational *ID
+        // column is authoritative once the mod adds section headers.
+        var saveIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var saveIndex = 0;
+        foreach (var entry in rawEntries)
+        {
+            if (string.Equals(entry.Index, "Expansion", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.IsNullOrWhiteSpace(entry.Index) && !saveIndexByName.ContainsKey(entry.Index))
+                saveIndexByName[entry.Index] = saveIndex;
+            saveIndex++;
+        }
+
         foreach (var entry in rawEntries)
         {
             var name = entry.Index ?? "";
@@ -94,9 +108,7 @@ public sealed class UniqueImporter
 
                 var unique = new UniqueExport
                 {
-                    // The save format stores the zero-based UniqueItems.txt row,
-                    // including disabled rows, rather than the table's `id` value.
-                    FileIndex = rawRow > 0 ? rawRow - 1 : entry.ID,
+                    FileIndex = saveIndexByName[name],
                     InventoryFile = entry.InvFile,
                     // Use the canonical itype index (e.g. "h2hitype") instead
                     // of the English ItemTypeName so the website resolves the

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System.Text.Json;
+using System.Globalization;
+using D2RMultiExport.Lib.Import;
 using D2RMultiExport.Lib.Models;
 
 namespace D2RMultiExport.Lib.Exporters;
@@ -69,10 +71,12 @@ internal static class SkillTreeExporter
 
         return new KeyedSkill
         {
+            Calculation = MapCalculation(skill),
             Descriptions = descriptions,
             Id = skill.Id,
             Code = skill.Skill,
             NameKey = skill.NameKey,
+            ElementType = NullIfWhiteSpace(skill.SourceRow?.EType),
             ShortDescriptionKey = desc?.ShortString,
             DescriptionKey = desc?.LongString,
             Icon = desc?.IconCel is >= 0 && !string.IsNullOrWhiteSpace(skill.CharClass)
@@ -90,6 +94,35 @@ internal static class SkillTreeExporter
                 .ToList()
         };
     }
+
+    private static KeyedSkillCalculation? MapCalculation(SkillEntry skill)
+    {
+        var row = skill.SourceRow;
+        if (row is null) return null;
+        var calculation = new KeyedSkillCalculation
+        {
+            Params = Enumerable.Range(1, 20)
+                .Select(index => (Index: index, Raw: SkillCalcSource.Param(row, index)))
+                .Where(static entry => long.TryParse(entry.Raw, NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out var value) && value != 0)
+                .ToDictionary(static entry => entry.Index, static entry => long.Parse(entry.Raw!, CultureInfo.InvariantCulture)),
+            Calcs = Enumerable.Range(1, 10)
+                .Select(index => (Index: index, Value: SkillCalcSource.Calc(row, index)))
+                .Where(static entry => !string.IsNullOrWhiteSpace(entry.Value))
+                .ToDictionary(static entry => entry.Index, static entry => entry.Value!),
+            PhysicalDamage = NullIfWhiteSpace(row.DmgSymPerCalc),
+            ElementalDamage = NullIfWhiteSpace(row.EDmgSymPerCalc),
+            ElementalLength = NullIfWhiteSpace(row.ELenSymPerCalc)
+        };
+        return calculation.Params.Count == 0 && calculation.Calcs.Count == 0
+               && calculation.PhysicalDamage is null && calculation.ElementalDamage is null
+               && calculation.ElementalLength is null
+            ? null
+            : calculation;
+    }
+
+    private static string? NullIfWhiteSpace(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value;
 
     private static string ResolveCategoryKey(string classCode, string className, int page, GameData data)
     {
@@ -124,6 +157,7 @@ internal static class SkillTreeExporter
         public int Id { get; set; }
         public string Code { get; set; } = "";
         public string NameKey { get; set; } = "";
+        public string? ElementType { get; set; }
         public string? ShortDescriptionKey { get; set; }
         public string? DescriptionKey { get; set; }
 
@@ -133,6 +167,7 @@ internal static class SkillTreeExporter
         public int RequiredLevel { get; set; }
         public int MaxLevel { get; set; }
         public List<int> PrerequisiteIds { get; set; } = [];
+        public KeyedSkillCalculation? Calculation { get; set; }
 
 
         /// <summary>
@@ -140,5 +175,14 @@ internal static class SkillTreeExporter
         /// Null for skills whose <c>skilldesc.txt</c> row carries no description lines.
         /// </summary>
         public SkillDescriptionSet? Descriptions { get; set; }
+    }
+
+    private sealed class KeyedSkillCalculation
+    {
+        public Dictionary<int, long> Params { get; set; } = [];
+        public Dictionary<int, string> Calcs { get; set; } = [];
+        public string? PhysicalDamage { get; set; }
+        public string? ElementalDamage { get; set; }
+        public string? ElementalLength { get; set; }
     }
 }

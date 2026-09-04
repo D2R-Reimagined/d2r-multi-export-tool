@@ -363,6 +363,10 @@ public sealed class D2RMultiExportPipeline
                 _excelPath,
                 Data,
                 PrettyPrintJson);
+            await RareNameExporter.ExportAsync(
+                _exportPath,
+                _excelPath,
+                PrettyPrintJson);
         });
 
         // 6a. Compute the set of every string that actually appears as a value inside

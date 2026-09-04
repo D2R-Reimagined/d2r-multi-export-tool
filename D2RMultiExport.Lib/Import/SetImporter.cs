@@ -90,6 +90,20 @@ public sealed class SetImporter
                 rawIndexByName[idx] = i + 1;
         }
 
+        // Set quality uses the same binary table convention as uniques: the
+        // zero-based SetItems.txt row position after the legacy Expansion marker
+        // is removed. Derive it from row structure rather than the informational
+        // *ID column so later mod section headers cannot desync saved identities.
+        var saveIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var saveIndex = 0;
+        foreach (var entry in rawEntries)
+        {
+            if (string.Equals(entry.Index, "Expansion", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.IsNullOrWhiteSpace(entry.Index) && !saveIndexByName.ContainsKey(entry.Index))
+                saveIndexByName[entry.Index] = saveIndex;
+            saveIndex++;
+        }
+
         foreach (var entry in _data.SetItemEntries.Values)
         {
             try
@@ -104,7 +118,7 @@ public sealed class SetImporter
 
                 var export = new SetItemExport
                 {
-                    FileIndex = int.TryParse(entry.Id, out var fileIndex) ? fileIndex : rawIdx - 1,
+                    FileIndex = saveIndexByName[entry.Index ?? ""],
                     InventoryFile = entry.InventoryFile,
                     Name = _data.Translations.GetValue(entry.Index ?? ""),
                     Index = entry.Index ?? "",

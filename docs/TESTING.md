@@ -110,6 +110,21 @@ Expected (levels 1 / 10 / 25 shown; tables are indexed by `level - 1`):
 Plus three `Synergies` entries: `Sksyn` (`args: ["skillname36"]`), and `Firedplev` for
 `skillname47` / `skillname56` with `values: [[14]]`.
 
+The website also uses two export details when rendering save-backed characters:
+
+- Each elemental skill carries its source `EType` as `ElementType` (for example,
+  Frozen Orb is `cold`) so `item_elemskill` bonuses can be applied without guessing.
+- Description tables extend 40 levels past the hard-point cap. Frozen Orb therefore has
+  `Descriptions.MaxLevel: 65`, covering heavily geared characters whose effective skill
+  rank is substantially above its `MaxLevel: 25` investment cap.
+
+```powershell
+$skills = Get-Content .\test-output\keyed\skills.json -Raw | ConvertFrom-Json
+$allSkills = @($skills | ForEach-Object { $_.Tabs | ForEach-Object { $_.Skills } })
+$allSkills | Where-Object Code -eq 'Frozen Orb' |
+  Select-Object Code, ElementType, MaxLevel, @{Name='DescriptionMaxLevel'; Expression={$_.Descriptions.MaxLevel}}
+```
+
 Failure modes to watch for:
 
 - **Mana cost `2`** — the `usmc / 256` division was truncated to an integer somewhere; the
@@ -128,7 +143,53 @@ up in `extras\missing-translations.txt`. One is currently expected — `skillnam
 synergy-source name on Teeth / Bone Spear / Bone Spirit, which has no row in the mod's
 string files. Fix it in `data\local\lng\strings`, not here.
 
-### 3.3 Adding a new fixture
+### 3.3 Unique save IDs and named sprite assets
+
+`UniqueExport.FileIndex` must use the parsed UniqueItems.txt row position after excluding
+the legacy `Expansion` marker. Other section-header rows still consume binary IDs, while the
+informational `*ID` column skips them and therefore drifts from the save format. Unique
+artwork must be selected by normalized unique name from `hd/items/uniques.json`, not by
+array position.
+
+| Unique | Code | Expected `FileIndex` | Expected sprite |
+|---|---|---:|---|
+| **Magefist** | `tgl` | `105` | `sprites/items/armor-glove-light_gauntlets.webp` |
+| **The Spirit Shroud** | `xui` | `209` | `sprites/items/armor-armor-quilted_armor.webp` |
+| **Skin of the Vipermagi** | `xea` | `210` | `sprites/items/armor-armor-leather_armor.webp` |
+| **Sorcerer's Cache** | `ci1` | `1015` | `sprites/items/armor-circlet-coronet.webp` |
+| **Asheara's Slippers** | `xvb` | `1102` | `sprites/items/armor-boot-heavy_boots.webp` |
+| **Duskwreath** | `ulc` | `1137` | `sprites/items/armor-belt-sash_l.webp` |
+
+Quick check:
+
+```powershell
+Select-String -Path .\test-output\keyed\item-presentation.json `
+  -Pattern '"FileIndex": 105|"FileIndex": 209|"FileIndex": 210|"FileIndex": 1015|"FileIndex": 1102|"FileIndex": 1137' `
+  -Context 0,3
+```
+
+### 3.4 Set save IDs and miscellaneous set names
+
+Set items use the same parsed-row convention as uniques. `item-presentation.json` must
+also attach `SetSprites` to miscellaneous bases such as rings and amulets, not only armor
+and weapons.
+
+| Set item | Code | Expected `FileIndex` | Expected sprite |
+|---|---|---:|---|
+| **Angelic Halo** | `rin` | `52` | `sprites/items/misc-ring-ring.webp` |
+| **Kingpin's Signet** | `rin` | `296` | `sprites/items/misc-ring-ring.webp` |
+| **Draven Coil** | `rin` | `307` | `sprites/items/misc-ring-ring.webp` |
+| **Holy Ring of Amaunator** | `rin` | `384` | `sprites/items/misc-ring-ring.webp` |
+
+Quick check:
+
+```powershell
+Select-String -Path .\test-output\keyed\item-presentation.json `
+  -Pattern '"NameKey": "Angelic Halo"|"NameKey": "Kingpin''s Signet"|"NameKey": "Draven Coil"|"NameKey": "Holy Ring of Amaunator"' `
+  -Context 1,1
+```
+
+### 3.5 Adding a new fixture
 
 When a bug is fixed for a specific item, add a row to the table above
 with the item name, code (from `armor.txt` / `weapons.txt`), the

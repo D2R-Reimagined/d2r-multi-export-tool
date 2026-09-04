@@ -460,6 +460,15 @@ public sealed class SkillDescriptionLine
     public string Key { get; set; } = "";
 
     /// <summary>
+    /// Damage family whose <c>*DmgSymPerCalc</c> percentage applies to this line.
+    /// The website evaluates that source expression against the live planner ranks before
+    /// rendering the already-solved base values.
+    /// </summary>
+    [JsonPropertyName("scale")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Scale { get; set; }
+
+    /// <summary>
     /// Plural template (<c>desctextB</c>) for the description functions that ship a
     /// singular/plural pair. The website picks this one whenever the rendered value is not
     /// exactly 1. Serialized only when the function supplies it.

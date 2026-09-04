@@ -32,8 +32,8 @@ public static class ItemPresentationExporter
         assetRoots.Add(modDataRoot);
 
         var baseAssets = LoadBaseAssetMap(Path.Combine(modDataRoot, "hd", "items", "items.json"));
-        var uniqueAssets = LoadVariantAssetMap(Path.Combine(modDataRoot, "hd", "items", "uniques.json"));
-        var setAssets = LoadVariantAssetMap(Path.Combine(modDataRoot, "hd", "items", "sets.json"));
+        var uniqueAssets = LoadNamedVariantAssetMap(Path.Combine(modDataRoot, "hd", "items", "uniques.json"));
+        var setAssets = LoadNamedVariantAssetMap(Path.Combine(modDataRoot, "hd", "items", "sets.json"));
         var spriteCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
         var rows = new List<ItemPresentation>();
@@ -50,14 +50,37 @@ public static class ItemPresentationExporter
         foreach (var entry in data.MiscItems.Values.OrderBy(static item => item.Code, StringComparer.Ordinal))
         {
             baseAssets.TryGetValue(entry.Code, out var asset);
-            rows.Add(new ItemPresentation
+            var result = new ItemPresentation
             {
                 Code = entry.Code,
                 NameKey = entry.NameStr,
                 Width = entry.InventoryWidth,
                 Height = entry.InventoryHeight,
                 Sprite = await ExportSpriteAsync("misc", asset, assetRoots, exportDir, spriteCache)
-            });
+            };
+            foreach (var unique in data.Uniques.Where(item =>
+                         string.Equals(item.Code, entry.Code, StringComparison.OrdinalIgnoreCase)))
+            {
+                var variantAsset = GetVariant(uniqueAssets, unique.Index, "normal");
+                result.UniqueSprites.Add(new ItemSpriteVariant
+                {
+                    FileIndex = unique.FileIndex,
+                    NameKey = unique.Index,
+                    Sprite = await ExportSpriteAsync("misc", variantAsset ?? asset, assetRoots, exportDir, spriteCache)
+                });
+            }
+            foreach (var setItem in data.Sets.SelectMany(static set => set.SetItems).Where(item =>
+                         string.Equals(item.Code, entry.Code, StringComparison.OrdinalIgnoreCase)))
+            {
+                var variantAsset = GetVariant(setAssets, setItem.Index, "normal");
+                result.SetSprites.Add(new ItemSpriteVariant
+                {
+                    FileIndex = setItem.FileIndex,
+                    NameKey = setItem.Index,
+                    Sprite = await ExportSpriteAsync("misc", variantAsset ?? asset, assetRoots, exportDir, spriteCache)
+                });
+            }
+            rows.Add(result);
         }
 
         var keyedDir = Path.Combine(exportDir, "keyed");
@@ -83,8 +106,8 @@ public static class ItemPresentationExporter
         EquipmentEntry entry,
         string category,
         IReadOnlyDictionary<string, string> baseAssets,
-        IReadOnlyList<AssetVariants> uniqueAssets,
-        IReadOnlyList<AssetVariants> setAssets,
+        IReadOnlyDictionary<string, AssetVariants> uniqueAssets,
+        IReadOnlyDictionary<string, AssetVariants> setAssets,
         GameData data,
         IReadOnlyList<string> assetRoots,
         string exportDir,
@@ -103,7 +126,7 @@ public static class ItemPresentationExporter
         foreach (var unique in data.Uniques.Where(item =>
                      string.Equals(item.Code, entry.Code, StringComparison.OrdinalIgnoreCase)))
         {
-            var asset = GetVariant(uniqueAssets, unique.FileIndex, GetTier(entry, unique.Code));
+            var asset = GetVariant(uniqueAssets, unique.Index, GetTier(entry, unique.Code));
             result.UniqueSprites.Add(new ItemSpriteVariant
             {
                 FileIndex = unique.FileIndex,
@@ -115,7 +138,7 @@ public static class ItemPresentationExporter
         foreach (var setItem in data.Sets.SelectMany(static set => set.SetItems).Where(item =>
                      string.Equals(item.Code, entry.Code, StringComparison.OrdinalIgnoreCase)))
         {
-            var asset = GetVariant(setAssets, setItem.FileIndex, GetTier(entry, setItem.Code));
+            var asset = GetVariant(setAssets, setItem.Index, GetTier(entry, setItem.Code));
             result.SetSprites.Add(new ItemSpriteVariant
             {
                 FileIndex = setItem.FileIndex,
@@ -134,10 +157,12 @@ public static class ItemPresentationExporter
         return "normal";
     }
 
-    private static string? GetVariant(IReadOnlyList<AssetVariants> assets, int index, string tier)
+    private static string? GetVariant(
+        IReadOnlyDictionary<string, AssetVariants> assets,
+        string name,
+        string tier)
     {
-        if (index < 0 || index >= assets.Count) return null;
-        var entry = assets[index];
+        if (!assets.TryGetValue(NormalizeAssetKey(name), out var entry)) return null;
         return tier switch
         {
             "uber" => entry.Uber ?? entry.Normal,
@@ -163,19 +188,39 @@ public static class ItemPresentationExporter
         return result;
     }
 
-    private static List<AssetVariants> LoadVariantAssetMap(string path)
+    private static Dictionary<string, AssetVariants> LoadNamedVariantAssetMap(string path)
     {
         using var document = JsonDocument.Parse(File.ReadAllText(path));
-        var result = new List<AssetVariants>();
+        var result = new Dictionary<string, AssetVariants>(StringComparer.OrdinalIgnoreCase);
         foreach (var wrapper in document.RootElement.EnumerateArray())
         {
             var property = wrapper.EnumerateObject().First();
-            result.Add(new AssetVariants(
+            result[NormalizeAssetKey(property.Name)] = new AssetVariants(
                 property.Value.TryGetProperty("normal", out var normal) ? normal.GetString() : null,
                 property.Value.TryGetProperty("uber", out var uber) ? uber.GetString() : null,
-                property.Value.TryGetProperty("ultra", out var ultra) ? ultra.GetString() : null));
+                property.Value.TryGetProperty("ultra", out var ultra) ? ultra.GetString() : null);
         }
         return result;
+    }
+
+    private static string NormalizeAssetKey(string value)
+    {
+        var result = new System.Text.StringBuilder(value.Length);
+        var needsSeparator = false;
+        foreach (var character in value)
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                if (needsSeparator && result.Length > 0) result.Append('_');
+                result.Append(char.ToLowerInvariant(character));
+                needsSeparator = false;
+            }
+            else
+            {
+                needsSeparator = true;
+            }
+        }
+        return result.ToString();
     }
 
     private static async Task<string?> ExportSpriteAsync(
@@ -189,19 +234,25 @@ public static class ItemPresentationExporter
         var cacheKey = $"{category}/{asset}";
         if (cache.TryGetValue(cacheKey, out var cached)) return cached;
 
+        var fileName = string.Join('-', new[] { category, asset }
+            .SelectMany(static part => part.Split('/', '\\'))).ToLowerInvariant() + ".webp";
+        var relativeOutput = Path.Combine("sprites", "items", fileName).Replace('\\', '/');
+        var outputPath = Path.Combine(exportDir, relativeOutput.Replace('/', Path.DirectorySeparatorChar));
         var relativeSource = Path.Combine("hd", "global", "ui", "items", category,
             asset.Replace('/', Path.DirectorySeparatorChar) + ".sprite");
         var source = assetRoots.Select(root => Path.Combine(root, relativeSource)).LastOrDefault(File.Exists);
         if (source is null)
         {
+            if (File.Exists(outputPath))
+            {
+                cache[cacheKey] = relativeOutput;
+                return relativeOutput;
+            }
             cache[cacheKey] = null;
             return null;
         }
 
-        var fileName = string.Join('-', new[] { category, asset }
-            .SelectMany(static part => part.Split('/', '\\'))).ToLowerInvariant() + ".webp";
-        var relativeOutput = Path.Combine("sprites", "items", fileName).Replace('\\', '/');
-        await ConvertSpriteAsync(source, Path.Combine(exportDir, relativeOutput.Replace('/', Path.DirectorySeparatorChar)));
+        await ConvertSpriteAsync(source, outputPath);
         cache[cacheKey] = relativeOutput;
         return relativeOutput;
     }

@@ -92,7 +92,11 @@ public sealed class SkillDescriptionImporter(GameData data, int bonusLevels)
         int maxLevel,
         out SkillDescriptionLine built)
     {
-        built = new SkillDescriptionLine { Key = line.TextA! };
+        built = new SkillDescriptionLine
+        {
+            Key = line.TextA!,
+            Scale = ResolveDamageScale(skill, line)
+        };
 
         if (layout.NameArg && !string.IsNullOrWhiteSpace(line.TextB))
             built.Args = [line.TextB];
@@ -214,4 +218,40 @@ public sealed class SkillDescriptionImporter(GameData data, int bonusLevels)
 
     private static string Describe(SkillDescLine line)
         => string.IsNullOrWhiteSpace(line.CalcB) ? line.CalcA ?? "" : $"{line.CalcA} / {line.CalcB}";
+
+    private static string? ResolveDamageScale(SkillEntry skill, SkillDescLine line)
+    {
+        if (ReferencesAny(skill, [line.CalcA, line.CalcB], ["pnma", "pxma", "pnms", "pxms"]))
+            return "physical";
+        if (ReferencesAny(skill, [line.CalcA, line.CalcB], ["edmn", "edmx", "edns", "edxs", "enma", "exma", "enms", "exms"]))
+            return "elemental";
+        if (ReferencesAny(skill, [line.CalcA, line.CalcB], ["edln"]))
+            return "elementalLength";
+        return null;
+    }
+
+    private static bool ReferencesAny(
+        SkillEntry skill,
+        IEnumerable<string?> expressions,
+        IReadOnlyCollection<string> symbols)
+    {
+        var pending = new Stack<string>(expressions.Where(static value => !string.IsNullOrWhiteSpace(value))!);
+        var visitedCalcs = new HashSet<int>();
+        while (pending.TryPop(out var expression))
+        {
+            var tokens = System.Text.RegularExpressions.Regex.Matches(expression, @"\b[a-zA-Z]+\d*\b")
+                .Select(static match => match.Value);
+            foreach (var token in tokens)
+            {
+                if (symbols.Contains(token, StringComparer.OrdinalIgnoreCase)) return true;
+                if (!token.StartsWith("clc", StringComparison.OrdinalIgnoreCase)
+                    || !int.TryParse(token[3..], out var index)
+                    || index is < 1 or > 10
+                    || !visitedCalcs.Add(index)) continue;
+                var nested = SkillCalcSource.Calc(skill.SourceRow, index);
+                if (!string.IsNullOrWhiteSpace(nested)) pending.Push(nested);
+            }
+        }
+        return false;
+    }
 }

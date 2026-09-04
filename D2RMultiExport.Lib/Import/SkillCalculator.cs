@@ -59,7 +59,7 @@ internal static class SkillCalculator
 
         // Mod authors quote calc cells that contain a comma so the .txt column survives
         // a spreadsheet round-trip (e.g. "min(lvl*5,100)"); the quotes are not syntax.
-        var text = expression.Trim().Trim('"');
+        var text = BalanceTerminalParentheses(expression.Trim().Trim('"'));
         if (text.Length == 0) return false;
 
         var parser = new Parser(text, context);
@@ -68,6 +68,26 @@ internal static class SkillCalculator
 
         value = result;
         return true;
+    }
+
+    /// <summary>
+    /// Reimagined currently contains two Calc5 cells whose final <c>)</c> was lost during
+    /// a spreadsheet round-trip. Their only unmatched delimiters are terminal opens, so
+    /// closing them here preserves the otherwise-complete skillcalc expression. Extra
+    /// closing parentheses remain invalid and are still rejected by the parser.
+    /// </summary>
+    private static string BalanceTerminalParentheses(string expression)
+    {
+        var depth = 0;
+        var quoted = false;
+        foreach (var character in expression)
+        {
+            if (character == '\'') quoted = !quoted;
+            else if (!quoted && character == '(') depth++;
+            else if (!quoted && character == ')') depth--;
+            if (depth < 0) return expression;
+        }
+        return depth > 0 ? expression + new string(')', depth) : expression;
     }
 
     /// <summary>
@@ -294,12 +314,8 @@ internal static class SkillCalculator
         _ => null
     };
 
-    private static string? Calc(D2RReimaginedTools.Models.Skills row, int index) => index switch
-    {
-        1 => row.Calc1, 2 => row.Calc2, 3 => row.Calc3, 4 => row.Calc4, 5 => row.Calc5,
-        6 => row.Calc6, 7 => row.Calc7, 8 => row.Calc8, 9 => row.Calc9, 10 => row.Calc10,
-        _ => null
-    };
+    private static string? Calc(D2RReimaginedTools.Models.Skills row, int index)
+        => SkillCalcSource.Calc(row, index);
 
     private static string? PassiveCalc(D2RReimaginedTools.Models.Skills row, int index) => index switch
     {
