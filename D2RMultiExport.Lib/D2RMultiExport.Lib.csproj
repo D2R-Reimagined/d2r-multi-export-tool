@@ -11,7 +11,7 @@
     <ProjectReference Include="..\..\d2r-dotnet-tools-dropcalc\FileExtensions\FileExtensions.csproj" />
     <PackageReference Include="SkiaSharp" Version="3.119.2" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.2" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="4.151.2" />
   </ItemGroup>
 
   <ItemGroup>
