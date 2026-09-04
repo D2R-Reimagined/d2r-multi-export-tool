@@ -347,6 +347,7 @@ public sealed class D2RMultiExportPipeline
         await RunPhaseAsync("Export", "keyed/*.json", async () =>
         {
             await KeyedJsonExporter.ExportAsync(_exportPath, Data, PrettyPrintJson);
+            await DropCalculatorExporter.ExportAsync(_exportPath, _excelPath, exportConfig);
             await ItemPresentationExporter.ExportAsync(
                 _exportPath,
                 _excelPath,
@@ -484,6 +485,7 @@ public sealed class D2RMultiExportPipeline
         // that contain translation keys, so no extra entries are needed.
         "code",
         "Sprite",
+        "Id", "Group", "Condition", "Quality", "Kind", "TreasureClass", "QuestFlag", "QuestFlagEx",
     };
 
     private static async Task<IReadOnlySet<string>> CollectReferencedKeysAsync(string keyedDir)

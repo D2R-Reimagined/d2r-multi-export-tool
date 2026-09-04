@@ -1,4 +1,196 @@
 {
+    "dropRuneTypes": ["rune"],
+    "$dropMonsterAreasNote": "Fixed boss monstats IDs mapped to levels.txt IDs; their monster levels still come from monstats. See docs/DROP-CALCULATOR.md.",
+    "dropMonsterAreas": {
+        "andariel": [37],
+        "duriel": [73],
+        "mephisto": [102],
+        "diablo": [108],
+        "baalcrab": [132],
+        "bloodraven": [17],
+        "izual": [105]
+    },
+    "$dropSuperUniqueAreasNote": "Fixed map placements absent from levels.txt monster pools. Superunique internal keys map to level IDs; see docs/DROP-CALCULATOR.md for sources. Mod-specific dedicated monsters otherwise use their own spawn pools.",
+    "dropSuperUniqueAreas": {
+        "Bishibosh": [
+            3
+        ],
+        "Bonebreak": [
+            18
+        ],
+        "Coldcrow": [
+            9
+        ],
+        "Rakanishu": [
+            4
+        ],
+        "Treehead WoodFist": [
+            5
+        ],
+        "Griswold": [
+            38
+        ],
+        "The Countess": [
+            25
+        ],
+        "Pitspawn Fouldog": [
+            30
+        ],
+        "Boneash": [
+            33
+        ],
+        "Corpsefire": [
+            8
+        ],
+        "The Smith": [
+            28
+        ],
+        "The Cow King": [
+            39
+        ],
+        "Betsy, The Cow Queen": [
+            39
+        ],
+        "Radament": [
+            49
+        ],
+        "Leatherarm": [
+            59
+        ],
+        "Bloodwitch the Wild": [
+            60
+        ],
+        "Beetleburst": [
+            43
+        ],
+        "Coldworm the Burrower": [
+            64
+        ],
+        "Dark Elder": [
+            44
+        ],
+        "Fangskin": [
+            61
+        ],
+        "Fire Eye": [
+            54
+        ],
+        "The Summoner": [
+            74
+        ],
+        "Ancient Kaa the Soulless": [
+            66,
+            67,
+            68,
+            69,
+            70,
+            71,
+            72
+        ],
+        "Web Mage the Burning": [
+            85
+        ],
+        "Witch Doctor Endugu": [
+            91
+        ],
+        "Stormtree": [
+            79
+        ],
+        "Sarina the Battlemaid": [
+            94
+        ],
+        "Icehawk Riftwing": [
+            92
+        ],
+        "Ismail Vilehand": [
+            83
+        ],
+        "Geleb Flamefinger": [
+            83
+        ],
+        "Toorc Icefist": [
+            83
+        ],
+        "Bremm Sparkfist": [
+            102
+        ],
+        "Wyand Voidfinger": [
+            102
+        ],
+        "Maffer Dragonhand": [
+            102
+        ],
+        "Hephasto": [
+            107
+        ],
+        "Grand Vizier of Chaos": [
+            108
+        ],
+        "Lord De Seis": [
+            108
+        ],
+        "Infector of Souls": [
+            108
+        ],
+        "Dac Farren": [
+            110
+        ],
+        "Siege Boss": [
+            110
+        ],
+        "Megaflow Rectifier": [
+            111
+        ],
+        "Thresh Socket": [
+            112
+        ],
+        "Eyeback Unleashed": [
+            111
+        ],
+        "Sharp Tooth Sayer": [
+            111
+        ],
+        "Frozenstein": [
+            114
+        ],
+        "Bonesaw Breaker": [
+            115
+        ],
+        "Snapchip Shatter": [
+            119
+        ],
+        "Pindleskin": [
+            121
+        ],
+        "Nihlathak Boss": [
+            124
+        ],
+        "Ancient Barbarian 1": [
+            120
+        ],
+        "Ancient Barbarian 2": [
+            120
+        ],
+        "Ancient Barbarian 3": [
+            120
+        ],
+        "Baal Subject 1": [
+            131
+        ],
+        "Baal Subject 2": [
+            131
+        ],
+        "Baal Subject 3": [
+            131
+        ],
+        "Baal Subject 4": [
+            131
+        ],
+        "Baal Subject 5": [
+            131
+        ]
+    },
+    "$dropRuneTypesNote": "Item types included in the drop calculator rune search.",
     "$comment": "Configuration for d2r-multi-export export pipeline. Edit these instead of modifying code.",
 
     "ignoredUniqueItems": [

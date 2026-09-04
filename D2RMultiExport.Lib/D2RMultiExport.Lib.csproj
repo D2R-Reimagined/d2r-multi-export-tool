@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="D2RReimaginedTools.FileExtensions" Version="0.6.1" />
+    <ProjectReference Include="..\..\d2r-dotnet-tools-dropcalc\FileExtensions\FileExtensions.csproj" />
     <PackageReference Include="SkiaSharp" Version="3.119.2" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.2" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />

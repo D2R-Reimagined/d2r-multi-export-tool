@@ -10,6 +10,15 @@ namespace D2RMultiExport.Lib.Config;
 /// </summary>
 public sealed class ExportConfig
 {
+    [JsonPropertyName("dropRuneTypes")]
+    public List<string> DropRuneTypes { get; set; } = [];
+
+    [JsonPropertyName("dropSuperUniqueAreas")]
+    public Dictionary<string, int[]> DropSuperUniqueAreas { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    [JsonPropertyName("dropMonsterAreas")]
+    public Dictionary<string, int[]> DropMonsterAreas { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     [JsonPropertyName("ignoredUniqueItems")]
     public List<string> IgnoredUniqueItems { get; set; } = [];
 
