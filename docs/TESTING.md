@@ -57,6 +57,14 @@ line points at a real regression — open
 
 ## 3. Regression fixtures
 
+Monster-health inputs, formula references and website regression coverage are
+documented in [HEALTH-CALCULATOR.md](HEALTH-CALCULATOR.md).
+
+Attack-speed export fixtures and diminishing-return formula checks are documented
+in [IAS-CALCULATOR.md](IAS-CALCULATOR.md). Run them when changing skill calculation
+or the IAS bundle; a level-20 Fanaticism speed of 770 instead of 35 indicates that
+`dmXY` has incorrectly been treated as linear growth.
+
 These fixtures encode bugs that have shipped in the past. After running
 the export, verify each one against `test-output\keyed\*.json`;
 mismatches mean the corresponding fix has regressed.

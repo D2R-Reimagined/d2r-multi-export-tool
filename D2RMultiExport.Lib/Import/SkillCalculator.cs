@@ -222,13 +222,19 @@ internal static class SkillCalculator
         if (TryParseIndexed(symbol, "ast", 1, 6, out index))
             return TryEvaluateNested(symbol, AuraStatCalc(row, index), context, out value);
 
-        // lnXY / dmXY — "ParamX at level 1, ParamY per level after that". The two forms
-        // behave identically: every mod row that uses `dm` does so for a duration or a
-        // percentage, never for a damage column that would want the hit shift.
-        if (TryParseParamPair(symbol, "ln", out var first, out var second)
-            || TryParseParamPair(symbol, "dm", out first, out second))
+        // Linear and diminishing returns have different parameter semantics.
+        if (TryParseParamPair(symbol, "ln", out var first, out var second))
         {
             value = ParseLong(Param(row, first)) + ParseLong(Param(row, second)) * (level - 1);
+            return true;
+        }
+
+        if (TryParseParamPair(symbol, "dm", out first, out second))
+        {
+            var minimum = ParseLong(Param(row, first));
+            var maximum = ParseLong(Param(row, second));
+            // Preserve both integer divisions: combining them shifts IAS breakpoints.
+            value = Math.Min(maximum, minimum + (maximum - minimum) * (110L * level / (level + 6)) / 100);
             return true;
         }
 

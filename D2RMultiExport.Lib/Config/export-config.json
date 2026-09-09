@@ -1,4 +1,195 @@
 {
+    "monsterHealth": { "additionalPlayerPercent": 50, "maximumPlayers": 8, "maximumLife": 8388607 },
+    "$attackSpeedNote": "Engine timing rules; mod weapon/animation values and buff curves are read from source files. See docs/IAS-CALCULATOR.md.",
+    "attackSpeed": {
+        "classTokens": {
+            "ama": "AM",
+            "sor": "SO",
+            "nec": "NE",
+            "pal": "PA",
+            "bar": "BA",
+            "dru": "DZ",
+            "ass": "AI",
+            "war": "WK"
+        },
+        "formTokens": { "wolf": "40", "bear": "TG" },
+        "animationModes": [
+            "A1",
+            "A2",
+            "TH",
+            "KK",
+            "S1",
+            "S2",
+            "S3",
+            "SQ"
+        ],
+        "commonSkills": ["Throw", "Kick"],
+        "excludedSkills": [
+            "Inner Sight", "Slow Missiles", "Blade Fury",
+            "Lightning",
+            "Chain Lightning"
+        ],
+        "buffSkills": [
+            "Fanaticism",
+            "Quickness",
+            "Frenzy",
+            "Holy Freeze",
+            "Decrepify",
+            "Hex Purge",
+            "Sigil Lethargy",
+            "Sigil Rancor",
+            "Wearwolf",
+            "Maul"
+        ],
+        "buffCalcOverrides": { "Maul": "" },
+        "attackRateStat": "attackrate",
+        "startingFrames": {
+            "AMHTH": 1,
+            "AM1HS": 2,
+            "AM1HT": 2,
+            "AM2HS": 2,
+            "AM2HT": 2,
+            "AMSTF": 2,
+            "SOHTH": 1,
+            "SO1HS": 2,
+            "SO1HT": 2,
+            "SO2HS": 2,
+            "SO2HT": 2,
+            "SOSTF": 2
+        },
+        "skillRules": {
+            "Jab": {
+                "kind": "sequence",
+                "sequenceFrames": {
+                    "1HT": 18,
+                    "2HT": 21
+                },
+                "hits": 3
+            },
+            "Double Swing": {
+                "kind": "sequence",
+                "sequenceFrames": {
+                    "*": 17
+                },
+                "hits": 2,
+                "dualRequired": true,
+                "dualAllowed": true,
+                "speedAdjustment": 50
+            },
+            "Frenzy": {
+                "kind": "sequence",
+                "sequenceFrames": {
+                    "*": 17
+                },
+                "hits": 2,
+                "dualRequired": true,
+                "dualAllowed": true
+            },
+            "Double Throw": {
+                "kind": "sequence",
+                "sequenceFrames": {
+                    "*": 12
+                },
+                "hits": 2,
+                "dualRequired": true,
+                "dualAllowed": true
+            },
+            "Fists of Fire": {
+                "kind": "sequence",
+                "sequenceFrames": {
+                    "HT1": 12
+                },
+                "hits": 1,
+                "dualFrames": 16,
+                "dualAllowed": true,
+                "dualRequired": false
+            },
+            "Claws of Thunder": {
+                "kind": "sequence",
+                "sequenceFrames": {
+                    "HT1": 12
+                },
+                "hits": 1,
+                "dualFrames": 16,
+                "dualAllowed": true,
+                "dualRequired": false
+            },
+            "Blades of Ice": {
+                "kind": "sequence",
+                "sequenceFrames": {
+                    "HT1": 12
+                },
+                "hits": 1,
+                "dualFrames": 16,
+                "dualAllowed": true,
+                "dualRequired": false
+            },
+            "Dragon Claw": {
+                "kind": "sequence",
+                "sequenceFrames": {
+                    "HT1": 12
+                },
+                "hits": 1,
+                "dualFrames": 16,
+                "dualAllowed": true,
+                "dualRequired": true
+            },
+            "Cleave": {
+                "kind": "sequence",
+                "sequenceFrames": {
+                    "1HS": 16,
+                    "1HT": 16,
+                    "2HS": 18,
+                    "2HT": 20,
+                    "STF": 22
+                },
+                "hits": 1,
+                "selfSpeedCalc": "clc3"
+            },
+            "Mirrored Blades": {
+                "kind": "sequence",
+                "sequenceFrames": {
+                    "HTH": 17,
+                    "1HS": 16,
+                    "1HT": 16,
+                    "2HS": 19,
+                    "2HT": 21,
+                    "BOW": 18,
+                    "XBW": 18,
+                    "STF": 17
+                },
+                "hits": 2,
+                "selfSpeedCalc": "clc3"
+            },
+            "Strafe": {
+                "kind": "rollback",
+                "rollbackCalc": "50",
+                "hitsCalc": "clc1"
+            },
+            "Fury": {
+                "kind": "rollback",
+                "rollbackCalc": "par2",
+                "hitsCalc": "clc1"
+            },
+            "Zeal": {
+                "kind": "rollback",
+                "rollbackCalc": "par2",
+                "hitsCalc": "clc1"
+            },
+            "Dragon Talon": {
+                "kind": "rollback",
+                "rollbackCalc": "100",
+                "hitsCalc": "clc1"
+            },
+            "Dragon Tail": {
+                "speedAdjustment": -40
+            },
+            "Whirlwind": {
+                "kind": "whirlwind",
+                "dualAllowed": true
+            }
+        }
+    },
     "dropRuneTypes": ["rune"],
     "$dropMonsterAreasNote": "Fixed boss monstats IDs mapped to levels.txt IDs; their monster levels still come from monstats. See docs/DROP-CALCULATOR.md.",
     "dropMonsterAreas": {

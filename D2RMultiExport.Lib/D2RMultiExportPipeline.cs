@@ -348,6 +348,8 @@ public sealed class D2RMultiExportPipeline
         {
             await KeyedJsonExporter.ExportAsync(_exportPath, Data, PrettyPrintJson);
             await DropCalculatorExporter.ExportAsync(_exportPath, _excelPath, exportConfig);
+            await AttackSpeedExporter.ExportAsync(_exportPath, _excelPath, Data);
+            await MonsterHealthExporter.ExportAsync(_exportPath, _excelPath, exportConfig);
             await ItemPresentationExporter.ExportAsync(
                 _exportPath,
                 _excelPath,
@@ -486,6 +488,10 @@ public sealed class D2RMultiExportPipeline
         "code",
         "Sprite",
         "Id", "Group", "Condition", "Quality", "Kind", "TreasureClass", "QuestFlag", "QuestFlagEx",
+        "Hash", "Token", "WeaponClass", "TwoHandClass", "Types", "Mode", "Sequence", "IncludeTypes", "ExcludeTypes",
+        "RollbackCalc", "HitsCalc", "SelfSpeedCalc",
+        "Restrict", "States", "FormTokens",
+        "MonProp", "MonsterIds",
     };
 
     private static async Task<IReadOnlySet<string>> CollectReferencedKeysAsync(string keyedDir)

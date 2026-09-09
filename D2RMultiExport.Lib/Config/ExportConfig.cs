@@ -10,6 +10,12 @@ namespace D2RMultiExport.Lib.Config;
 /// </summary>
 public sealed class ExportConfig
 {
+    [JsonPropertyName("monsterHealth")]
+    public MonsterHealthConfig MonsterHealth { get; set; } = new();
+
+    [JsonPropertyName("attackSpeed")]
+    public AttackSpeedConfig AttackSpeed { get; set; } = new();
+
     [JsonPropertyName("dropRuneTypes")]
     public List<string> DropRuneTypes { get; set; } = [];
 
@@ -251,6 +257,7 @@ public sealed class ExportConfig
 
     public void BuildLookups()
     {
+        AttackSpeed.BuildLookups();
         IgnoredUniqueItemsSet = new HashSet<string>(IgnoredUniqueItems, StringComparer.OrdinalIgnoreCase);
         VanillaUniqueOverridesSet = new HashSet<string>(VanillaUniqueOverrides, StringComparer.OrdinalIgnoreCase);
         ElementalDamageCodesSet = new HashSet<string>(ElementalDamageCodes, StringComparer.OrdinalIgnoreCase);
