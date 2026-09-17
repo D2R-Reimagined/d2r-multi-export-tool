@@ -11,7 +11,7 @@
     <PackageReference Include="D2RReimaginedTools.FileExtensions" Version="0.6.2" />
     <PackageReference Include="SkiaSharp" Version="3.119.2" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.2" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="4.152.0" />
   </ItemGroup>
 
   <ItemGroup>
