@@ -73,6 +73,9 @@ public static class DropCalculatorExporter
         AddNamed(sets, "set");
         items.AddRange(misc.Where(b => config.DropRuneTypes.Any(t => HasType(b.Type, t)))
             .Select(b => new DropItem("rune:" + b.Code, b.NameStr ?? b.Code!, b.Code!, "rune", b.Level ?? 0, 1, true, "")));
+        var miscCodes = config.DropMiscCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        items.AddRange(misc.Where(b => !string.IsNullOrEmpty(b.Code) && miscCodes.Contains(b.Code))
+            .Select(b => new DropItem("misc:" + b.Code, b.NameStr ?? b.Code!, b.Code!, "misc", b.Level ?? 0, 1, true, "")));
 
         var sources = new List<DropSource>();
         foreach (var monster in monsters.Where(m => m.Enabled == true && m.Killable == true && !string.IsNullOrEmpty(m.NameStr)))
@@ -127,7 +130,7 @@ public static class DropCalculatorExporter
         var bundle = new
         {
             Items = items,
-            Bases = bases.Select(b => new { b.Code, Level = b.Level ?? 0, Uber = !string.IsNullOrEmpty(b.NormCode) && b.Code != b.NormCode,
+            Bases = bases.Select(b => new { b.Code, NameKey = b.NameStr ?? b.Code, Equipment = equipment.Contains(b), Level = b.Level ?? 0, Uber = !string.IsNullOrEmpty(b.NormCode) && b.Code != b.NormCode,
                 ClassSpecific = types.TryGetValue(b.Type ?? "", out var type) && !string.IsNullOrEmpty(type.Class), Quest = (b.Quest ?? 0) != 0 }),
             Ratios = ratios.Where(r => r.Version == 1),
             TreasureClasses = treasureClasses,
