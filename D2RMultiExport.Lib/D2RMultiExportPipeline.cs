@@ -347,6 +347,7 @@ public sealed class D2RMultiExportPipeline
         await RunPhaseAsync("Export", "keyed/*.json", async () =>
         {
             await KeyedJsonExporter.ExportAsync(_exportPath, Data, PrettyPrintJson);
+            await LootFilterExporter.ExportAsync(_exportPath, _excelPath, multiLang, PrettyPrintJson);
             await DropCalculatorExporter.ExportAsync(_exportPath, _excelPath, exportConfig);
             await AttackSpeedExporter.ExportAsync(_exportPath, _excelPath, Data);
             await MonsterHealthExporter.ExportAsync(_exportPath, _excelPath, exportConfig);
@@ -492,6 +493,8 @@ public sealed class D2RMultiExportPipeline
         "RollbackCalc", "HitsCalc", "SelfSpeedCalc",
         "Restrict", "States", "FormTokens",
         "MonProp", "MonsterIds",
+        // UnHoarder runtime selectors must remain literal; NameKey is still audited.
+        "BaseNameSelector", "TypeNameSelector", "TypeCode", "TypeCode2", "ParentCode", "ParentCode2",
     };
 
     private static async Task<IReadOnlySet<string>> CollectReferencedKeysAsync(string keyedDir)

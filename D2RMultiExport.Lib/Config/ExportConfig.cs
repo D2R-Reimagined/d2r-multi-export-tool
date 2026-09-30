@@ -19,6 +19,9 @@ public sealed class ExportConfig
     [JsonPropertyName("dropRuneTypes")]
     public List<string> DropRuneTypes { get; set; } = [];
 
+    [JsonPropertyName("dropMiscCodes")]
+    public List<string> DropMiscCodes { get; set; } = [];
+
     [JsonPropertyName("dropSuperUniqueAreas")]
     public Dictionary<string, int[]> DropSuperUniqueAreas { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 

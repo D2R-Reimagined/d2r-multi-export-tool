@@ -191,6 +191,8 @@
         }
     },
     "dropRuneTypes": ["rune"],
+    "$dropMiscCodesNote": "Miscellaneous drop search: individual crafting orbs, keys, and worldstone shards. Includes scripted-only items so unavailable monster drops are not invented. Stack containers and grabbers are excluded.",
+    "dropMiscCodes": ["ka3", "oos", "ooc", "ooa", "ooi", "ooe", "oor", "key", "bkd", "luv", "pk1", "pk2", "pk3", "xa1", "xa2", "xa3", "xa4", "xa5", "mor", "mws"],
     "$dropMonsterAreasNote": "Fixed boss monstats IDs mapped to levels.txt IDs; their monster levels still come from monstats. See docs/DROP-CALCULATOR.md.",
     "dropMonsterAreas": {
         "andariel": [37],

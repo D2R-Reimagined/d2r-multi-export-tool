@@ -82,6 +82,12 @@ Upstream: `..\d2r-dotnet-tools` (same org). To debug an unreleased fix, swap the
 
 ## "Keyed exports" rule
 
+`keyed/loot-filter.json` keeps display names in `NameKey`. Its `BaseNameSelector`
+and `TypeNameSelector` fields are literal UnHoarder protocol identifiers, including
+case and whitespace; type/parent code fields preserve the source graph. They are
+identifier-only audit exclusions, not additional raw-English display exceptions.
+See `docs/LOOT-FILTER.md`.
+
 Every player-facing field in `<out>/keyed/*.json` is either a translation **key** present in `<out>/strings/<lang>.json`, or a `KeyedLine { "key", "args" }` whose `args` are primitives, nested `KeyedLine`s, or `KeyedLineArg` records.
 
 - **Never** write a finalized English sentence (e.g. `"+25% Enhanced Damage"`). Resolve via `Translation.PropertyKeyResolver`, register via `SyntheticStringRegistry` if no CASC key exists, emit `KeyedLine.Of(key, args)`.
