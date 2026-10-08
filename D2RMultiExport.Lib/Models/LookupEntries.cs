@@ -102,12 +102,19 @@ public sealed class SkillEntry
 
     /// <summary>
     /// The translation-lookup key for this skill's display name. Resolved by following
-    /// skills.txt <c>skilldesc</c> → skilldesc.txt → <c>str name</c> column. Falls back
-    /// to the skills.txt <c>skill</c> code when no skilldesc row / str name exists.
+    /// skills.txt <c>skilldesc</c> → skilldesc.txt → <c>str name</c> column.
     /// This is the value that should be emitted into <c>KeyedLine.Args</c> so that the
     /// website can <c>t(nameKey)</c> against <c>strings/&lt;lang&gt;.json</c>.
+    /// <para>
+    /// <c>null</c> when the row carries no <c>str name</c> at all — the monster-only
+    /// skills (<c>MonBow</c>, <c>VampireFireball</c>, …) that have no <c>skilldesc</c>
+    /// row. Those are untranslated in vanilla too, so putting the raw <c>skills.txt</c>
+    /// code here would be a promise the strings bundle cannot keep: the website would
+    /// print the identifier verbatim and the missing-translations audit would flag it.
+    /// Consumers render <see cref="Name"/> (exported as <c>FallbackName</c>) instead.
+    /// </para>
     /// </summary>
-    public string NameKey { get; set; } = "";
+    public string? NameKey { get; set; }
 
     /// <summary>
     /// The parsed <c>skills.txt</c> row this entry was projected from. Retained so
@@ -142,6 +149,17 @@ public sealed class SkillDescEntry
 
     /// <summary>The <c>dsc3line1..7</c> block — the "Receives Bonuses From" synergy list.</summary>
     public List<SkillDescLine> SynergyLines { get; init; } = [];
+
+    /// <summary>
+    /// The <c>descmissile1..3</c> columns. <c>skillcalc.txt</c> resolves the <c>m1en</c> /
+    /// <c>m2ex</c> / <c>m3rn</c> symbol families against these rather than against the
+    /// skill's own <c>SrvMissile</c>, so a description can quote the missile it actually
+    /// wants to describe.
+    /// </summary>
+    public string? DescriptionMissile1 { get; init; }
+    public string? DescriptionMissile2 { get; init; }
+    public string? DescriptionMissile3 { get; init; }
+
     public override string ToString() => SkillDesc;
 }
 

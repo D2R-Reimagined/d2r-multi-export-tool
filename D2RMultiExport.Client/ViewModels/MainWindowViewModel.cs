@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -15,23 +15,32 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly AppSettings _settings;
 
+    /// <summary>The mod's <c>data</c> directory; every mod input is derived from it.</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunPipelineCommand))]
-    private string _excelPath;
+    private string _modDataPath;
 
+    /// <summary>The extracted vanilla CASC <c>data</c> directory (optional, strongly recommended).</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunPipelineCommand))]
-    private string _translationsPath;
-
-    [ObservableProperty]
-    private string _baseStringsPath;
-
-    [ObservableProperty]
-    private string _baseAssetsPath;
+    private string _cascDataPath;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunPipelineCommand))]
     private string _outputPath;
+
+    /// <summary>Live validation result for <see cref="ModDataPath"/> (shown under the field).</summary>
+    [ObservableProperty]
+    private string _modDataStatus = "";
+
+    [ObservableProperty]
+    private bool _modDataValid;
+
+    [ObservableProperty]
+    private string _cascDataStatus = "";
+
+    [ObservableProperty]
+    private bool _cascDataValid;
 
     [ObservableProperty]
     private bool _prettyPrintJson;
@@ -71,6 +80,10 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string _progressTextFormat = "{0:0}%";
 
+    /// <summary>Counts shown next to the log header so failures are visible without scrolling.</summary>
+    [ObservableProperty]
+    private string _logSummary = "";
+
     /// <summary>
     /// DispatcherTimer that drives the animated trailing-dots suffix on the
     /// progress bar's "NN%" overlay. Started when <see cref="IsBusy"/> turns
@@ -79,31 +92,66 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly DispatcherTimer _dotsTimer;
 
     private int _dotsPhase;
+    private int _warningCount;
+    private int _errorCount;
 
     /// <summary>
-    /// Live log surfaced by the Avalonia view. Bound by <c>MainWindow.axaml</c>
-    /// to a scrollable list so the user can watch the pipeline progress and see
-    /// every per-phase error or warning as it happens.
+    /// The complete log of the current (or last) run: every progress line, followed by the
+    /// full import report once the run ends, so nothing in <c>extras/import-report.txt</c>
+    /// is missing here. The main window shows it live; the expanded viewer reads the same
+    /// collection.
     /// </summary>
-    public ObservableCollection<string> LogLines { get; } = new();
+    public ObservableCollection<LogEntry> LogEntries { get; } = new();
+
+    /// <summary>
+    /// Optional override for tests: replaces <see cref="D2RMultiExportPipeline.RunAsync"/> so
+    /// an interaction test can drive a controllable "export" through the real view-model.
+    /// </summary>
+    internal Func<D2RMultiExportPipeline, Task>? RunOverride { get; set; }
 
     public MainWindowViewModel()
     {
         _settings = AppSettings.Load();
-        _excelPath = _settings.ExcelPath;
-        _translationsPath = _settings.TranslationsPath;
-        _baseStringsPath = _settings.BaseStringsPath;
-        _baseAssetsPath = _settings.BaseAssetsPath;
+        _modDataPath = _settings.ModDataPath;
+        _cascDataPath = _settings.CascDataPath;
         _outputPath = _settings.OutputPath;
         _prettyPrintJson = _settings.PrettyPrintJson;
         _continueOnException = _settings.ContinueOnException;
         _earlyStopSentinelEnabled = _settings.EarlyStopSentinelEnabled;
         _cubeRecipeUseDescription = _settings.CubeRecipeUseDescription;
+        ValidateModData(_modDataPath);
+        ValidateCascData(_cascDataPath);
 
         // ~500 ms cadence keeps the dot animation lively without being
         // distracting; the timer is only running while IsBusy is true.
         _dotsTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(300), DispatcherPriority.Background, OnDotsTick);
         _dotsTimer.Stop();
+    }
+
+    partial void OnModDataPathChanged(string value) => ValidateModData(value);
+
+    partial void OnCascDataPathChanged(string value) => ValidateCascData(value);
+
+    private void ValidateModData(string value)
+    {
+        var result = SourceRoots.ValidateModRoot(value);
+        ModDataValid = result.IsValid;
+        ModDataStatus = string.IsNullOrWhiteSpace(value)
+            ? "Select the mod's data folder (it contains global\\excel and local\\lng\\strings)."
+            : result.Message;
+    }
+
+    private void ValidateCascData(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            CascDataValid = true;
+            CascDataStatus = "Not set: vanilla sprites, base strings and tables the mod does not ship will be missing.";
+            return;
+        }
+        var result = SourceRoots.ValidateCascRoot(value);
+        CascDataValid = result.IsValid;
+        CascDataStatus = result.Notes.Count == 0 ? result.Message : result.Message + " " + string.Join(" ", result.Notes);
     }
 
     private void OnDotsTick(object? sender, EventArgs e)
@@ -136,10 +184,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public void SaveSettings()
     {
-        _settings.ExcelPath = ExcelPath;
-        _settings.TranslationsPath = TranslationsPath;
-        _settings.BaseStringsPath = BaseStringsPath;
-        _settings.BaseAssetsPath = BaseAssetsPath;
+        _settings.ModDataPath = ModDataPath;
+        _settings.CascDataPath = CascDataPath;
         _settings.OutputPath = OutputPath;
         _settings.PrettyPrintJson = PrettyPrintJson;
         _settings.ContinueOnException = ContinueOnException;
@@ -148,51 +194,79 @@ public partial class MainWindowViewModel : ViewModelBase
         _settings.Save();
     }
 
-    private void AppendLog(string line)
+    internal void AppendLog(string line)
     {
         // Always marshal to UI thread — IProgress callbacks may fire from the
         // pipeline's worker thread. Avoiding a hard cap keeps the full diagnostic
         // history available; the listbox in the view is virtualised.
         if (Dispatcher.UIThread.CheckAccess())
         {
-            LogLines.Add(line);
+            AddEntry(line);
         }
         else
         {
-            Dispatcher.UIThread.Post(() => LogLines.Add(line));
+            Dispatcher.UIThread.Post(() => AddEntry(line));
         }
+    }
+
+    private void AddEntry(string line)
+    {
+        var entry = LogEntry.From(line);
+        if (entry.Level == LogLevel.Warning) _warningCount++;
+        if (entry.Level == LogLevel.Error) _errorCount++;
+        LogEntries.Add(entry);
+        LogSummary = $"{LogEntries.Count} line(s), {_errorCount} error(s), {_warningCount} warning(s) — click the log to expand";
+    }
+
+    private void ClearLog()
+    {
+        LogEntries.Clear();
+        _warningCount = 0;
+        _errorCount = 0;
+        LogSummary = "";
     }
 
     [RelayCommand(CanExecute = nameof(CanRunPipeline))]
     private async Task RunPipeline()
     {
         IsBusy = true;
-        LogLines.Clear();
+        ClearLog();
         StatusText = "Saving settings...";
         SaveSettings();
 
         ProgressValue = 0;
-        var pipeline = new D2RMultiExportPipeline(ExcelPath, TranslationsPath, OutputPath)
+        D2RMultiExportPipeline pipeline;
+        try
         {
-            PrettyPrintJson = PrettyPrintJson,
-            EarlyStopSentinelEnabled = EarlyStopSentinelEnabled,
-            CubeRecipeUseDescription = CubeRecipeUseDescription,
-            ContinueOnException = ContinueOnException,
-            BaseStringsPath = string.IsNullOrWhiteSpace(BaseStringsPath) ? null : BaseStringsPath,
-            BaseAssetsPath = string.IsNullOrWhiteSpace(BaseAssetsPath) ? null : BaseAssetsPath,
-            Progress = new Progress<string>(line =>
+            // A new pipeline (and so a new SourceRoots) per run: the roots are re-validated
+            // from the current fields every time and no source mapping survives a run.
+            pipeline = new D2RMultiExportPipeline(ModDataPath, string.IsNullOrWhiteSpace(CascDataPath) ? null : CascDataPath, OutputPath)
             {
-                StatusText = line;
-                AppendLog(line);
-            }),
-            // Constructed on the UI thread so the captured SynchronizationContext
-            // marshals callbacks back to the dispatcher even though the pipeline
-            // itself runs on a thread-pool thread (see Task.Run below).
-            StructuredProgress = new Progress<PipelineProgress>(p =>
-            {
-                ProgressValue = p.Percent;
-            })
-        };
+                PrettyPrintJson = PrettyPrintJson,
+                EarlyStopSentinelEnabled = EarlyStopSentinelEnabled,
+                CubeRecipeUseDescription = CubeRecipeUseDescription,
+                ContinueOnException = ContinueOnException,
+                Progress = new Progress<string>(line =>
+                {
+                    StatusText = line;
+                    AppendLog(line);
+                }),
+                // Constructed on the UI thread so the captured SynchronizationContext
+                // marshals callbacks back to the dispatcher even though the pipeline
+                // itself runs on a thread-pool thread (see Task.Run below).
+                StructuredProgress = new Progress<PipelineProgress>(p =>
+                {
+                    ProgressValue = p.Percent;
+                })
+            };
+        }
+        catch (SourceLayoutException ex)
+        {
+            StatusText = ex.Message;
+            AppendLog($"[ERROR] {ex.Message}");
+            IsBusy = false;
+            return;
+        }
 
         try
         {
@@ -204,17 +278,16 @@ public partial class MainWindowViewModel : ViewModelBase
             // produces visible UI freezes. Progress<string> was constructed on
             // the UI thread and therefore continues to marshal callbacks back
             // to the dispatcher via the captured SynchronizationContext.
-            await Task.Run(() => pipeline.RunAsync());
+            var run = RunOverride;
+            await Task.Run(() => run is null ? pipeline.RunAsync() : run(pipeline));
 
             if (pipeline.Result.HasErrors)
             {
                 StatusText = $"Export finished with {pipeline.Result.AllErrors.Count} issue(s) — see extras/import-report.txt";
-                AppendLog(StatusText);
             }
             else
             {
                 StatusText = "Export successful!";
-                AppendLog(StatusText);
             }
             ProgressValue = 100;
         }
@@ -225,15 +298,25 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         finally
         {
+            // Progress<T> posts asynchronously; let queued lines land before the report.
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+            AppendLog("");
+            foreach (var line in pipeline.Result.GenerateReport().Split('\n'))
+                AppendLog(line);
+            AppendLog(StatusText);
             IsBusy = false;
         }
     }
 
     private bool CanRunPipeline()
     {
-        return !IsBusy &&
-               !string.IsNullOrWhiteSpace(ExcelPath) && Directory.Exists(ExcelPath) &&
-               !string.IsNullOrWhiteSpace(TranslationsPath) && Directory.Exists(TranslationsPath) &&
-               !string.IsNullOrWhiteSpace(OutputPath) && Directory.Exists(OutputPath);
+        return !IsBusy
+               && ModDataValid
+               && CascDataValid
+               && !string.IsNullOrWhiteSpace(OutputPath) && Directory.Exists(OutputPath);
     }
+
+    partial void OnModDataValidChanged(bool value) => RunPipelineCommand.NotifyCanExecuteChanged();
+
+    partial void OnCascDataValidChanged(bool value) => RunPipelineCommand.NotifyCanExecuteChanged();
 }

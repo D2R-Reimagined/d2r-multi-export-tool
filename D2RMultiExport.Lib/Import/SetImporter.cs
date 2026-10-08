@@ -9,12 +9,12 @@ namespace D2RMultiExport.Lib.Import;
 public sealed class SetImporter
 {
     private readonly GameData _data;
-    private readonly string _excelPath;
+    private readonly SourceRoots _sources;
     private readonly Config.ExportConfig _config;
 
-    public SetImporter(string excelPath, GameData data)
+    public SetImporter(SourceRoots sources, GameData data)
     {
-        _excelPath = excelPath;
+        _sources = sources;
         _data = data;
         _config = data.ExportConfig;
     }
@@ -68,6 +68,11 @@ public sealed class SetImporter
             {
                 result.AddError("Set", entry.Index ?? "unknown", $"Failed to process set: {ex.Message}", ex);
             }
+            finally
+            {
+                foreach (var omission in PropertyMapper.TakeOmittedLines(_data))
+                    result.AddWarning("Set", entry.Index ?? "unknown", omission);
+            }
         }
 
         // Sort items by Level to match old tool output
@@ -81,7 +86,7 @@ public sealed class SetImporter
         var setItemMap = new Dictionary<string, List<SetItemExport>>(StringComparer.OrdinalIgnoreCase);
 
         // Load raw entries for vanilla detection
-        var rawEntries = await SetItemParser.GetEntries(Path.Combine(_excelPath, "SetItems.txt"));
+        var rawEntries = await SetItemParser.GetEntries(_sources.Excel("setitems.txt"));
         var rawIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < rawEntries.Count; i++)
         {
@@ -149,18 +154,7 @@ public sealed class SetImporter
                             properties.AddRange(groupExpansion);
                             continue;
                         }
-                        var prop = PropertyMapper.Map(mod.Code, mod.Param, mod.Min, mod.Max, _data, export.ItemLevel);
-                        properties.Add(new CubePropertyExport
-                        {
-                            Index = i,
-                            PropertyCode = mod.Code,
-                            Priority = prop.Priority,
-                            Min = mod.Min,
-                            Max = mod.Max,
-                            Parameter = mod.Param,
-                            IsEase = mod.Code == "ease",
-                            Lines = prop.Lines
-                        });
+                        properties.AddRange(PropertyMapper.MapRows(mod.Code, mod.Param, mod.Min, mod.Max, _data, export.ItemLevel, i));
                     }
                 }
 
@@ -189,7 +183,7 @@ public sealed class SetImporter
                 // armors do — never carrying the raw English value.
                 export.Type = equipment?.Type?.Index ?? "";
                 export.Vanilla = entry.Vanilla == 1 ? "Y" : "N";
-                export.DamageArmorEnhanced = properties.Any(p => p.PropertyCode == "ac%" || p.PropertyCode == "dmg%");
+                export.DamageArmorEnhanced = properties.Any(p => _data.ExportConfig.DamageArmorEnhancedCodesSet.Contains(p.PropertyCode ?? ""));
                 export.Properties = properties;
 
                 // Additional properties (Set bonuses on the item)
@@ -236,38 +230,33 @@ public sealed class SetImporter
                         continue;
                     }
 
-                    var prop = PropertyMapper.Map(mod.Code!, mod.Param, mod.Min, mod.Max, _data, export.ItemLevel);
-
                     if (addFunc == 0)
                     {
-                        export.Properties.Add(new CubePropertyExport
-                        {
-                            Index = export.Properties.Count,
-                            PropertyCode = mod.Code,
-                            Priority = prop.Priority,
-                            Lines = prop.Lines
-                        });
+                        // Carry Min/Max/Parameter like every other row: CleanupDuplicates sums
+                        // them when this code also appears among the base properties, and a
+                        // row without them used to contribute 0 to that sum.
+                        export.Properties.AddRange(PropertyMapper.MapRows(mod.Code!, mod.Param, mod.Min, mod.Max, _data,
+                            export.ItemLevel, export.Properties.Count));
                     }
                     else
                     {
-                        // Stamp the KeyedLines for set-item per-N-items bonuses so the
-                        // wire format carries the required item count.
-                        if (numberOfItemsRequired.HasValue)
+                        // One bonus entry per column; a shorthand code (dmg-elem) yields one
+                        // row per component inside that entry.
+                        var bonusRows = PropertyMapper.MapRows(mod.Code!, mod.Param, mod.Min, mod.Max, _data, export.ItemLevel, 0);
+                        foreach (var bonusProp in bonusRows)
                         {
-                            foreach (var line in prop.Lines)
+                            // Stamp the KeyedLines for set-item per-N-items bonuses so the
+                            // wire format carries the required item count.
+                            if (numberOfItemsRequired.HasValue)
                             {
-                                line.ItemsRequired = numberOfItemsRequired;
+                                foreach (var line in bonusProp.Lines)
+                                {
+                                    line.ItemsRequired = numberOfItemsRequired;
+                                }
                             }
+                            bonusProp.NumberOfItemsRequired = numberOfItemsRequired;
                         }
-                        var bonusProp = new CubePropertyExport
-                        {
-                            Index = 0, // Since it's a list of lists with one item each?
-                            PropertyCode = mod.Code,
-                            Priority = prop.Priority,
-                            Lines = prop.Lines,
-                            NumberOfItemsRequired = numberOfItemsRequired
-                        };
-                        export.SetBonuses.Add(new List<CubePropertyExport> { bonusProp });
+                        export.SetBonuses.Add(bonusRows);
                     }
                 }
 
@@ -282,6 +271,11 @@ public sealed class SetImporter
             catch (Exception ex)
             {
                 result.AddError("SetItem", entry.Index ?? "unknown", $"Failed to process: {ex.Message}", ex);
+            }
+            finally
+            {
+                foreach (var omission in PropertyMapper.TakeOmittedLines(_data))
+                    result.AddWarning("SetItem", entry.Index ?? "unknown", omission);
             }
         }
 
@@ -371,25 +365,17 @@ public sealed class SetImporter
             }
             return;
         }
-        var prop = PropertyMapper.Map(code, param, min, max, _data, 0);
-        // Stamp each KeyedLine so consumers can render their own localized
-        // "(N Items)" / "(full set)" labels.
-        foreach (var line in prop.Lines)
+        foreach (var row in PropertyMapper.MapRows(code, param, min, max, _data, 0, target.Count))
         {
-            if (numberOfItemsRequired.HasValue) line.ItemsRequired = numberOfItemsRequired;
-            if (fullSet) line.FullSet = true;
+            // Stamp each KeyedLine so consumers can render their own localized
+            // "(N Items)" / "(full set)" labels.
+            foreach (var line in row.Lines)
+            {
+                if (numberOfItemsRequired.HasValue) line.ItemsRequired = numberOfItemsRequired;
+                if (fullSet) line.FullSet = true;
+            }
+            row.NumberOfItemsRequired = numberOfItemsRequired;
+            target.Add(row);
         }
-        target.Add(new CubePropertyExport
-        {
-            Index = target.Count,
-            PropertyCode = code,
-            Priority = prop.Priority,
-            Min = min,
-            Max = max,
-            Parameter = param,
-            IsEase = code == "ease",
-            Lines = prop.Lines,
-            NumberOfItemsRequired = numberOfItemsRequired
-        });
     }
 }

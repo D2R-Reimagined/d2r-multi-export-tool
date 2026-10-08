@@ -28,6 +28,44 @@ public sealed class ExportConfig
     [JsonPropertyName("dropMonsterAreas")]
     public Dictionary<string, int[]> DropMonsterAreas { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Engine level bonus per spawn kind (<c>champion</c>, <c>unique</c>,
+    /// <c>superunique</c>) added to a monster's base level when choosing its drop
+    /// treasure-class level. Kinds that are absent get no bonus.
+    /// </summary>
+    [JsonPropertyName("dropMonsterLevelBonuses")]
+    public Dictionary<string, int> DropMonsterLevelBonuses { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Width of the quality-level bands of the game-generated equipment treasure classes
+    /// (<c>armo3</c>, <c>armo6</c>, …). Must be positive; the drop exporter refuses to run
+    /// otherwise rather than loop forever or emit nothing.
+    /// </summary>
+    [JsonPropertyName("dropGeneratedTreasureClassLevelStep")]
+    public int DropGeneratedTreasureClassLevelStep { get; set; }
+
+    /// <summary><c>itemratio.txt</c> <c>Version</c> rows exported to the drop calculator.</summary>
+    [JsonPropertyName("dropItemRatioVersion")]
+    public int DropItemRatioVersion { get; set; }
+
+    /// <summary>
+    /// <c>itemtypes.txt</c> codes whose exported <c>Index</c> is redirected onto another
+    /// item type's key instead of the default <c>${code}itype</c>.
+    /// </summary>
+    [JsonPropertyName("itemTypeIndexAliases")]
+    public Dictionary<string, string> ItemTypeIndexAliases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>skills.txt <c>charclass</c> code → the HD skill-icon sprite sheet for that class.</summary>
+    [JsonPropertyName("skillIconSheets")]
+    public Dictionary<string, SkillIconSheet> SkillIconSheets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Composite damage line → translation key of its combined range template, written
+    /// verbatim to <c>keyed/item-stat-presentation.json</c> as <c>CompositeKeys</c>.
+    /// </summary>
+    [JsonPropertyName("itemStatCompositeKeys")]
+    public Dictionary<string, string> ItemStatCompositeKeys { get; set; } = new(StringComparer.Ordinal);
+
     [JsonPropertyName("ignoredUniqueItems")]
     public List<string> IgnoredUniqueItems { get; set; } = [];
 
@@ -101,12 +139,41 @@ public sealed class ExportConfig
     public Dictionary<string, List<string>> SkillTreeCategoryKeys { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// How far past a skill's <c>maxlvl</c> the exported per-level description tables
-    /// reach, so the website can preview what +skills gear does to a maxed skill. Zero
-    /// stops the tables at the hard-point cap.
+    /// The highest <em>effective</em> skill level the exported per-level description
+    /// tables are solved to. A character can only spend <c>maxlvl</c> hard points, but
+    /// <c>+skills</c> gear pushes the effective level far past that, so the tables have to
+    /// cover the whole displayable range. The bonus-level axis of a
+    /// <c>values2d</c> grid runs <c>0..(this - maxlvl)</c>.
     /// </summary>
-    [JsonPropertyName("skillDescriptionBonusLevels")]
-    public int SkillDescriptionBonusLevels { get; set; } = 20;
+    [JsonPropertyName("skillDescriptionMaxLevel")]
+    public int SkillDescriptionMaxLevel { get; set; } = 100;
+
+    /// <summary>
+    /// The highest character level (<c>ulvl</c>) the exported <c>valuesUlvl</c> tables are
+    /// solved to. Only the handful of lines whose formula actually reads <c>ulvl</c> pay
+    /// for that axis.
+    /// </summary>
+    [JsonPropertyName("skillDescriptionCharacterLevels")]
+    public int SkillDescriptionCharacterLevels { get; set; } = 100;
+
+    /// <summary>
+    /// Which branch of <c>cond('Difficulty', normal|nightmare|hell)</c> the exported
+    /// description tables are solved for. The website shows end-game numbers, so the
+    /// default is the hell branch; the other two are what the same line would read on a
+    /// lower difficulty.
+    /// </summary>
+    [JsonPropertyName("skillDescriptionDifficulty")]
+    public string SkillDescriptionDifficulty { get; set; } = "hell";
+
+    /// <summary>
+    /// Replacement formulas for <c>skillcalc.txt</c> / <c>misscalc.txt</c> codes whose
+    /// printed description states the <em>result</em> rather than the arithmetic the game
+    /// actually performs. Only codes the reference table already defines as formulas are
+    /// replaced, so this cannot invent vocabulary, and a mod shipping its own copy of the
+    /// table still gets the correction.
+    /// </summary>
+    [JsonPropertyName("calcFormulaOverrides")]
+    public Dictionary<string, string> CalcFormulaOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// AutoMagic group ids skipped wholesale during the keyed export. Mirrors the
@@ -140,6 +207,18 @@ public sealed class ExportConfig
     [JsonPropertyName("propertyElementalExpansions")]
     public Dictionary<string, ElementalExpansion> PropertyElementalExpansions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Property code → the property codes it expands into, each mapped with the original param/min/max.</summary>
+    [JsonPropertyName("propertyCodeExpansions")]
+    public Dictionary<string, List<string>> PropertyCodeExpansions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Property codes that set the exported <c>DamageArmorEnhanced</c> flag.</summary>
+    [JsonPropertyName("damageArmorEnhancedCodes")]
+    public List<string> DamageArmorEnhancedCodes { get; set; } = [];
+
+    /// <summary>Property codes that scale Str/Dex requirements by a percentage (<c>item_req_percent</c>).</summary>
+    [JsonPropertyName("requirementPercentCodes")]
+    public List<string> RequirementPercentCodes { get; set; } = [];
+
     [JsonPropertyName("elementalDamagePairs")]
     public Dictionary<string, ElementalDamagePair> ElementalDamagePairs { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -159,6 +238,12 @@ public sealed class ExportConfig
 
     [JsonPropertyName("cubeIngredientLabels")]
     public CubeIngredientLabelsConfig CubeIngredientLabels { get; set; } = new();
+
+    public sealed class SkillIconSheet
+    {
+        [JsonPropertyName("folder")] public string Folder { get; set; } = "";
+        [JsonPropertyName("file")]   public string File { get; set; } = "";
+    }
 
     public sealed class ElementalExpansion
     {
@@ -229,6 +314,12 @@ public sealed class ExportConfig
     public HashSet<string> ElementalDamageCodesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
 
     [JsonIgnore]
+    public HashSet<string> DamageArmorEnhancedCodesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    [JsonIgnore]
+    public HashSet<string> RequirementPercentCodesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    [JsonIgnore]
     public HashSet<string> CubeRecipeCoreItemCodesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
 
     [JsonIgnore]
@@ -258,12 +349,20 @@ public sealed class ExportConfig
     [JsonIgnore]
     public HashSet<string> CubeGrabberSentinelsSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    [JsonIgnore]
+    public HashSet<string> DropRuneTypesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    [JsonIgnore]
+    public HashSet<string> DropMiscCodesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public void BuildLookups()
     {
         AttackSpeed.BuildLookups();
         IgnoredUniqueItemsSet = new HashSet<string>(IgnoredUniqueItems, StringComparer.OrdinalIgnoreCase);
         VanillaUniqueOverridesSet = new HashSet<string>(VanillaUniqueOverrides, StringComparer.OrdinalIgnoreCase);
         ElementalDamageCodesSet = new HashSet<string>(ElementalDamageCodes, StringComparer.OrdinalIgnoreCase);
+        DamageArmorEnhancedCodesSet = new HashSet<string>(DamageArmorEnhancedCodes, StringComparer.OrdinalIgnoreCase);
+        RequirementPercentCodesSet = new HashSet<string>(RequirementPercentCodes, StringComparer.OrdinalIgnoreCase);
         CubeRecipeCoreItemCodesSet = new HashSet<string>(CubeRecipeCoreItemCodes, StringComparer.OrdinalIgnoreCase);
         CubeRecipeAllowedCodesSet = new HashSet<string>(CubeRecipeAllowedCodes, StringComparer.OrdinalIgnoreCase);
         BlockedCubeInputCodesSet = new HashSet<string>(BlockedCubeInputCodes, StringComparer.OrdinalIgnoreCase);
@@ -275,6 +374,8 @@ public sealed class ExportConfig
         SplitElementalCodesSet           = new HashSet<string>(SplitElementalCodes,           StringComparer.OrdinalIgnoreCase);
         PropertyMergeBlocklistSet        = new HashSet<string>(PropertyMergeBlocklist,        StringComparer.OrdinalIgnoreCase);
         CubeGrabberSentinelsSet          = new HashSet<string>(CubeGrabberSentinels,          StringComparer.OrdinalIgnoreCase);
+        DropRuneTypesSet                 = new HashSet<string>(DropRuneTypes,                 StringComparer.OrdinalIgnoreCase);
+        DropMiscCodesSet                 = new HashSet<string>(DropMiscCodes,                 StringComparer.OrdinalIgnoreCase);
 
         // Rebuild dictionaries case-insensitively where they came in via JSON.
         if (ItemTypeNameNormalizations.Count > 0)
@@ -289,8 +390,18 @@ public sealed class ExportConfig
             CustomSkillTabAliases = new Dictionary<string, string>(CustomSkillTabAliases, StringComparer.OrdinalIgnoreCase);
         if (PropertyElementalExpansions.Count > 0)
             PropertyElementalExpansions = new Dictionary<string, ElementalExpansion>(PropertyElementalExpansions, StringComparer.OrdinalIgnoreCase);
+        PropertyCodeExpansions = new Dictionary<string, List<string>>(PropertyCodeExpansions, StringComparer.OrdinalIgnoreCase);
         if (ElementalDamagePairs.Count > 0)
             ElementalDamagePairs = new Dictionary<string, ElementalDamagePair>(ElementalDamagePairs, StringComparer.OrdinalIgnoreCase);
+        if (CalcFormulaOverrides.Count > 0)
+            CalcFormulaOverrides = new Dictionary<string, string>(CalcFormulaOverrides, StringComparer.OrdinalIgnoreCase);
+        // System.Text.Json replaces these dictionaries with default-comparer instances, so
+        // the case-insensitive initializers above do not survive deserialization on their own.
+        DropSuperUniqueAreas = new Dictionary<string, int[]>(DropSuperUniqueAreas, StringComparer.OrdinalIgnoreCase);
+        DropMonsterAreas = new Dictionary<string, int[]>(DropMonsterAreas, StringComparer.OrdinalIgnoreCase);
+        DropMonsterLevelBonuses = new Dictionary<string, int>(DropMonsterLevelBonuses, StringComparer.OrdinalIgnoreCase);
+        ItemTypeIndexAliases = new Dictionary<string, string>(ItemTypeIndexAliases, StringComparer.OrdinalIgnoreCase);
+        SkillIconSheets = new Dictionary<string, SkillIconSheet>(SkillIconSheets, StringComparer.OrdinalIgnoreCase);
 
         CubeSocketPunch.BuildLookups();
         CubeIngredientLabels.BuildLookups();

@@ -21,4 +21,42 @@ internal static class SkillCalcSource
         16 => row.Param16, 17 => row.Param17, 18 => row.Param18, 19 => row.Param19, 20 => row.Param20,
         _ => null
     };
+
+    /// <summary>Number of <c>AuraStat</c>/<c>AuraStatCalc</c> column pairs on a skills.txt row.</summary>
+    public const int AuraStatSlots = 6;
+
+    /// <summary>Number of <c>PassiveStat</c>/<c>PassiveCalc</c> column pairs on a skills.txt row.</summary>
+    public const int PassiveStatSlots = 14;
+
+    public static string? AuraStat(Skills row, int index) => index switch
+    {
+        1 => row.AuraStat1, 2 => row.AuraStat2, 3 => row.AuraStat3,
+        4 => row.AuraStat4, 5 => row.AuraStat5, 6 => row.AuraStat6,
+        _ => null
+    };
+
+    public static string? AuraStatCalc(Skills row, int index) => index switch
+    {
+        1 => row.AuraStatCalc1, 2 => row.AuraStatCalc2, 3 => row.AuraStatCalc3,
+        4 => row.AuraStatCalc4, 5 => row.AuraStatCalc5, 6 => row.AuraStatCalc6,
+        _ => null
+    };
+
+    public static string? PassiveStat(Skills row, int index) => index switch
+    {
+        1 => row.PassiveStat1, 2 => row.PassiveStat2, 3 => row.PassiveStat3, 4 => row.PassiveStat4,
+        5 => row.PassiveStat5, 6 => row.PassiveStat6, 7 => row.PassiveStat7, 8 => row.PassiveStat8,
+        9 => row.PassiveStat9, 10 => row.PassiveStat10, 11 => row.PassiveStat11, 12 => row.PassiveStat12,
+        13 => row.PassiveStat13, 14 => row.PassiveStat14,
+        _ => null
+    };
+
+    public static string? PassiveCalc(Skills row, int index) => index switch
+    {
+        1 => row.PassiveCalc1, 2 => row.PassiveCalc2, 3 => row.PassiveCalc3, 4 => row.PassiveCalc4,
+        5 => row.PassiveCalc5, 6 => row.PassiveCalc6, 7 => row.PassiveCalc7, 8 => row.PassiveCalc8,
+        9 => row.PassiveCalc9, 10 => row.PassiveCalc10, 11 => row.PassiveCalc11, 12 => row.PassiveCalc12,
+        13 => row.PassiveCalc13, 14 => row.PassiveCalc14,
+        _ => null
+    };
 }

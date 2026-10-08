@@ -58,6 +58,7 @@ public static class EquipmentLineBuilder
                 0 => WeaponDamageOneHandRange,
                 1 => WeaponDamageTwoHandRange,
                 2 => WeaponDamageThrowRange,
+                4 => ElementalDamageRange,
                 _ => WeaponDamageGenericRange
             };
             target.Add(KeyedLine.Of(key, minLow, minHigh, maxLow, maxHigh));

@@ -3,10 +3,13 @@ using System;
 using System.Collections.Specialized;
 using System.IO;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using D2RMultiExport.Client.ViewModels;
 
 namespace D2RMultiExport.Client.Views;
@@ -15,11 +18,45 @@ public partial class MainWindow : Window
 {
     private MainWindowViewModel? _hookedVm;
 
+    /// <summary>The open expanded log viewer, if any (one per main window).</summary>
+    internal LogViewerWindow? LogViewer { get; private set; }
+
     public MainWindow()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
         HookLogAutoScroll(DataContext as MainWindowViewModel);
+        // handledEventsToo: the ListBox marks pointer presses as handled for selection,
+        // and a click anywhere in the log must still open the viewer.
+        LogPanel.AddHandler(PointerReleasedEvent, LogPanel_PointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
+    }
+
+    private void LogPanel_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton != MouseButton.Left) return;
+        if (e.Source is Visual source && OpenLogButton.IsVisualAncestorOf(source)) return;
+        OpenLogViewer();
+    }
+
+    private void OpenLog_Click(object? sender, RoutedEventArgs e) => OpenLogViewer();
+
+    /// <summary>
+    /// Opens (or brings forward) the expanded log viewer. Non-modal, so an active export
+    /// keeps running and keeps logging into the same collection the viewer displays.
+    /// </summary>
+    internal LogViewerWindow? OpenLogViewer()
+    {
+        if (DataContext is not MainWindowViewModel vm) return null;
+        if (LogViewer is { } open)
+        {
+            open.Activate();
+            return open;
+        }
+        var viewer = new LogViewerWindow(new LogViewerViewModel(vm.LogEntries));
+        viewer.Closed += (_, _) => LogViewer = null;
+        LogViewer = viewer;
+        viewer.Show(this);
+        return viewer;
     }
 
     private void OnDataContextChanged(object? sender, System.EventArgs e)
@@ -33,14 +70,14 @@ public partial class MainWindow : Window
 
         if (_hookedVm is not null)
         {
-            _hookedVm.LogLines.CollectionChanged -= LogLines_CollectionChanged;
+            _hookedVm.LogEntries.CollectionChanged -= LogLines_CollectionChanged;
         }
 
         _hookedVm = vm;
 
         if (_hookedVm is not null)
         {
-            _hookedVm.LogLines.CollectionChanged += LogLines_CollectionChanged;
+            _hookedVm.LogEntries.CollectionChanged += LogLines_CollectionChanged;
         }
     }
 
@@ -85,67 +122,35 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void BrowseExcel_Click(object? sender, RoutedEventArgs e)
+    private async void BrowseModData_Click(object? sender, RoutedEventArgs e)
     {
         var vm = DataContext as MainWindowViewModel;
         var result = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Select Mod Excel Directory",
+            Title = "Select the Mod Data Directory (the mod's data folder)",
             AllowMultiple = false,
-            SuggestedStartLocation = await ResolveStartFolderAsync(vm?.ExcelPath)
+            SuggestedStartLocation = await ResolveStartFolderAsync(vm?.ModDataPath)
         });
 
         if (result.Count > 0 && vm is not null)
         {
-            vm.ExcelPath = result[0].Path.LocalPath;
+            vm.ModDataPath = result[0].Path.LocalPath;
         }
     }
 
-    private async void BrowseTranslations_Click(object? sender, RoutedEventArgs e)
+    private async void BrowseCascData_Click(object? sender, RoutedEventArgs e)
     {
         var vm = DataContext as MainWindowViewModel;
         var result = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Select Mod JSON String Directory",
+            Title = "Select the CASC Data Directory (extracted vanilla data folder)",
             AllowMultiple = false,
-            SuggestedStartLocation = await ResolveStartFolderAsync(vm?.TranslationsPath)
+            SuggestedStartLocation = await ResolveStartFolderAsync(vm?.CascDataPath)
         });
 
         if (result.Count > 0 && vm is not null)
         {
-            vm.TranslationsPath = result[0].Path.LocalPath;
-        }
-    }
-
-    private async void BrowseBaseStrings_Click(object? sender, RoutedEventArgs e)
-    {
-        var vm = DataContext as MainWindowViewModel;
-        var result = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        {
-            Title = "Select CASC Base Strings Directory (optional)",
-            AllowMultiple = false,
-            SuggestedStartLocation = await ResolveStartFolderAsync(vm?.BaseStringsPath)
-        });
-
-        if (result.Count > 0 && vm is not null)
-        {
-            vm.BaseStringsPath = result[0].Path.LocalPath;
-        }
-    }
-
-    private async void BrowseBaseAssets_Click(object? sender, RoutedEventArgs e)
-    {
-        var vm = DataContext as MainWindowViewModel;
-        var result = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        {
-            Title = "Select Extracted Vanilla D2R Data Root (optional)",
-            AllowMultiple = false,
-            SuggestedStartLocation = await ResolveStartFolderAsync(vm?.BaseAssetsPath)
-        });
-
-        if (result.Count > 0 && vm is not null)
-        {
-            vm.BaseAssetsPath = result[0].Path.LocalPath;
+            vm.CascDataPath = result[0].Path.LocalPath;
         }
     }
 

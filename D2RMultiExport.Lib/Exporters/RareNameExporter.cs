@@ -12,30 +12,42 @@ namespace D2RMultiExport.Lib.Exporters;
 /// </summary>
 public static class RareNameExporter
 {
-    public static async Task ExportAsync(string exportDir, string excelPath, bool prettyPrint = true)
+    public const string OutputPath = "keyed/rare-names.json";
+
+    /// <summary>
+    /// Writes <c>keyed/rare-names.json</c>. Mods carry only overrides, so the tables come
+    /// from the mod when it ships them and from the CASC data root otherwise. Neither having
+    /// them is a missing output, not a broken run: it is reported through
+    /// <paramref name="warn"/> and skipped rather than thrown.
+    /// </summary>
+    public static async Task ExportAsync(
+        ExportOutputs outputs,
+        SourceRoots sources,
+        bool prettyPrint,
+        Action<string> warn)
     {
-        var prefixes = await ReadNameTableAsync(Path.Combine(excelPath, "rareprefix.txt"));
-        var suffixes = await ReadNameTableAsync(Path.Combine(excelPath, "raresuffix.txt"));
+        var prefixes = await ReadNameTableAsync(sources.ExcelSource("rareprefix.txt"), warn);
+        var suffixes = await ReadNameTableAsync(sources.ExcelSource("raresuffix.txt"), warn);
+        if (prefixes is null || suffixes is null) return;
+
         var names = suffixes.Concat(prefixes.Skip(1)).ToList();
-        var keyedDir = Path.Combine(exportDir, "keyed");
-        Directory.CreateDirectory(keyedDir);
 
         var options = new JsonSerializerOptions
         {
             WriteIndented = prettyPrint,
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
-        await using var stream = File.Create(Path.Combine(keyedDir, "rare-names.json"));
-        await JsonSerializer.SerializeAsync(stream, new RareNamePresentation(names), options);
+        await outputs.WriteJsonAsync(OutputPath, new RareNamePresentation(names), options);
     }
 
-    private static async Task<IReadOnlyList<string?>> ReadNameTableAsync(string path)
+    private static async Task<IReadOnlyList<string?>?> ReadNameTableAsync(ResolvedSource source, Action<string> warn)
     {
-        if (!File.Exists(path))
+        if (source.Path is not { } path)
         {
-            throw new FileNotFoundException(
-                $"Rare item names cannot be exported because '{Path.GetFileName(path)}' is missing.",
-                path);
+            warn(
+                $"Skipped {OutputPath}: '{Path.GetFileName(source.RelativePath)}' was not found (searched "
+                + $"{source.DescribeSearch()}). Configure a CASC Data Directory to export rare/crafted names.");
+            return null;
         }
 
         var result = new List<string?> { null };

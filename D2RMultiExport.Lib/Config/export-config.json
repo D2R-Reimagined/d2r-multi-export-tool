@@ -1,7 +1,9 @@
 {
-    "monsterHealth": { "additionalPlayerPercent": 50, "maximumPlayers": 8, "maximumLife": 8388607 },
-    "$attackSpeedNote": "Engine timing rules; mod weapon/animation values and buff curves are read from source files. See docs/IAS-CALCULATOR.md.",
+    "$monsterHealthNote": "Health engine rules absent from the Excel tables, plus the monumod.txt row ids whose Constants column carries the minion/champion/unique HP bonus (three consecutive rows each: normal, nightmare, hell). See docs/HEALTH-CALCULATOR.md.",
+    "monsterHealth": { "additionalPlayerPercent": 50, "maximumPlayers": 8, "maximumLife": 8388607, "minionBonusModifierId": 1, "championBonusModifierId": 4, "uniqueBonusModifierId": 7 },
+    "$attackSpeedNote": "Engine timing rules; mod weapon/animation values and buff curves are read from source files. curveLevels is how many skill levels each exported speed curve is solved for. See docs/IAS-CALCULATOR.md.",
     "attackSpeed": {
+        "curveLevels": 100,
         "classTokens": {
             "ama": "AM",
             "sor": "SO",
@@ -190,7 +192,14 @@
             }
         }
     },
+    "$dropRuneTypesNote": "itemtypes.txt codes (matched through Equiv1/Equiv2) whose misc.txt bases are exported as rune drop targets.",
     "dropRuneTypes": ["rune"],
+    "$dropMonsterLevelBonusesNote": "Engine bonus added to a monster's level when it spawns as this kind; the drop treasure-class level is the base level plus this bonus. Kinds absent here (normal, quest, boss) get 0. The superunique bonus is not applied to boss classes.",
+    "dropMonsterLevelBonuses": { "champion": 2, "unique": 3, "superunique": 3 },
+    "$dropGeneratedTreasureClassLevelStepNote": "Width of the quality-level bands the game uses for the auto-generated equipment treasure classes (e.g. armo3, armo6, ...), built from itemtypes.txt rows with TreasureClass = 1.",
+    "dropGeneratedTreasureClassLevelStep": 3,
+    "$dropItemRatioVersionNote": "itemratio.txt Version value exported (1 = the expansion rows).",
+    "dropItemRatioVersion": 1,
     "$dropMiscCodesNote": "Miscellaneous drop search: individual crafting orbs, keys, and worldstone shards. Includes scripted-only items so unavailable monster drops are not invented. Stack containers and grabbers are excluded.",
     "dropMiscCodes": ["ka3", "oos", "ooc", "ooa", "ooi", "ooe", "oor", "key", "bkd", "luv", "pk1", "pk2", "pk3", "xa1", "xa2", "xa3", "xa4", "xa5", "mor", "mws"],
     "$dropMonsterAreasNote": "Fixed boss monstats IDs mapped to levels.txt IDs; their monster levels still come from monstats. See docs/DROP-CALCULATOR.md.",
@@ -481,9 +490,36 @@
         "war": [ "SkillCategoryWa1", "SkillCategoryWa2", "SkillCategoryWa3" ]
     },
   
-    "$skillDescriptionBonusLevelsNote": "Levels past each skill's maxlvl that the exported per-level description tables cover, so the planner can preview +skills gear. 0 stops at the hard-point cap.",
-    "skillDescriptionBonusLevels": 40,
+    "$skillDescriptionMaxLevelNote": "Highest effective skill level (hard points plus +skills) the exported per-level description tables are solved to. The bonus-level axis of a values2d grid runs 0..(this - maxlvl).",
+    "skillDescriptionMaxLevel": 100,
+
+    "$skillDescriptionCharacterLevelsNote": "Highest character level (ulvl) the exported valuesUlvl tables are solved to. Only lines whose formula actually reads ulvl carry that axis.",
+    "skillDescriptionCharacterLevels": 100,
+
+    "$skillDescriptionDifficultyNote": "Which branch of cond('Difficulty', normal|nightmare|hell) the description tables are solved for. The website shows end-game numbers, so hell.",
+    "skillDescriptionDifficulty": "hell",
   
+    "$calcFormulaOverridesNote": "skillcalc.txt/misscalc.txt print the diminishing-returns codes as one combined division, which describes the result rather than the arithmetic the engine performs: the game truncates the inner percentage first, as (110*lvl)/(lvl+6), and only then applies it to (max-min). Verified against vanilla Fanaticism's published table (14 18 20 23 25 26 27 28 29 30 31 31 32 33 33 34 34 34 34 35 for levels 1-20), which the combined form misses at levels 3 and 12. No clamp at max: the mod's own hand-written Berserk cell spells the same two-step form out and adds an explicit min() cap, which would be redundant if dm* clamped. Only codes the reference table already defines as formulas are replaced, so a mod shipping its own copy of the table still gets the correction.",
+    "calcFormulaOverrides": {
+      "dm12": "((110 * lvl) / (lvl + 6)) * (par2 - par1) / 100 + par1",
+      "dm34": "((110 * lvl) / (lvl + 6)) * (par4 - par3) / 100 + par3",
+      "dm56": "((110 * lvl) / (lvl + 6)) * (par6 - par5) / 100 + par5",
+      "dm78": "((110 * lvl) / (lvl + 6)) * (par8 - par7) / 100 + par7",
+      "dm91": "((110 * lvl) / (lvl + 6)) * (pa10 - par9) / 100 + par9",
+      "dm21": "((110 * lvl) / (lvl + 6)) * (pa12 - pa11) / 100 + pa11",
+      "dm43": "((110 * lvl) / (lvl + 6)) * (pa14 - pa13) / 100 + pa13",
+      "dm65": "((110 * lvl) / (lvl + 6)) * (pa16 - pa15) / 100 + pa15",
+      "dm87": "((110 * lvl) / (lvl + 6)) * (pa18 - pa17) / 100 + pa17",
+      "dm92": "((110 * lvl) / (lvl + 6)) * (pa20 - pa19) / 100 + pa19",
+      "sd12": "((110 * lvl) / (lvl + 6)) * (par2 - par1) / 100 + par1",
+      "sd34": "((110 * lvl) / (lvl + 6)) * (par4 - par3) / 100 + par3",
+      "cd12": "((110 * lvl) / (lvl + 6)) * (cpa2 - cpa1) / 100 + cpa1",
+      "cd34": "((110 * lvl) / (lvl + 6)) * (cpa4 - cpa3) / 100 + cpa3",
+      "shd1": "((110 * lvl) / (lvl + 6)) * (hpa2 - hpa1) / 100 + hpa1",
+      "chd1": "((110 * lvl) / (lvl + 6)) * (chp2 - chp1) / 100 + chp1",
+      "dd12": "((110 * lvl) / (lvl + 6)) * (dpa2 - dpa1) / 100 + dpa1"
+    },
+
     "$skippedAutoMagicGroupsNote": "AutoMagic.txt group ids skipped wholesale during keyed export.",
     "skippedAutoMagicGroups": [ 0, 309, 310, 311, 312, 316, 319 ],
 
@@ -515,6 +551,17 @@
         "dmg-cold": { "min": "cold-min", "max": "cold-max", "len": "cold-len" },
         "dmg-pois": { "min": "pois-min", "max": "pois-max", "len": "pois-len" }
     },
+
+    "$propertyCodeExpansionsNote": "Unique-item property codes that stand for several other property codes, each mapped with the original param/min/max (formerly hardcoded in UniqueImporter.MapProperties). `dmg-elem` is the all-elements damage shorthand.",
+    "propertyCodeExpansions": {
+        "dmg-elem": [ "dmg-fire", "dmg-cold", "dmg-ltng" ]
+    },
+
+    "$damageArmorEnhancedCodesNote": "Property codes whose presence sets the exported DamageArmorEnhanced flag on uniques and sets (formerly hardcoded in UniqueImporter / SetImporter).",
+    "damageArmorEnhancedCodes": [ "ac%", "dmg%" ],
+
+    "$requirementPercentCodesNote": "Property codes (item_req_percent) that scale an item's Str/Dex requirements; RequirementHelper.ApplyEaseAdjustment applies them (formerly hardcoded as `ease` in the Unique/Set/Runeword importers).",
+    "requirementPercentCodes": [ "ease" ],
 
     "$elementalDamagePairsNote": "Elemental min/max pairings used by PropertyCleanup.MergeElementalTriplets (formerly hardcoded in PropertyCleanup.ElementalPairs). The element label is raw English used only as an internal discriminator, not on the wire.",
     "elementalDamagePairs": {
@@ -594,5 +641,32 @@
             "rch":                      "Recharge Charges",
             "lvl=#":                    "Set Level (#)"
         }
+    },
+
+    "$itemTypeIndexAliasesNote": "itemtypes.txt codes whose exported Index (and therefore translation key) is redirected onto another item type's key instead of the default `${code}itype`. `h2h2` is the duplicate hand-to-hand bucket collapsed onto the canonical `h2hitype` so exports never carry a separate h2h2itype key (formerly hardcoded in DataLoader.LoadItemTypesAsync).",
+    "itemTypeIndexAliases": {
+        "h2h2": "h2hitype"
+    },
+
+    "$skillIconSheetsNote": "skills.txt charclass code -> the HD skill-icon sprite sheet under hd/global/ui/spells/<folder>/<file>. SkillIconExporter cuts each skilldesc IconCel frame out of the sheet into sprites/skills/<class>-<cel>.webp. A class missing here exports no icons and is reported (formerly hardcoded in SkillIconExporter.Sheets).",
+    "skillIconSheets": {
+        "ama": { "folder": "amazon",      "file": "amskillicon.sprite" },
+        "sor": { "folder": "sorceress",   "file": "soskillicon.sprite" },
+        "nec": { "folder": "necromancer", "file": "neskillicon.sprite" },
+        "pal": { "folder": "paladin",     "file": "paskillicon.sprite" },
+        "bar": { "folder": "barbarian",   "file": "baskillicon.sprite" },
+        "dru": { "folder": "druid",       "file": "drskillicon.sprite" },
+        "ass": { "folder": "assassin",    "file": "asskillicon.sprite" },
+        "war": { "folder": "warlock",     "file": "waskillicon.sprite" }
+    },
+
+    "$itemStatCompositeKeysNote": "Composite damage lines the save viewer renders from a min/max stat pair, mapped to the translation key of the combined range line. Written verbatim to keyed/item-stat-presentation.json -> CompositeKeys (formerly hardcoded in ItemStatPresentationExporter.CompositeKeys). Every value must resolve in strings/<lang>.json.",
+    "itemStatCompositeKeys": {
+        "PhysicalDamage":  "strModMinDamageRange",
+        "FireDamage":      "strModFireDamageRange",
+        "ColdDamage":      "strModColdDamageRange",
+        "LightningDamage": "strModLightningDamageRange",
+        "MagicDamage":     "strModMagicDamageRange",
+        "PoisonDamage":    "strModPoisonDamageRange"
     }
 }

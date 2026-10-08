@@ -13,24 +13,29 @@ namespace D2RMultiExport.Lib.Import;
 /// </summary>
 public sealed class DataLoader
 {
-    private readonly string _excelPath;
+    private readonly SourceRoots _sources;
     private readonly GameData _data;
     private readonly PipelineResult _pipeline;
 
-    public DataLoader(string excelPath, GameData data, PipelineResult pipeline)
+    /// <summary>The <c>.txt</c> section-header row separating classic and expansion rows.</summary>
+    private const string ExpansionSectionMarker = "Expansion";
+
+    public DataLoader(SourceRoots sources, GameData data, PipelineResult pipeline)
     {
-        _excelPath = excelPath;
+        _sources = sources;
         _data = data;
         _pipeline = pipeline;
     }
 
     public async Task LoadAllAsync()
     {
+        await LoadCalcCodeTablesAsync();
         await LoadItemStatCostsAsync();
         await LoadPropertiesAsync();
         await LoadItemTypesAsync();
         await LoadSkillDescsAsync();
         await LoadSkillsAsync();
+        await LoadMissilesAsync();
         await LoadCharStatsAsync();
         await LoadMonStatsAsync();
         await LoadPropertyGroupsAsync();
@@ -44,11 +49,76 @@ public sealed class DataLoader
         ApplyStatOverrides();
     }
 
+    /// <summary>
+    /// Reads the <c>skillcalc.txt</c> / <c>misscalc.txt</c> symbol vocabularies, preferring
+    /// the mod's own copies and falling back to the canonical ones bundled under
+    /// <c>Config/CASC_DATA/</c>. A missing table is a warning, not a failure: the
+    /// calculators still resolve every quantity they define in code, they just lose the
+    /// table-driven column aliases and progression formulas.
+    /// </summary>
+    private async Task LoadCalcCodeTablesAsync()
+    {
+        _data.SkillCalcCodes = await LoadCalcCodeTableAsync("skillcalc.txt");
+        _data.MissileCalcCodes = await LoadCalcCodeTableAsync("misscalc.txt");
+    }
+
+    private async Task<CalcCodeTable> LoadCalcCodeTableAsync(string fileName)
+    {
+        var source = _sources.ResolveReferenceTable(fileName);
+        var path = source.Path;
+        if (string.IsNullOrEmpty(path))
+        {
+            _pipeline.AddWarning("CalcCodes", fileName,
+                $"Reference table not found (searched {source.DescribeSearch()}); calc symbols defined only by that table will not resolve.");
+            return CalcCodeTable.Empty;
+        }
+
+        try
+        {
+            return await CalcCodeTable.LoadAsync(path, _data.ExportConfig.CalcFormulaOverrides);
+        }
+        catch (Exception ex)
+        {
+            _pipeline.AddWarning("CalcCodes", fileName, $"Failed to load: {ex.Message}");
+            return CalcCodeTable.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Loads <c>missiles.txt</c>, which backs the <c>miss('name'.field)</c> references and
+    /// the <c>m1en</c>/<c>m2ex</c>/<c>m3rn</c> families in skill descriptions. Optional:
+    /// a mod tree without the file simply leaves those lines unresolved.
+    /// </summary>
+    private async Task LoadMissilesAsync()
+    {
+        try
+        {
+            var path = _sources.Excel("missiles.txt");
+            if (!File.Exists(path))
+            {
+                _pipeline.AddWarning("Missiles", "missiles.txt",
+                    "File not found; skill descriptions that reference a missile will be dropped.");
+                return;
+            }
+
+            var entries = await MissilesParser.GetEntries(path);
+            foreach (var entry in entries)
+            {
+                if (string.IsNullOrEmpty(entry.MissileName)) continue;
+                Put(_data.Missiles, entry.MissileName, entry, "missiles.txt", "Missile");
+            }
+        }
+        catch (Exception ex)
+        {
+            _pipeline.AddError("Missiles", "missiles.txt", $"Failed to load: {ex.Message}", ex);
+        }
+    }
+
     private async Task LoadItemStatCostsAsync()
     {
         try
         {
-            var entries = await ItemStatCostParser.GetEntries(Path.Combine(_excelPath, "itemstatcost.txt"));
+            var entries = await ItemStatCostParser.GetEntries(_sources.Excel("itemstatcost.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.Stat)) continue;
@@ -81,7 +151,7 @@ public sealed class DataLoader
                     SaveAdd = ParseInt(entry.SaveAdd),
                     SaveParam = ParseInt(entry.SaveParamBits),
                 };
-                _data.Stats[entry.Stat] = stat;
+                Put(_data.Stats, entry.Stat, stat, "itemstatcost.txt", "Stat");
             }
         }
         catch (Exception ex)
@@ -94,7 +164,7 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await PropertiesParser.GetEntries(Path.Combine(_excelPath, "properties.txt"));
+            var entries = await PropertiesParser.GetEntries(_sources.Excel("properties.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.Code)) continue;
@@ -119,7 +189,7 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await ItemTypeParser.GetEntries(Path.Combine(_excelPath, "itemtypes.txt"));
+            var entries = await ItemTypeParser.GetEntries(_sources.Excel("itemtypes.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.Code)) continue;
@@ -139,10 +209,10 @@ public sealed class DataLoader
                     // namespaces in the language bundle. The suffix also stops i18next
                     // pluralization heuristics from rewriting bare codes like "axe" to
                     // "Axe [N]" on the rendered page.
-                    // Collapse the duplicate hand-to-hand item-type bucket onto the
-                    // canonical h2hitype index so exports never carry a separate
-                    // h2h2itype identifier or translation key.
-                    Index = code.Equals("h2h2", StringComparison.OrdinalIgnoreCase) ? "h2hitype" : code + "itype",
+                    // export-config.json itemTypeIndexAliases redirects a duplicate bucket
+                    // (e.g. h2h2 → h2hitype) onto its canonical key so exports never carry
+                    // a separate identifier or translation key for it.
+                    Index = _data.ExportConfig.ItemTypeIndexAliases.TryGetValue(code, out var alias) ? alias : code + "itype",
                     Class = entry.Class,
                     Equiv1 = entry.Equiv1,
                     Equiv2 = entry.Equiv2,
@@ -154,7 +224,7 @@ public sealed class DataLoader
                     MaxSockets3 = entry.MaxSockets3,
                     Name = normalizedName
                 };
-                _data.ItemTypes[code] = itemType;
+                Put(_data.ItemTypes, code, itemType, "itemtypes.txt", "Code");
 
                 // Track by both original and normalized names
                 _data.ItemTypesByName[originalName] = itemType;
@@ -174,7 +244,7 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await SkillDescParser.GetEntries(Path.Combine(_excelPath, "skilldesc.txt"));
+            var entries = await SkillDescParser.GetEntries(_sources.Excel("skilldesc.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.SkillName)) continue;
@@ -191,7 +261,10 @@ public sealed class DataLoader
                     IconCel = entry.IconCel,
                     DescriptionLines = ReadDescriptionLines(entry),
                     DetailLines = ReadDetailLines(entry),
-                    SynergyLines = ReadSynergyLines(entry)
+                    SynergyLines = ReadSynergyLines(entry),
+                    DescriptionMissile1 = entry.DescriptionMissile1,
+                    DescriptionMissile2 = entry.DescriptionMissile2,
+                    DescriptionMissile3 = entry.DescriptionMissile3
                 };
             }
         }
@@ -263,7 +336,7 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await SkillsParser.GetEntries(Path.Combine(_excelPath, "skills.txt"));
+            var entries = await SkillsParser.GetEntries(_sources.Excel("skills.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.Skill)) continue;
@@ -286,13 +359,19 @@ public sealed class DataLoader
                     }
                 }
 
+                // A declared `str name` that doesn't resolve is genuine translator work,
+                // so that probe stays on GetValue (it records the miss). The fallback
+                // probe is on the skills.txt code, which is an identifier and never a
+                // key — a miss there is expected, so it must not be recorded.
                 string? localizedName = !string.IsNullOrEmpty(nameKey)
                     ? _data.Translations.GetValue(nameKey)
                     : null;
 
-                if (string.IsNullOrEmpty(localizedName))
+                if (string.IsNullOrEmpty(localizedName) || localizedName == nameKey)
                 {
-                    localizedName = _data.Translations.GetValue(entry.Skill);
+                    localizedName = _data.Translations.TryGetValue(entry.Skill, out var byCode)
+                        ? byCode
+                        : entry.Skill;
                 }
 
                 var skill = new SkillEntry
@@ -308,11 +387,12 @@ public sealed class DataLoader
                         .Select(static prerequisite => prerequisite!)
                         .ToList(),
                     Name = localizedName ?? entry.Skill,
-                    NameKey = !string.IsNullOrEmpty(nameKey) ? nameKey : entry.Skill,
+                    // Deliberately left null when no `str name` exists: see SkillEntry.NameKey.
+                    NameKey = !string.IsNullOrEmpty(nameKey) ? nameKey : null,
                     SourceRow = entry
                 };
-                _data.Skills[entry.Skill] = skill;
-                _data.SkillsById[id] = skill;
+                Put(_data.Skills, entry.Skill, skill, "skills.txt", "skill");
+                Put(_data.SkillsById, id, skill, "skills.txt", "*Id");
             }
         }
         catch (Exception ex)
@@ -325,7 +405,7 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await CharStatsParser.GetEntries(Path.Combine(_excelPath, "charstats.txt"));
+            var entries = await CharStatsParser.GetEntries(_sources.Excel("charstats.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.Class)) continue;
@@ -339,7 +419,7 @@ public sealed class DataLoader
                     StrSkillTab3 = entry.StrSkillTab3,
                     StrClassOnly = entry.StrClassOnly,
                 };
-                _data.CharStats[entry.Class] = charStat;
+                Put(_data.CharStats, entry.Class, charStat, "charstats.txt", "class");
                 // Also index by first 3 characters (lowercase) for MagicAffix ClassSpecific resolution
                 if (entry.Class.Length >= 3)
                     _data.CharStatsByCode[entry.Class.Substring(0, 3)] = charStat;
@@ -355,10 +435,14 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await MonStatsParser.GetEntries(Path.Combine(_excelPath, "monstats.txt"));
+            var entries = await MonStatsParser.GetEntries(_sources.Excel("monstats.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.Id)) continue;
+                // The section-header row (structure, not content — UniqueImporter/SetImporter
+                // skip the same marker) has a blank *hcIdx that parses as 0, so indexing it
+                // silently replaced skeleton1 in MonStatsByIndex[0].
+                if (entry.Id.Equals(ExpansionSectionMarker, StringComparison.OrdinalIgnoreCase)) continue;
 
                 var monEntry = new MonStatEntry
                 {
@@ -367,8 +451,8 @@ public sealed class DataLoader
                     NameStr = entry.NameStr,
                     Name = _data.Translations.GetValue(entry.NameStr)
                 };
-                _data.MonStats[entry.Id] = monEntry;
-                _data.MonStatsByIndex[entry.HcIdx] = monEntry;
+                Put(_data.MonStats, entry.Id, monEntry, "monstats.txt", "Id");
+                Put(_data.MonStatsByIndex, entry.HcIdx, monEntry, "monstats.txt", "hcIdx");
             }
         }
         catch (Exception ex)
@@ -381,7 +465,7 @@ public sealed class DataLoader
     {
         try
         {
-            var filePath = Path.Combine(_excelPath, "propertygroups.txt");
+            var filePath = _sources.Excel("propertygroups.txt");
             if (!File.Exists(filePath)) return;
 
             var entries = await PropertyGroupParser.GetEntries(filePath);
@@ -439,7 +523,7 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await ArmorParser.GetEntries(Path.Combine(_excelPath, "armor.txt"));
+            var entries = await ArmorParser.GetEntries(_sources.Excel("armor.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.Code)) continue;
@@ -486,7 +570,7 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await WeaponParser.GetEntries(Path.Combine(_excelPath, "weapons.txt"));
+            var entries = await WeaponParser.GetEntries(_sources.Excel("weapons.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.Code)) continue;
@@ -538,7 +622,7 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await MiscParser.GetEntries(Path.Combine(_excelPath, "misc.txt"));
+            var entries = await MiscParser.GetEntries(_sources.Excel("misc.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.Code)) continue;
@@ -568,7 +652,7 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await GemParser.GetEntries(Path.Combine(_excelPath, "gems.txt"));
+            var entries = await GemParser.GetEntries(_sources.Excel("gems.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.Name) || string.IsNullOrEmpty(entry.Code)) continue;
@@ -578,9 +662,9 @@ public sealed class DataLoader
                     Name = entry.Name,
                     Code = entry.Code,
                     Letter = entry.Letter,
-                    WeaponProperties = MapNumberedProps(entry, "Weapon"),
-                    HelmProperties = MapNumberedProps(entry, "Helm"),
-                    ShieldProperties = MapNumberedProps(entry, "Shield"),
+                    WeaponProperties = MapNumberedProps(entry, "Weapon", "gems.txt", entry.Code),
+                    HelmProperties = MapNumberedProps(entry, "Helm", "gems.txt", entry.Code),
+                    ShieldProperties = MapNumberedProps(entry, "Shield", "gems.txt", entry.Code),
                 };
             }
         }
@@ -594,31 +678,31 @@ public sealed class DataLoader
     {
         try
         {
-            var prefixes = await MagicPrefixParser.GetEntries(Path.Combine(_excelPath, "magicprefix.txt"));
+            var prefixes = await MagicPrefixParser.GetEntries(_sources.Excel("magicprefix.txt"));
             foreach (var entry in prefixes)
             {
                 if (string.IsNullOrEmpty(entry.Name)) continue;
                 // Skip rows whose `spawnable` column != 1 — these affixes are
                 // disabled in the source `.txt` and never roll in-game.
                 if (entry.Spawnable != true) continue;
-                _data.MagicPrefixes.Add(MapMagicAffix(entry));
+                _data.MagicPrefixes.Add(MapMagicAffix(entry, "magicprefix.txt"));
             }
 
-            var suffixes = await MagicSuffixParser.GetEntries(Path.Combine(_excelPath, "magicsuffix.txt"));
+            var suffixes = await MagicSuffixParser.GetEntries(_sources.Excel("magicsuffix.txt"));
             foreach (var entry in suffixes)
             {
                 if (string.IsNullOrEmpty(entry.Name)) continue;
                 // Skip rows whose `spawnable` column != 1 — these affixes are
                 // disabled in the source `.txt` and never roll in-game.
                 if (entry.Spawnable != true) continue;
-                _data.MagicSuffixes.Add(MapMagicAffix(entry));
+                _data.MagicSuffixes.Add(MapMagicAffix(entry, "magicsuffix.txt"));
             }
 
-            var autoMagics = await AutoMagicParser.GetEntries(Path.Combine(_excelPath, "automagic.txt"));
+            var autoMagics = await AutoMagicParser.GetEntries(_sources.Excel("automagic.txt"));
             foreach (var entry in autoMagics)
             {
                 if (string.IsNullOrEmpty(entry.Name)) continue;
-                _data.AutoMagics.Add(MapMagicAffix(entry));
+                _data.AutoMagics.Add(MapMagicAffix(entry, "automagic.txt"));
             }
         }
         catch (Exception ex)
@@ -627,8 +711,10 @@ public sealed class DataLoader
         }
     }
 
-    private MagicAffixEntry MapMagicAffix(dynamic entry)
+    private MagicAffixEntry MapMagicAffix(dynamic entry, string file)
     {
+        // Statically typed handle for the reflection probes, so CallerMemberName binds.
+        object row = entry;
         bool isClassSpecific = false;
         if (entry.ClassSpecific is bool b) isClassSpecific = b;
         else if (entry.ClassSpecific is string s) isClassSpecific = s == "1" || s.Equals("Y", StringComparison.OrdinalIgnoreCase);
@@ -645,18 +731,18 @@ public sealed class DataLoader
             ClassSpecific = isClassSpecific ? rawClass : "",
             Class = rawClass,
             ClassLevelReq = entry.ClassLevelReq ?? 0,
-            Properties = MapNumberedProps(entry, "")
+            Properties = MapNumberedProps(row, "", file, (string?)entry.Name)
         };
 
         for (int i = 1; i <= 7; i++)
         {
-            var itype = ImportReflection.GetString(entry, $"IType{i}");
+            var itype = ImportReflection.GetString(row, $"IType{i}");
             if (!string.IsNullOrEmpty(itype)) affix.Types.Add(itype);
         }
 
         for (int i = 1; i <= 5; i++)
         {
-            var etype = ImportReflection.GetString(entry, $"EType{i}");
+            var etype = ImportReflection.GetString(row, $"EType{i}");
             if (!string.IsNullOrEmpty(etype)) affix.ETypes.Add(etype);
         }
 
@@ -667,7 +753,7 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await SetsParser.GetEntries(Path.Combine(_excelPath, "sets.txt"));
+            var entries = await SetsParser.GetEntries(_sources.Excel("sets.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.Index)) continue;
@@ -684,7 +770,7 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await SetItemParser.GetEntries(Path.Combine(_excelPath, "setitems.txt"));
+            var entries = await SetItemParser.GetEntries(_sources.Excel("setitems.txt"));
             foreach (var entry in entries)
             {
                 if (string.IsNullOrEmpty(entry.Index)) continue;
@@ -761,10 +847,12 @@ public sealed class DataLoader
     /// (<c>{slotPrefix}Mod{i}Code/Param/Min/Max</c>) off a parser DTO via
     /// reflection. Used by both gem-row and magic-affix-row loaders, which
     /// only differ by the slot prefix (gems pass <c>"Helm"</c>/<c>"Magic"</c>/<c>"Rare"</c>/<c>"Set"</c>;
-    /// affix rows pass <c>""</c>).
+    /// affix rows pass <c>""</c>). A malformed Min/Max cell is reported against
+    /// <paramref name="file"/>/<paramref name="rowId"/>.
     /// </summary>
-    private static List<ItemPropertyValue> MapNumberedProps(object entry, string slotPrefix, int count = 3)
+    private List<ItemPropertyValue> MapNumberedProps(object entry, string slotPrefix, string file, string? rowId, int count = 3)
     {
+        void Warn(string message) => _pipeline.AddWarning("DataLoader", file, $"Row '{rowId}': {message}");
         var props = new List<ItemPropertyValue>();
         for (var i = 1; i <= count; i++)
         {
@@ -774,11 +862,24 @@ public sealed class DataLoader
             {
                 Code      = code,
                 Parameter = ImportReflection.GetString(entry, $"{slotPrefix}Mod{i}Param"),
-                Min       = ImportReflection.GetInt(entry,    $"{slotPrefix}Mod{i}Min"),
-                Max       = ImportReflection.GetInt(entry,    $"{slotPrefix}Mod{i}Max"),
+                Min       = ImportReflection.GetInt(entry,    $"{slotPrefix}Mod{i}Min", Warn),
+                Max       = ImportReflection.GetInt(entry,    $"{slotPrefix}Mod{i}Max", Warn),
             });
         }
         return props;
+    }
+
+    /// <summary>
+    /// Stores <paramref name="value"/> under its primary key. A repeated key keeps the
+    /// historical last-row-wins result (so exports are unchanged) but is now reported with
+    /// the file, column and key instead of being overwritten silently.
+    /// </summary>
+    private void Put<TKey, TValue>(Dictionary<TKey, TValue> lookup, TKey key, TValue value, string file, string column)
+        where TKey : notnull
+    {
+        if (lookup.ContainsKey(key))
+            _pipeline.AddWarning("DataLoader", file, $"Duplicate {column} '{key}'; the later row replaces the earlier one.");
+        lookup[key] = value;
     }
 
     private static int? ParseInt(string? value)

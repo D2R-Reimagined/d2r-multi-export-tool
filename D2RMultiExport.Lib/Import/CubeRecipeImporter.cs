@@ -11,7 +11,7 @@ namespace D2RMultiExport.Lib.Import;
 public sealed class CubeRecipeImporter
 {
     private readonly GameData _data;
-    private readonly string _excelPath;
+    private readonly SourceRoots _sources;
     private readonly Config.ExportConfig _config;
 
     // Cube ingredient/output qualifier labels are loaded from
@@ -24,9 +24,9 @@ public sealed class CubeRecipeImporter
     public bool EarlyStopSentinelEnabled { get; set; }
     public bool CubeRecipeUseDescription { get; set; }
 
-    public CubeRecipeImporter(string excelPath, GameData data)
+    public CubeRecipeImporter(SourceRoots sources, GameData data)
     {
-        _excelPath = excelPath;
+        _sources = sources;
         _data = data;
         _config = data.ExportConfig;
     }
@@ -38,7 +38,7 @@ public sealed class CubeRecipeImporter
         IList<D2RReimaginedTools.Models.CubeMain> rawEntries;
         try
         {
-            rawEntries = await CubeMainParser.GetEntries(Path.Combine(_excelPath, "CubeMain.txt"));
+            rawEntries = await CubeMainParser.GetEntries(_sources.Excel("cubemain.txt"));
         }
         catch (Exception ex)
         {
@@ -54,6 +54,11 @@ public sealed class CubeRecipeImporter
         // while still recovering the tail-of-file socket-punch recipes the OG
         // tool used to produce.
         bool postSentinel = false;
+        // Stable recipe ids (docs/WEBSITE-INTEGRATION.md §6). Collision suffixes are
+        // handed out where a row is *accepted*, not where it is built, so they depend on
+        // recipe content rather than on which rows the filters above happened to drop.
+        var idCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var idFirstIndex = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var entry in rawEntries)
         {
             index++;
@@ -79,6 +84,7 @@ public sealed class CubeRecipeImporter
                 var export = new CubeRecipeExport
                 {
                     Index = index,
+                    Id = ComputeRecipeId(entry),
                     Description = CubeRecipeUseDescription ? (entry.Description ?? "") : "",
                     Enabled = true,
                     NumInputs = entry.NumInputs ?? 0,
@@ -124,15 +130,22 @@ public sealed class CubeRecipeImporter
                 export.ResolvedInputsCount = export.Inputs.Count;
 
                 // 2. Process Outputs (A, B, C)
-                export.Outputs.A = ParseOutput(entry.Output, null, "", entry);
-                export.Outputs.B = ParseOutput(entry.OutputB, null, "B", entry);
-                export.Outputs.C = ParseOutput(entry.OutputC, null, "C", entry);
+                var rowId = entry.Description ?? $"Index {index}";
+                void Warn(string message) => result.AddWarning("CubeRecipe", rowId, message);
+                export.Outputs.A = ParseOutput(entry.Output, null, "", entry, Warn);
+                export.Outputs.B = ParseOutput(entry.OutputB, null, "B", entry, Warn);
+                export.Outputs.C = ParseOutput(entry.OutputC, null, "C", entry, Warn);
 
                 // 3. Process Notes/Heuristics
                 ProcessNotes(export, entry);
 
                 if (export.Inputs.Count > 0 && (export.Outputs.A != null || export.Outputs.B != null || export.Outputs.C != null))
                 {
+                    var baseId = export.Id;
+                    var seen = idCounts.GetValueOrDefault(baseId);
+                    idCounts[baseId] = seen + 1;
+                    if (seen == 0) idFirstIndex[baseId] = index;
+                    else export.Id = $"{baseId}-{seen + 1}";
                     result.AddItem(export);
                 }
             }
@@ -140,9 +153,62 @@ public sealed class CubeRecipeImporter
             {
                 result.AddError("CubeRecipe", entry.Description ?? $"Index {index}", $"Failed to process: {ex.Message}", ex);
             }
+            finally
+            {
+                foreach (var omission in PropertyMapper.TakeOmittedLines(_data))
+                    result.AddWarning("CubeRecipe", entry.Description ?? $"Index {index}", omission);
+            }
+        }
+
+        foreach (var (baseId, count) in idCounts.Where(pair => pair.Value > 1).OrderBy(pair => idFirstIndex[pair.Key]))
+        {
+            result.AddWarning("CubeRecipe", baseId,
+                $"{count} exported recipes share this content hash (first at Index {idFirstIndex[baseId]}); " +
+                $"the later ones were suffixed -2 through -{count}.");
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// The recipe's stable identity: <c>"cr-"</c> plus 16 lowercase hex digits of the
+    /// FNV-1a-64 hash of the row's <c>class</c>, <c>op</c>, <c>param</c>, <c>value</c> and
+    /// <c>input 1..7</c> cells, trimmed, kept in their original case and quoting, and
+    /// joined with U+001F. Those are the cells the game matches a cube combination on, so
+    /// the id survives edits to <c>description</c>, <c>enabled</c>, <c>numinputs</c>,
+    /// outputs, mods and row moves; changing the inputs or the op makes it a different
+    /// recipe with a different id, which is the intent.
+    ///
+    /// The column list, the order, the separator and the hash are a published contract
+    /// (<c>docs/WEBSITE-INTEGRATION.md</c> §6b) — changing any of them rotates every id
+    /// and breaks every saved build link. Note that this includes how
+    /// <c>D2RReimaginedTools.FileExtensions</c> normalizes a cell: it hands quotes through
+    /// verbatim today, so a parser bump that started stripping them would be a breaking
+    /// id change even though nothing here moved.
+    /// </summary>
+    internal static string ComputeRecipeId(D2RReimaginedTools.Models.CubeMain entry)
+    {
+        var cells = new string[11];
+        cells[0] = entry.Class ?? "";
+        cells[1] = entry.Operation ?? "";
+        cells[2] = entry.Param ?? "";
+        cells[3] = entry.Value ?? "";
+        for (var i = 1; i <= 7; i++)
+            cells[3 + i] = ImportReflection.GetString(entry, $"Input{i}") ?? "";
+
+        var canonical = string.Join('\u001F', cells.Select(cell => cell.Trim()));
+
+        var hash = 0xcbf29ce484222325UL;
+        unchecked
+        {
+            foreach (var b in System.Text.Encoding.UTF8.GetBytes(canonical))
+            {
+                hash ^= b;
+                hash *= 0x100000001b3UL;
+            }
+        }
+
+        return "cr-" + hash.ToString("x16");
     }
 
     private CubeIngredientExport ParseIngredient(string token)
@@ -186,7 +252,7 @@ public sealed class CubeRecipeImporter
         return ingredient;
     }
 
-    private CubeOutputExport? ParseOutput(string? token, int? chance, string suffix, D2RReimaginedTools.Models.CubeMain entry)
+    private CubeOutputExport? ParseOutput(string? token, int? chance, string suffix, D2RReimaginedTools.Models.CubeMain entry, Action<string> warn)
     {
         if (string.IsNullOrEmpty(token)) return null;
 
@@ -257,9 +323,9 @@ public sealed class CubeRecipeImporter
             if (PropertyMapper.IsIgnored(propCode, _data.ExportConfig)) continue;
 
             var param = ImportReflection.GetString(entry, $"Mod{i}Param{suffix}");
-            var min = ImportReflection.GetInt(entry, $"Mod{i}Min{suffix}");
-            var max = ImportReflection.GetInt(entry, $"Mod{i}Max{suffix}");
-            var modChance = ImportReflection.GetInt(entry, $"Mod{i}Chance{suffix}");
+            var min = ImportReflection.GetInt(entry, $"Mod{i}Min{suffix}", warn);
+            var max = ImportReflection.GetInt(entry, $"Mod{i}Max{suffix}", warn);
+            var modChance = ImportReflection.GetInt(entry, $"Mod{i}Chance{suffix}", warn);
 
             // propertygroups.txt reference on a cube-recipe Mod slot → expand
             // into the parent KeyedLine carrying strPropertyGroupsProperty.
@@ -273,18 +339,11 @@ public sealed class CubeRecipeImporter
                 continue;
             }
 
-            var resolved = PropertyMapper.Map(propCode, param, min, max, _data, 99);
-            output.Properties.Add(new CubePropertyExport
+            foreach (var row in PropertyMapper.MapRows(propCode, param, min, max, _data, 99, i))
             {
-                Index = i,
-                ModChance = modChance,
-                PropertyCode = propCode,
-                Priority = resolved.Priority,
-                Min = min,
-                Max = max,
-                Parameter = param,
-                Lines = resolved.Lines
-            });
+                row.ModChance = modChance;
+                output.Properties.Add(row);
+            }
         }
 
         return output;

@@ -12,11 +12,11 @@ namespace D2RMultiExport.Lib.Import;
 public sealed class UniqueImporter
 {
     private readonly GameData _data;
-    private readonly string _excelPath;
+    private readonly SourceRoots _sources;
 
-    public UniqueImporter(string excelPath, GameData data)
+    public UniqueImporter(SourceRoots sources, GameData data)
     {
-        _excelPath = excelPath;
+        _sources = sources;
         _data = data;
     }
 
@@ -28,7 +28,7 @@ public sealed class UniqueImporter
         IList<D2RReimaginedTools.Models.UniqueItem> rawEntries;
         try
         {
-            rawEntries = await UniqueItemsParser.GetEntries(Path.Combine(_excelPath, "UniqueItems.txt"));
+            rawEntries = await UniqueItemsParser.GetEntries(_sources.Excel("uniqueitems.txt"));
         }
         catch (Exception ex)
         {
@@ -124,7 +124,7 @@ public sealed class UniqueImporter
                     RequiredLevel = entry.LevelRequirement,
                     Code = code,
                     Properties = properties,
-                    DamageArmorEnhanced = properties.Any(p => p.PropertyCode == "ac%" || p.PropertyCode == "dmg%"),
+                    DamageArmorEnhanced = properties.Any(p => config.DamageArmorEnhancedCodesSet.Contains(p.PropertyCode ?? "")),
                     Equipment = equipment?.ToSlim()
                 };
 
@@ -133,6 +133,11 @@ public sealed class UniqueImporter
             catch (Exception ex)
             {
                 result.AddError("Unique", name, $"Failed to process: {ex.Message}", ex);
+            }
+            finally
+            {
+                foreach (var omission in PropertyMapper.TakeOmittedLines(_data))
+                    result.AddWarning("Unique", name, omission);
             }
         }
 
@@ -163,67 +168,19 @@ public sealed class UniqueImporter
                     continue;
                 }
 
-                // charm-property resolves directly via Properties.txt → stat charm_weight
-                // (no property group expansion needed)
-
-                // Expand dmg-elem into fire, cold, lightning (matching old code's GetProperties)
-                if (string.Equals(prop.Property, "dmg-elem", StringComparison.OrdinalIgnoreCase))
+                // Keep raw values through the shared expansion path, including
+                // direct damage components and poison rates.
+                foreach (var row in PropertyMapper.MapRows(prop.Property, prop.Parameter, prop.Min, prop.Max, _data, itemLevel, i))
                 {
-                    foreach (var elem in new[] { "dmg-fire", "dmg-cold", "dmg-ltng" })
-                    {
-                        var elemResolved = PropertyMapper.Map(elem, prop.Parameter, prop.Min, prop.Max, _data, itemLevel);
-                        properties.Add(new CubePropertyExport
-                        {
-                            Index = i,
-                            PropertyCode = elem,
-                            Priority = elemResolved.Priority,
-                            Min = prop.Min,
-                            Max = prop.Max,
-                            Parameter = prop.Parameter,
-                            Lines = elemResolved.Lines
-                        });
-                    }
-                    continue;
+                    // Retain known calculation-only and split component rows even
+                    // when they have no tooltip until cleanup/equipment calculation.
+                    if (row.Lines.Count == 0
+                        && !_data.Properties.ContainsKey(row.PropertyCode!)
+                        && !PropertyCleanup.IsSplitElementalCode(row.PropertyCode, _data.ExportConfig))
+                        continue;
+
+                    properties.Add(row);
                 }
-
-                // Expand multi-stat elemental properties into separate min/max/len entries
-                // so MergeElementalTriplets can aggregate them properly
-                if (PropertyMapper.TryExpandElemental(prop.Property, prop.Parameter, prop.Min, prop.Max, _data, itemLevel, i, out var expanded))
-                {
-                    properties.AddRange(expanded);
-                    continue;
-                }
-
-                var resolved = PropertyMapper.Map(prop.Property, prop.Parameter, prop.Min, prop.Max, _data, itemLevel);
-
-                // Skip properties that didn't resolve to any keyed line AND aren't
-                // recognised in Properties.txt — i.e. truly unknown property codes
-                // (the legacy English path used to render these as bare numbers).
-                // Exceptions:
-                //  • Split elemental damage codes (pois-min/max/len, cold-min/max/len,
-                //    fire-min/max, ltng-min/max) resolve to no keyed line because their
-                //    ItemStatCost rows have empty descstrpos (descfunc 0); they must
-                //    reach PropertyCleanup.MergeElementalTriplets to be aggregated
-                //    into dmg-pois / dmg-cold / dmg-fire / dmg-ltng entries.
-                //  • Known property codes (e.g. "dur", "indestruct") that have no
-                //    keyed-line template are still consumed by DamageArmorCalculator
-                //    and stripped afterwards via IsPostCalcFiltered.
-                if (resolved.Lines.Count == 0
-                    && !_data.Properties.ContainsKey(prop.Property)
-                    && !PropertyCleanup.IsSplitElementalCode(prop.Property, _data.ExportConfig))
-                    continue;
-
-                properties.Add(new CubePropertyExport
-                {
-                    Index = i,
-                    PropertyCode = prop.Property,
-                    Priority = resolved.Priority,
-                    Min = prop.Min,
-                    Max = prop.Max,
-                    Parameter = prop.Parameter,
-                    IsEase = prop.Property == "ease",
-                    Lines = resolved.Lines
-                });
             }
             catch (Exception ex)
             {

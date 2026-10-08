@@ -115,7 +115,7 @@ jobs:
           Self-contained win-x64 build. No .NET install required.
 
           Run the headless exporter:
-              D2RMultiExport.Console.exe export --excel <path> --mod-strings <path> --out <out>
+              D2RMultiExport.Console.exe export --mod-data <mod> --casc-data <casc-extraction> --out <out>
 
           Or launch the GUI:
               D2RMultiExport.Client.exe

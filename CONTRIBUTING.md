@@ -7,7 +7,8 @@ deeper docs only when you actually need them.
 > Looking for the rules that apply to AI coding assistants (Claude,
 > Junie, Copilot, Codex, …)? Those live in
 > [`AGENTS.md`](./AGENTS.md). The conventions there apply to humans
-> too, but the structure of that file is optimized for agents.
+> too. Root `CLAUDE.md` imports `AGENTS.md` using Claude Code's supported
+> `@AGENTS.md` syntax; do not maintain a second standards document.
 
 ---
 
@@ -29,6 +30,13 @@ Concretely, the tool exists to produce:
   per supported D2R locale.
 - `<out>/extras/` — audit folder (import report, missing-translations
   audit, etc.).
+- `<out>/sprites/` — WebP item, UI and skill-icon sprites.
+- `<out>/manifest.json` — written last: SHA-256 of every file this run
+  produced, per-step status, `Succeeded: false` if any error occurred and
+  `Complete: false` if a step was skipped or left a declared output unwritten.
+  Except for replacing the previous manifest at the output phase, the tool never
+  deletes files it did not attempt to write in this run, so the manifest —
+  not the folder — says which files are current.
 
 The schema, CLI flags, and config shape exist to serve **that one
 downstream consumer** and may change whenever the mod or the site need
@@ -45,10 +53,11 @@ D2R data dumper" are out of scope and will likely be declined.
 | `D2RMultiExport.Lib/Config/` | Bundled JSON config + matching `*Config.cs` POCOs. |
 | `D2RMultiExport.Lib/Import/` | One importer per `.txt` family (uniques, sets, runewords, cube recipes, …). |
 | `D2RMultiExport.Lib/Translation/` | Property → translation-key resolution, synthetic-string registry. |
-| `D2RMultiExport.Lib/Exporters/` | Final JSON writers (`keyed/`, `strings/`). |
-| `D2RMultiExport.Console/` | Headless CLI (`export` command). |
+| `D2RMultiExport.Lib/Exporters/` | Final writers (`keyed/`, `strings/`, `sprites/`, `manifest.json`); all output goes through `ExportOutputs`. |
+| `D2RMultiExport.Console/` | Headless CLI (`export` and `publish` commands). |
 | `D2RMultiExport.Client/` | Avalonia desktop GUI front-end. |
-| `docs/` | Operational docs (`TESTING.md`, `RELEASING.md`). |
+| `D2RMultiExport.Tests/` | xUnit regression tests (output integrity, input handling). |
+| `docs/` | Operational docs (`TESTING.md`, `RELEASING.md`, `WEBSITE-INTEGRATION.md`, and one per calculator export). |
 
 Excel `.txt` parsing is delegated to the
 [`D2RReimaginedTools.FileExtensions`](https://www.nuget.org/packages/D2RReimaginedTools.FileExtensions)
@@ -63,8 +72,7 @@ in `D2RMultiExport.Lib/D2RMultiExport.Lib.csproj` for a local
 checkout, validate via the smoke export, ship the upstream PR, then
 bump the `<PackageReference>` `Version` once the upstream release is
 out. **Revert the swap before committing** — the committed `.csproj`
-must always restore from NuGet (Dependabot syncs versions via
-`.github/dependabot.yml`). This same recipe is summarized for agents
+must always restore from NuGet. This same recipe is summarized for agents
 in [`AGENTS.md`](./AGENTS.md).
 
 ---
@@ -75,13 +83,14 @@ in [`AGENTS.md`](./AGENTS.md).
   `rollForward: latestFeature`).
 - A D2R mod source tree with `data\global\excel\*.txt` and
   `data\local\lng\strings\*.json`.
-- *(Optional)* A CASC dump of the base game's `local\lng\strings`
-  if you want to fill missing translations. See `README.md` for the
-  `--base-strings` flag.
+- *(Recommended)* A CascView extraction of the base game's `data` tree,
+  passed as `--casc-data`: it supplies vanilla sprites, base strings and
+  tables the mod does not ship. See `README.md`.
 
 Windows is the primary supported platform (the GUI is Avalonia and the
-release workflow publishes `win-x64`). The library and console build
-on any .NET 10 platform.
+release workflow publishes `win-x64`). The library and console target portable
+.NET 10; Linux execution was not verified locally because WSL virtualization
+is disabled. Do not infer verified portability from the target framework alone.
 
 ---
 
@@ -98,9 +107,22 @@ Run the headless export (CLI):
 
 ```powershell
 dotnet run --project .\D2RMultiExport.Console -c Release -- export `
-    --mod-root "<path-to-mod>" `
-    --out      .\test-output
+    --mod-data  "<path-to-mod>" `
+    --casc-data "<path-to-casc-extraction>" `
+    --out       .\test-output
 ```
+
+Stage a publishable bundle (the directory must be new/empty and not nested with output):
+
+```powershell
+dotnet run --project .\D2RMultiExport.Console -c Release -- publish `
+    --from .\test-output --staging <new-or-empty-directory>
+```
+
+Staging verifies manifest schema 2 and copied payload hashes/lengths, refuses
+failed runs, and refuses incomplete runs unless `--allow-incomplete` is explicit.
+Deploy staging as a coherent bundle; hashes do not attest source freshness or
+require browser-side verification. Current CLI options are in [README.md](README.md#run--cli).
 
 Run the desktop GUI:
 
@@ -110,21 +132,24 @@ dotnet run --project .\D2RMultiExport.Client -c Release
 
 ---
 
-## Smoke test (the de-facto test suite)
+## Tests and smoke export
 
-There is no automated unit-test project today. The end-to-end smoke
-export documented in [`docs/TESTING.md`](./docs/TESTING.md) **is** the
-project's test suite. Any change that touches the import, translation,
-or export pipeline must be validated by running it.
+[docs/TESTING.md](./docs/TESTING.md) is authoritative for commands and test
+selection: Level A for routine localized changes, Level B for targeted importer/
+exporter regressions, Level C for shared arithmetic/schema, broad changes,
+insufficient targeted coverage and releases. Documentation-only changes need diff
+and link review, without builds or exports.
 
-A successful smoke export prints `Export completed successfully.` and
-leaves a clean `extras/import-report.txt` (no new errors). For
-refactors, snapshot `test-output/` to `test-output-baseline/` first and
-diff `keyed/*.json` after to confirm parity.
+Build once in the selected configuration, then use `--no-build`. The Level C
+script retains one content export for compatible final-JSON checks and the
+independent Python auditor, preserving intermediate importer assertions and
+independent desktop root transitions. Releases and CLI/publishing changes require
+its CLI repeat/staging option. Review current-run reports and affected JSON.
 
-Documentation-only or comment-only changes can skip the smoke export;
-say so explicitly in your PR description so reviewers don't waste time
-re-running it.
+Ordinary tests explicitly skip unavailable optional real-data cases. Full
+validation fails if required roots/checks are unavailable or skipped. Record
+passed, failed, skipped and unexecuted checks in the PR; a deterministic test pass
+alone does not establish required real-data validation.
 
 ---
 
@@ -156,7 +181,7 @@ contributor needs in their head:
 2. **Exports are keyed.** Every player-facing string written under
    `<out>/keyed/*.json` must be a translation key (or a `KeyedLine
    { key, args }`) — never a baked English sentence. Three documented
-   structural exceptions (cube recipe `Description`, the `PType`
+   raw-English cases (cube recipe `Description`, the `PType`
    Prefix/Suffix discriminator, `RequiredClass`) are listed in
    `AGENTS.md`; new exceptions require an explicit decision.
 
@@ -183,14 +208,15 @@ bundles include it.
    context `validate-commits`) enforces this on every PR; squash-
    merging with the PR title as the commit subject is the intended
    workflow.
-3. **Build locally before pushing.** Run
-   `dotnet build .\D2RMultiExport.sln` — that's the same command the
-   **Build Check** workflow (`ci.yml`) runs. Build Check is
-   **manual-only** (`workflow_dispatch`) to avoid burning ~3–4 Actions
-   minutes per commit on open PRs; trigger it from
-   **Actions → Build Check → Run workflow** before merge if you want a
-   clean-runner confirmation.
-4. **Smoke-test the export** if you touched the pipeline.
+3. **Validate locally before pushing** at the appropriate level in
+   [docs/TESTING.md](./docs/TESTING.md); reuse an already passing matching
+   build/test session. The **Build Check** workflow (`ci.yml`) is
+   **manual-only** (`workflow_dispatch`); trigger it from
+   **Actions → Build Check → Run workflow** before merge for a clean-runner
+   confirmation. It builds Release and runs deterministic C#/Python suites,
+   without private real-data inputs.
+4. **Run Level C when required** by the change's scope; do not add another
+   content smoke export to the same successful validation session.
 5. **Don't leave a local `<ProjectReference>` swap** for
    `D2RReimaginedTools.FileExtensions` in `D2RMultiExport.Lib.csproj`
    — the committed `.csproj` must always restore from NuGet.
@@ -235,8 +261,9 @@ The release workflow:
 3. Verifies the bundled `Config\` tree shipped (the
    `D2RMultiExport.Lib.csproj` `<None Update>` rules must keep
    propagating `export-config.json`, `synthetic-strings.json`,
-   `stat-overrides.json`, `class-ranges.json`, and
-   `Config\CASC_DATA\runes.txt`).
+   `stat-overrides.json`, `class-ranges.json`,
+   `skill-desc-functions.json`, and the `Config\CASC_DATA\` tables
+   `runes.txt`, `skillcalc.txt`, `misscalc.txt`).
 4. Tags `v<version>`, zips into
    `D2RMultiExport-v<version>-win-x64.zip` (top-level folder
    `D2RMultiExport\`), and attaches it to a GitHub Release with notes

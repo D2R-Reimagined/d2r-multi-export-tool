@@ -12,14 +12,35 @@ namespace D2RMultiExport.Lib.Exporters;
 /// <summary>Exports source weapon speeds, animations and evaluated mod skill speed curves.</summary>
 public static class AttackSpeedExporter
 {
-    public static async Task ExportAsync(string exportDir, string excelPath, GameData data)
+    public const string OutputPath = "keyed/ias-calculator.json";
+
+    private static readonly string[] InputFiles = ["weapons.txt", "skills.txt", "itemtypes.txt"];
+
+    /// <summary>The mod's animation table, relative to the data root.</summary>
+    internal const string AnimationTable = "global/animdata.d2";
+
+    public static async Task ExportAsync(ExportOutputs outputs, SourceRoots sources, GameData data, Action<string> warn)
     {
+        if (!ExcelInputs.RequireAll(sources, OutputPath, warn, InputFiles)) return;
+
         var config = data.ExportConfig.AttackSpeed;
-        var animationPath = Path.Combine(Directory.GetParent(excelPath)!.FullName, "animdata.d2");
-        // Missing animations are an explicit unavailable dataset; never substitute vanilla timings.
-        var animations = File.Exists(animationPath) ? ReadAnimations(animationPath, config) : [];
-        var types = (await ItemTypeParser.GetEntries(Path.Combine(excelPath, "itemtypes.txt")))
-            .Where(t => !string.IsNullOrEmpty(t.Code)).ToDictionary(t => t.Code!, StringComparer.OrdinalIgnoreCase);
+        if (config.CurveLevels < 1)
+            throw new InvalidDataException(
+                $"export-config.json attackSpeed.curveLevels must be a positive integer (found {config.CurveLevels}).");
+
+        // Missing animations are an explicit unavailable dataset; never substitute vanilla
+        // timings (docs/IAS-CALCULATOR.md). This is the one input deliberately resolved in the
+        // mod root only: the mod's weapon speeds and skill curves are tuned against its own
+        // animdata, so vanilla frames would export plausible-looking but wrong breakpoints.
+        var animationSource = sources.ResolveIn(SourceOrigin.Mod, AnimationTable);
+        var animationPath = animationSource.Path;
+        List<Animation> animations = [];
+        if (animationPath is not null)
+            animations = ReadAnimations(animationPath, config);
+        else
+            warn($"{OutputPath}: '{animationSource.Expected}' is not present, so Animations is empty and animation-based speeds are unavailable (vanilla timings are never substituted).");
+        var types = ExcelInputs.IndexFirst(await ItemTypeParser.GetEntries(sources.Excel("itemtypes.txt")),
+            static t => t.Code, "itemtypes.txt", "Code", warn);
         HashSet<string> ExpandTypes(string? first, string? second)
         {
             var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -35,7 +56,7 @@ public static class AttackSpeedExporter
             Add(first); Add(second);
             return result;
         }
-        var weapons = (await WeaponParser.GetEntries(Path.Combine(excelPath, "weapons.txt")))
+        var weapons = (await WeaponParser.GetEntries(sources.Excel("weapons.txt")))
             .Where(w => !string.IsNullOrEmpty(w.Code) && !string.IsNullOrEmpty(w.WClass))
             .Select(w =>
             {
@@ -55,58 +76,74 @@ public static class AttackSpeedExporter
         {
             var row = skill.SourceRow;
             if (row is null) continue;
-            long[]? Evaluate(string? expression)
+            // Null for an absent expression (the curve does not apply). An expression that is
+            // present but unsolvable is also exported as null, and reported with its cause.
+            long[]? Evaluate(string? expression, string curve)
             {
                 if (string.IsNullOrWhiteSpace(expression)) return null;
-                var values = new long[100];
+                var values = new long[config.CurveLevels];
                 for (var level = 1; level <= values.Length; level++)
                 {
-                    if (!SkillCalculator.TryEvaluate(expression, new SkillCalcContext { Skill = skill, Data = data, Level = level }, out values[level - 1]))
+                    // The IAS curves are indexed by a single skill level, so hard and bonus
+                    // points are treated alike here — unlike the description tables, these
+                    // expressions are speed rules rather than blvl-sensitive damage terms.
+                    var levels = new CalcLevels(level, level);
+                    var context = new SkillCalcContext { Skill = skill, Data = data, Levels = levels };
+                    if (!SkillCalculator.TryEvaluate(expression, context, out values[level - 1]))
+                    {
+                        warn($"{OutputPath}: {skill.Skill} {curve} '{expression}' could not be evaluated at level {level} "
+                            + $"({context.Trace.Reason ?? "unknown cause"}); exported as null.");
                         return null;
+                    }
                 }
                 return values;
             }
-            if (config.BuffSkills.Contains(skill.Skill, StringComparer.OrdinalIgnoreCase))
+            if (config.BuffSkillsSet.Contains(skill.Skill))
             {
-                for (var index = 1; index <= 12; index++)
+                // Aura slot N is checked before passive slot N, preserving the historical
+                // Buffs order; skills.txt has 6 aura and 14 passive stat slots.
+                var slots = Math.Max(SkillCalcSource.AuraStatSlots, SkillCalcSource.PassiveStatSlots);
+                for (var index = 1; index <= slots; index++)
                 {
-                    foreach (var (statPrefix, calcPrefix) in new[] { ("AuraStat", "AuraStatCalc"), ("PassiveStat", "PassiveCalc") })
+                    foreach (var (stat, calc) in new[]
+                             {
+                                 (SkillCalcSource.AuraStat(row, index), SkillCalcSource.AuraStatCalc(row, index)),
+                                 (SkillCalcSource.PassiveStat(row, index), SkillCalcSource.PassiveCalc(row, index))
+                             })
                     {
-                        var stat = row.GetType().GetProperty(statPrefix + index)?.GetValue(row) as string;
                         if (!string.Equals(stat, config.AttackRateStat, StringComparison.OrdinalIgnoreCase)) continue;
-                        var expression = row.GetType().GetProperty(calcPrefix + index)?.GetValue(row) as string;
-                        if (config.BuffCalcOverrides.TryGetValue(skill.Skill, out var replacement)) expression = replacement;
-                        buffs.Add(new { Code = skill.Skill, NameKey = skill.NameKey, Values = Evaluate(expression) });
+                        var expression = config.BuffCalcOverrides.TryGetValue(skill.Skill, out var replacement) ? replacement : calc;
+                        buffs.Add(new { Code = skill.Skill, NameKey = skill.NameKey ?? skill.Skill, Values = Evaluate(expression, "buff curve") });
                     }
                 }
             }
-            var common = config.CommonSkills.Contains(skill.Skill, StringComparer.OrdinalIgnoreCase);
-            if ((!common && string.IsNullOrEmpty(skill.CharClass)) || config.ExcludedSkills.Contains(skill.Skill, StringComparer.OrdinalIgnoreCase) || row.Passive == "1") continue;
+            var common = config.CommonSkillsSet.Contains(skill.Skill);
+            if ((!common && string.IsNullOrEmpty(skill.CharClass)) || config.ExcludedSkillsSet.Contains(skill.Skill) || row.Passive == "1") continue;
             if (!common && (!data.SkillDescs.TryGetValue(skill.SkillDesc ?? "", out var desc) || desc.Row <= 0 || desc.Column <= 0)) continue;
-            if (!config.AnimationModes.Contains(row.Anim ?? "", StringComparer.OrdinalIgnoreCase)) continue;
+            if (!config.AnimationModesSet.Contains(row.Anim ?? "")) continue;
             var rule = config.SkillRules.GetValueOrDefault(skill.Skill) ?? new AttackSpeedRule();
             skills.Add(new
             {
-                Code = skill.Skill, NameKey = skill.NameKey, ClassCode = skill.CharClass ?? "",
+                // Player skills only, so skill.NameKey is always set; `?? Code` is defensive.
+                Code = skill.Skill, NameKey = skill.NameKey ?? skill.Skill, ClassCode = skill.CharClass ?? "",
                 Mode = row.Anim!.ToUpperInvariant(), Sequence = row.SeqNum, Rule = rule,
                 Restrict = row.Restrict, States = new[] { row.State1, row.State2, row.State3 }.Where(s => !string.IsNullOrEmpty(s)).ToArray(),
                 IncludeTypes = new[] { row.ITypeA1, row.ITypeA2, row.ITypeA3 }.Where(t => !string.IsNullOrEmpty(t)).ToArray(),
                 ExcludeTypes = new[] { row.ETypeA1, row.ETypeA2 }.Where(t => !string.IsNullOrEmpty(t)).ToArray(),
-                Rollback = Evaluate(rule.RollbackCalc), Hits = Evaluate(rule.HitsCalc), SelfSpeed = Evaluate(rule.SelfSpeedCalc)
+                Rollback = Evaluate(rule.RollbackCalc, "rollbackCalc"), Hits = Evaluate(rule.HitsCalc, "hitsCalc"),
+                SelfSpeed = Evaluate(rule.SelfSpeedCalc, "selfSpeedCalc")
             });
         }
-        var sources = new[] { Path.Combine(excelPath, "weapons.txt"), Path.Combine(excelPath, "skills.txt"), Path.Combine(excelPath, "itemtypes.txt"), animationPath };
+        var inputPaths = new[] { sources.Excel("weapons.txt"), sources.Excel("skills.txt"), sources.Excel("itemtypes.txt"), animationPath ?? "" };
         var output = new
         {
             SchemaVersion = 1,
-            Sources = sources.Where(File.Exists).Select(path => new { Code = Path.GetFileName(path), Hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))) }),
+            Sources = inputPaths.Where(File.Exists).Select(path => new { Code = Path.GetFileName(path), Hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))) }),
             Classes = config.ClassTokens.Select(pair => new { ClassCode = pair.Key, Token = pair.Value, NameKey = data.ResolveClassName(pair.Key) }),
             Weapons = weapons, Skills = skills, Buffs = buffs, Animations = animations,
             StartingFrames = config.StartingFrames, FormTokens = config.FormTokens
         };
-        Directory.CreateDirectory(Path.Combine(exportDir, "keyed"));
-        await using var stream = File.Create(Path.Combine(exportDir, "keyed", "ias-calculator.json"));
-        await JsonSerializer.SerializeAsync(stream, output);
+        await outputs.WriteJsonAsync(OutputPath, output, null);
     }
 
     private sealed record Animation(string Code, int Frames, int AnimationSpeed, int[] ActionFrames);

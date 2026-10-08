@@ -20,11 +20,19 @@ namespace D2RMultiExport.Lib.Exporters;
 /// </summary>
 public static class KeyedJsonExporter
 {
-    public static async Task ExportAsync(string exportDir, GameData data, bool prettyPrint = true)
-    {
-        var keyedDir = Path.Combine(exportDir, "keyed");
-        Directory.CreateDirectory(keyedDir);
+    /// <summary>Every file this exporter can write, so the pipeline can sweep stale copies.</summary>
+    public static readonly string[] OutputPaths =
+    [
+        "keyed/uniques.json", "keyed/sets.json", "keyed/runewords.json", "keyed/cube-recipes.json",
+        SkillTreeExporter.OutputPath, "keyed/armors.json", "keyed/weapons.json",
+        "keyed/magicprefix.json", "keyed/magicsuffix.json"
+    ];
 
+    public static Task ExportAsync(ExportOutputs outputs, GameData data, bool prettyPrint)
+        => ExportAsync(outputs, data, prettyPrint, data.Translations.ContainsKey);
+
+    internal static async Task ExportAsync(ExportOutputs outputs, GameData data, bool prettyPrint, Func<string?, bool> hasTranslation)
+    {
         var options = new JsonSerializerOptions
         {
             WriteIndented = prettyPrint,
@@ -35,34 +43,34 @@ public static class KeyedJsonExporter
         if (data.Uniques.Count > 0)
         {
             var rows = data.Uniques.Select(MapUnique).ToList();
-            await WriteJsonAsync(Path.Combine(keyedDir, "uniques.json"), rows, options);
+            await outputs.WriteJsonAsync("keyed/uniques.json", rows, options);
         }
 
         if (data.Sets.Count > 0)
         {
             var rows = data.Sets.Select(MapSet).ToList();
-            await WriteJsonAsync(Path.Combine(keyedDir, "sets.json"), rows, options);
+            await outputs.WriteJsonAsync("keyed/sets.json", rows, options);
         }
 
         if (data.Runewords.Count > 0)
         {
             var rows = data.Runewords.Select(MapRuneword).ToList();
-            await WriteJsonAsync(Path.Combine(keyedDir, "runewords.json"), rows, options);
+            await outputs.WriteJsonAsync("keyed/runewords.json", rows, options);
         }
 
         if (data.CubeRecipes.Count > 0)
         {
             var rows = data.CubeRecipes.Select(MapCubeRecipe).ToList();
-            await WriteJsonAsync(Path.Combine(keyedDir, "cube-recipes.json"), rows, options);
+            await outputs.WriteJsonAsync("keyed/cube-recipes.json", rows, options);
         }
 
-        await SkillTreeExporter.ExportAsync(keyedDir, data, options);
+        await SkillTreeExporter.ExportAsync(outputs, data, options);
 
         // Aggregated automagic-group lookup, keyed by automagic.txt `group`.
         // Built once and shared by both armor and weapon emission so each base
         // item can attach the grouped affix bonuses associated with its
         // `AutoPrefix` (a Group id pointer into automagic.txt).
-        var autoMagicGroupMap = BuildAutoMagicGroupMap(data);
+        var autoMagicGroupMap = BuildAutoMagicGroupMap(data, hasTranslation);
 
         // Honor `ignoredUniqueItems` for base armor/weapon emission as well —
         // the list contains a mix of unique-item names and base item names
@@ -84,7 +92,7 @@ public static class KeyedJsonExporter
                 .Where(t => t.Export is not null)
                 .Select(t => MapEquipmentWithAutoMagic(t.Export!, t.Base, autoMagicGroupMap, stripSocketTiers: false))
                 .ToList();
-            await WriteJsonAsync(Path.Combine(keyedDir, "armors.json"), rows, options);
+            await outputs.WriteJsonAsync("keyed/armors.json", rows, options);
         }
 
         if (data.Weapons.Count > 0)
@@ -96,7 +104,7 @@ public static class KeyedJsonExporter
                 .Where(t => t.Export is not null)
                 .Select(t => MapEquipmentWithAutoMagic(t.Export!, t.Base, autoMagicGroupMap, stripSocketTiers: false))
                 .ToList();
-            await WriteJsonAsync(Path.Combine(keyedDir, "weapons.json"), rows, options);
+            await outputs.WriteJsonAsync("keyed/weapons.json", rows, options);
         }
 
         if (data.MagicPrefixes.Count > 0)
@@ -106,7 +114,7 @@ public static class KeyedJsonExporter
             var rows = data.MagicPrefixes
                 .Select(p => MapMagicAffix(p, data, "Prefix"))
                 .ToList();
-            await WriteJsonAsync(Path.Combine(keyedDir, "magicprefix.json"), rows, options);
+            await outputs.WriteJsonAsync("keyed/magicprefix.json", rows, options);
         }
 
         if (data.MagicSuffixes.Count > 0)
@@ -114,7 +122,7 @@ public static class KeyedJsonExporter
             var rows = data.MagicSuffixes
                 .Select(s => MapMagicAffix(s, data, "Suffix"))
                 .ToList();
-            await WriteJsonAsync(Path.Combine(keyedDir, "magicsuffix.json"), rows, options);
+            await outputs.WriteJsonAsync("keyed/magicsuffix.json", rows, options);
         }
     }
 
@@ -195,6 +203,13 @@ public static class KeyedJsonExporter
     private sealed class KeyedCubeRecipe
     {
         public int Index { get; set; }
+        /// <summary>
+        /// Row-independent recipe identity; see
+        /// <see cref="Import.CubeRecipeImporter.ComputeRecipeId"/>. Declaration order is
+        /// wire order, so it sits directly after <see cref="Index"/> as
+        /// <c>docs/WEBSITE-INTEGRATION.md</c> §6a specifies.
+        /// </summary>
+        public string Id { get; set; } = "";
         public string Description { get; set; } = "";
         public int? Op { get; set; }
         public int? Param { get; set; }
@@ -289,8 +304,10 @@ public static class KeyedJsonExporter
 
     private sealed class KeyedAutoMagicGroup
     {
-        /// <summary>Affix display name translation key (magicaffix.txt name column).</summary>
-        public string NameKey { get; set; } = "";
+        /// <summary>Structural automagic.txt row name; not necessarily a translated affix name.</summary>
+        public string Code { get; set; } = "";
+        /// <summary>Optional display key, only when the source name has a translation.</summary>
+        public string? NameKey { get; set; }
         public int Level { get; set; }
         public int RequiredLevel { get; set; }
         public List<KeyedLine> Lines { get; set; } = [];
@@ -370,6 +387,7 @@ public static class KeyedJsonExporter
     private static KeyedCubeRecipe MapCubeRecipe(CubeRecipeExport c) => new()
     {
         Index = c.Index,
+        Id = c.Id,
         Description = c.Description,
         Op = c.Op,
         Param = c.Param,
@@ -423,8 +441,7 @@ public static class KeyedJsonExporter
                     lines.AddRange(groupProp.Lines);
                 continue;
             }
-            var resolved = PropertyMapper.Map(prop.Code ?? "", prop.Parameter, prop.Min, prop.Max, data, entry.Level);
-            if (resolved.Lines.Count > 0)
+            foreach (var resolved in PropertyMapper.MapExpanded(prop.Code ?? "", prop.Parameter, prop.Min, prop.Max, data, entry.Level))
             {
                 lines.AddRange(resolved.Lines);
             }
@@ -526,7 +543,7 @@ public static class KeyedJsonExporter
     /// website can render every distinct affix that the base item can roll without re-running
     /// the property resolver.
     /// </summary>
-    private static Dictionary<int, List<KeyedAutoMagicGroup>> BuildAutoMagicGroupMap(GameData data)
+    private static Dictionary<int, List<KeyedAutoMagicGroup>> BuildAutoMagicGroupMap(GameData data, Func<string?, bool> hasTranslation)
     {
         var map = new Dictionary<int, List<KeyedAutoMagicGroup>>();
         if (data.AutoMagics.Count == 0) return map;
@@ -554,8 +571,8 @@ public static class KeyedJsonExporter
                     propIndex++;
                     continue;
                 }
-                var resolved = PropertyMapper.Map(prop.Code, prop.Parameter, prop.Min, prop.Max, data, am.Level);
-                if (resolved.Lines.Count > 0) lines.AddRange(resolved.Lines);
+                foreach (var resolved in PropertyMapper.MapExpanded(prop.Code, prop.Parameter, prop.Min, prop.Max, data, am.Level))
+                    lines.AddRange(resolved.Lines);
                 propIndex++;
             }
             if (lines.Count == 0) continue;
@@ -565,7 +582,8 @@ public static class KeyedJsonExporter
             {
                 bucket = new KeyedAutoMagicGroup
                 {
-                    NameKey = am.Name ?? "",
+                    Code = am.Name ?? "",
+                    NameKey = hasTranslation(am.Name) ? am.Name : null,
                     Level = am.Level,
                     RequiredLevel = am.RequiredLevel,
                     Lines = []
@@ -579,7 +597,7 @@ public static class KeyedJsonExporter
                 list.Add(bucket);
             }
 
-            // Dedupe lines inside the bucket on (Key + arg signature).
+            // Dedupe the complete wire line, including children and selection bounds.
             foreach (var line in lines)
             {
                 if (!bucket.Lines.Any(existing => SameKeyedLine(existing, line)))
@@ -589,7 +607,7 @@ public static class KeyedJsonExporter
             }
         }
 
-        // Order each group's buckets by RequiredLevel, then Level, then NameKey,
+        // Order each group's buckets by RequiredLevel, then Level, then source Code,
         // matching doc-generator's stable display order.
         foreach (var list in map.Values)
         {
@@ -599,7 +617,7 @@ public static class KeyedJsonExporter
                 if (c != 0) return c;
                 c = a.Level.CompareTo(b.Level);
                 if (c != 0) return c;
-                return string.Compare(a.NameKey, b.NameKey, StringComparison.Ordinal);
+                return string.Compare(a.Code, b.Code, StringComparison.Ordinal);
             });
         }
 
@@ -608,15 +626,10 @@ public static class KeyedJsonExporter
 
     private static bool SameKeyedLine(KeyedLine a, KeyedLine b)
     {
-        if (!string.Equals(a.Key, b.Key, StringComparison.Ordinal)) return false;
-        if (a.Args.Length != b.Args.Length) return false;
-        for (int i = 0; i < a.Args.Length; i++)
-        {
-            var av = a.Args[i]?.ToString() ?? "";
-            var bv = b.Args[i]?.ToString() ?? "";
-            if (!string.Equals(av, bv, StringComparison.Ordinal)) return false;
-        }
-        return true;
+        // Group parents have empty key/args; comparing those alone discarded
+        // different child ranges. Selection bounds and activation metadata also
+        // distinguish lines even when their displayed labels are identical.
+        return string.Equals(JsonSerializer.Serialize(a), JsonSerializer.Serialize(b), StringComparison.Ordinal);
     }
 
 
@@ -670,9 +683,4 @@ public static class KeyedJsonExporter
         return result;
     }
 
-    private static async Task WriteJsonAsync<T>(string path, T data, JsonSerializerOptions options)
-    {
-        await using var fs = File.Create(path);
-        await JsonSerializer.SerializeAsync(fs, data, options);
-    }
 }

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>D2RMultiExport.Client.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Headless Avalonia interaction tests. Avalonia.Headless.XUnit 12 is built on xunit v3,
+       which is why these live apart from D2RMultiExport.Tests (xunit v2). -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <!-- Match Avalonia's discoverer ABI; xunit v3 4 changes TestIntrospectionHelper. -->
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\D2RMultiExport.Client\D2RMultiExport.Client.csproj" />
+    <Compile Include="..\TestSupport\RealDataInputs.cs" Link="TestSupport\RealDataInputs.cs" />
+  </ItemGroup>
+
+</Project>

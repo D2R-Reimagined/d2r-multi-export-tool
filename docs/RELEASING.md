@@ -77,9 +77,12 @@ is normally already in place.
 Before triggering a release, confirm:
 
 - [ ] `main` is green on the **Build Check** workflow (`build-check`).
-- [ ] The smoke export from `docs\TESTING.md` runs cleanly against the
-      current Reimagined mod tree (`Export completed successfully.`,
-      no new errors in `extras\import-report.txt`).
+- [ ] Complete [Level C validation](TESTING.md#level-c--comprehensive-validation)
+      with `-CheckCliAndPublish` against the current mod/CASC roots, with no
+      skipped required checks; record its session/results and review reports
+      and affected JSON. Reuse that session's content bundle for further checks.
+      Build Check has no private game data; the release packaging workflow does
+      not run these tests or exports and does not replace this local gate.
 - [ ] The PR(s) merged since the last tag contain at least one
       well-formed Conventional Commit message — those subjects feed the
       release notes generator. Squash-merge with the PR title gives you

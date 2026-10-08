@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+using System.Text.RegularExpressions;
 using D2RMultiExport.Lib.Config;
 using D2RMultiExport.Lib.Models;
 
 namespace D2RMultiExport.Lib.Import;
 
+/// <summary>Shared property expansion and keyed value resolution for every item family.</summary>
 public static class PropertyMapper
 {
     /// <summary>
@@ -22,6 +24,47 @@ public static class PropertyMapper
     /// </summary>
     public static bool IsPostCalcFiltered(string code, ExportConfig config) =>
         config.PropertyPostCalcFilteredCodesSet.Contains(code);
+
+    /// <summary>
+    /// The single interpretation of a shorthand property code: the component codes it stands
+    /// for (<c>export-config.json → propertyCodeExpansions</c>, e.g. <c>dmg-elem</c> →
+    /// <c>dmg-fire</c>/<c>dmg-cold</c>/<c>dmg-ltng</c>), or the code itself. Every importer
+    /// and exporter that turns a <c>.txt</c> property column into keyed lines goes through
+    /// <see cref="MapExpanded"/>, so a code means the same thing on a unique, a set item, a
+    /// set bonus, a runeword, a gem/rune, a cube output and a magic affix.
+    /// </summary>
+    public static IReadOnlyList<string> ExpandCode(string code, ExportConfig config) =>
+        config.PropertyCodeExpansions.TryGetValue(code, out var components) && components.Count > 0
+            ? components
+            : [code];
+
+    /// <summary>
+    /// Maps one property column to one <see cref="ExportProperty"/> per component code
+    /// (see <see cref="ExpandCode"/>), each carrying the column's original param/min/max.
+    /// </summary>
+    public static List<ExportProperty> MapExpanded(string code, string? param, int? min, int? max, GameData data, int itemLevel) =>
+        [.. ExpandCode(code, data.ExportConfig).Select(component => Map(component, param, min, max, data, itemLevel))];
+
+    /// <summary>
+    /// <see cref="MapExpanded"/> shaped as importer rows: one <see cref="CubePropertyExport"/>
+    /// per component, all sharing <paramref name="index"/> and the original column values.
+    /// </summary>
+    public static List<CubePropertyExport> MapRows(string code, string? param, int? min, int? max, GameData data, int itemLevel, int index) =>
+        [.. ExpandCode(code, data.ExportConfig).Select(component =>
+        {
+            var resolved = Map(component, param, min, max, data, itemLevel);
+            return new CubePropertyExport
+            {
+                Index = index,
+                PropertyCode = component,
+                Priority = resolved.Priority,
+                Min = min,
+                Max = max,
+                Parameter = param,
+                IsEase = data.ExportConfig.RequirementPercentCodesSet.Contains(component),
+                Lines = resolved.Lines
+            };
+        })];
 
     public static bool TryExpandElemental(string code, string? param, int? min, int? max, GameData data, int itemLevel, int index, out List<CubePropertyExport> results)
     {
@@ -53,16 +96,18 @@ public static class PropertyMapper
             Lines = maxResolved.Lines
         });
 
-        if (!string.IsNullOrEmpty(expansion.Len) && int.TryParse(param, out var lenFrames) && lenFrames > 0)
+        if (!string.IsNullOrEmpty(expansion.Len) && int.TryParse(param, out var lenFrames))
         {
+            var lengthResolved = Map(expansion.Len, null, lenFrames, lenFrames, data, itemLevel);
             results.Add(new CubePropertyExport
             {
                 Index = index,
                 PropertyCode = expansion.Len,
-                Priority = 0,
+                Priority = lengthResolved.Priority,
                 Min = lenFrames,
                 Max = lenFrames,
-                Parameter = param
+                Parameter = param,
+                Lines = lengthResolved.Lines
             });
         }
 
@@ -71,6 +116,17 @@ public static class PropertyMapper
 
     public static ExportProperty Map(string code, string? param, int? min, int? max, GameData data, int itemLevel)
     {
+        var selection = data.Properties.TryGetValue(code, out var selectionDefinition) && selectionDefinition.Function1 == 12
+            ? new PropertySelection { Stat = selectionDefinition.Stat1 ?? "", Min = min, Max = max }
+            : null;
+        if (selectionDefinition?.Stat1 == "item_addskill_tab" && selectionDefinition.Function1 == 10
+            && param?.Split('-') is { Length: 2 } tabBounds
+            && int.TryParse(tabBounds[0], out var tabMin) && int.TryParse(tabBounds[1], out var tabMax))
+        {
+            // propertygroups ParMin/ParMax are tab identifiers, separate from
+            // ModMin/ModMax bonus rolls. Alias labels must not erase these bounds.
+            selection = new PropertySelection { Stat = selectionDefinition.Stat1, Min = tabMin, Max = tabMax };
+        }
         // When the item-level parameter is empty/zero, fall back to Properties.txt val1
         // (e.g. "nec" property has val1=2 for Necromancer class index)
         // Note: param may be "0" for class-specific properties where the game defaults empty to 0
@@ -176,19 +232,48 @@ public static class PropertyMapper
 
         // Emit the key-based wire rows. These are what KeyedJsonExporter
         // serializes — the only rendering of a property that reaches the wire.
-        try
+        // Let the source row's error boundary report failures. Returning an empty
+        // line list here used to silently erase properties and their endpoints.
+        exportProp.Lines = Translation.PropertyKeyResolver.Resolve(exportProp, data, itemLevel);
+        // A value template with no finalized argument would reach the website as a raw
+        // "%+d". Omit only that line and report the source gap; never invent a value.
+        exportProp.Lines.RemoveAll(line => OmitsUnresolvedPlaceholder(line, exportProp, data));
+        foreach (var line in exportProp.Lines)
         {
-            exportProp.Lines = Translation.PropertyKeyResolver.Resolve(exportProp, data, itemLevel);
-        }
-        catch
-        {
-            // Resolver failures must never break the import. The import-report
-            // already records property errors via the regular pipeline; here we
-            // just keep the Lines list empty so the wire is well-formed.
-            exportProp.Lines = [];
+            line.Selection = selection;
         }
 
         return exportProp;
+    }
+
+    /// <summary>
+    /// Positional substitution tokens the website fills from <c>args</c>; <c>%%</c> is a
+    /// literal percent sign, not a slot.
+    /// </summary>
+    private static readonly Regex SubstitutionToken = new(@"%(?:%|\+d|[dDsSi]|[0-9])", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Removes and returns the omissions recorded since the last call, so the caller can
+    /// report them against the source row it just mapped.
+    /// </summary>
+    public static List<string> TakeOmittedLines(GameData data)
+    {
+        List<string> taken = [.. data.OmittedPropertyLines];
+        data.OmittedPropertyLines.Clear();
+        return taken;
+    }
+
+    private static bool OmitsUnresolvedPlaceholder(KeyedLine line, ExportProperty property, GameData data)
+    {
+        if (line.Args.Length > 0 || line.Children is { Count: > 0 }) return false;
+        var template = data.TemplateLookup is { } lookup
+            ? lookup(line.Key)
+            : data.Translations.TryGetValue(line.Key, out var text) ? text : null;
+        if (template is null || !SubstitutionToken.Matches(template).Any(static m => m.Value != "%%")) return false;
+        data.OmittedPropertyLines.Add(
+            $"Property '{property.PropertyCode}' (param '{property.Parameter}', min '{property.Min}', max '{property.Max}') "
+            + $"has no value for template '{line.Key}' (\"{template}\"); the line was omitted.");
+        return true;
     }
 }
 

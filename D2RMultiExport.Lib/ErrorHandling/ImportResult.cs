@@ -63,6 +63,17 @@ public sealed class PipelineResult
         });
     }
 
+    public void AddWarning(string category, string itemId, string message)
+    {
+        AllErrors.Add(new ImportError
+        {
+            Category = category,
+            ItemIdentifier = itemId,
+            Message = message,
+            Severity = ImportErrorSeverity.Warning
+        });
+    }
+
     public bool HasErrors => AllErrors.Any(e => e.Severity == ImportErrorSeverity.Error);
 
     public string GenerateReport()

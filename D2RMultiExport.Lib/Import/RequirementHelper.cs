@@ -93,8 +93,8 @@ public static class RequirementHelper
         var easeProps = properties.Where(p => p.IsEase).ToList();
         if (easeProps.Count == 0) return;
 
-        var minEase = easeProps.Sum(p => p.Min ?? 0);
-        var maxEase = easeProps.Sum(p => p.Max ?? 0);
+        var minEase = easeProps.Sum(p => p.Min ?? p.Max ?? 0);
+        var maxEase = easeProps.Sum(p => p.Max ?? p.Min ?? 0);
         if (minEase == 0 && maxEase == 0) return;
 
         equipment.RequiredStrength = AdjustStat(equipment.RequiredStrength, minEase, maxEase);

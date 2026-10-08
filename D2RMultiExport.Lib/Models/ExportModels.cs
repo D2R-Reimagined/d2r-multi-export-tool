@@ -108,6 +108,15 @@ public sealed class SetItemExport
 public sealed class CubeRecipeExport
 {
     public int Index { get; set; }
+
+    /// <summary>
+    /// Stable identity for the recipe, independent of its row position: an FNV-1a-64
+    /// hash of the cells the game matches a cube combination on. See
+    /// <see cref="Import.CubeRecipeImporter.ComputeRecipeId"/> and
+    /// <c>docs/WEBSITE-INTEGRATION.md</c> §6.
+    /// </summary>
+    public string Id { get; set; } = "";
+
     public string Description { get; set; } = "";
     public int? Op { get; set; }
     public int? Param { get; set; }
@@ -232,6 +241,7 @@ public sealed class MagicAffixExport
     public string PType { get; set; } = "";
 }
 
+/// <summary>Internal property values, activation metadata and resolved keyed lines.</summary>
 public sealed class CubePropertyExport
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -268,6 +278,9 @@ public sealed class CubePropertyExport
     public int? Min { get; set; }
     [JsonIgnore]
     public int? Max { get; set; }
+    /// <summary>Raw paired damage rolls retained for equipment arithmetic after component cleanup.</summary>
+    [JsonIgnore]
+    public (int MinLow, int MinHigh, int MaxLow, int MaxHigh)? DamageRolls { get; set; }
     [JsonIgnore]
     public string? Parameter { get; set; }
     [JsonIgnore]
@@ -423,11 +436,27 @@ public sealed class SkillDescriptionSet
     public int SkillId { get; set; }
 
     /// <summary>
-    /// Highest level the <see cref="SkillDescriptionLine.Values"/> tables cover — the
-    /// skill's <c>maxlvl</c> plus the configured bonus-level headroom, so the website can
-    /// preview what +skills gear does without the exporter shipping an unbounded table.
+    /// Highest <em>effective</em> level the <see cref="SkillDescriptionLine.Values"/> tables
+    /// cover (<c>ExportConfig.SkillDescriptionMaxLevel</c>). A character can only spend
+    /// <see cref="HardPointCap"/> points, but <c>+skills</c> gear pushes the displayed level
+    /// well past that, so the tables run the whole range the website can show.
     /// </summary>
     public int MaxLevel { get; set; }
+
+    /// <summary>
+    /// The skill's own <c>maxlvl</c> — the most hard points a character can spend on it, and
+    /// therefore the extent of the first axis of a <see cref="SkillDescriptionLine.Values2D"/>
+    /// grid. Levels between this and <see cref="MaxLevel"/> are <c>+skills</c> bonus levels,
+    /// so each row's bonus axis runs <c>0..(MaxLevel - hardPoints)</c> before tail trimming.
+    /// </summary>
+    public int HardPointCap { get; set; }
+
+    /// <summary>
+    /// Highest character level the <see cref="SkillDescriptionLine.ValuesUlvl"/> tables
+    /// cover — the extent of that table's second axis, which is indexed
+    /// <c>characterLevel - 1</c>.
+    /// </summary>
+    public int CharacterLevelCap { get; set; }
 
     /// <summary>Main tooltip stats (<c>descline1..6</c>): damage, duration, radius, …</summary>
     public List<SkillDescriptionLine> Stats { get; set; } = [];
@@ -469,6 +498,21 @@ public sealed class SkillDescriptionLine
     public string? Scale { get; set; }
 
     /// <summary>
+    /// The <c>*SymPerCalc</c> expression to evaluate for this line instead of the skill's
+    /// own, when damage comes from a missile or another skill row. Referenced skill
+    /// parameters are bound to their source values before exporting the expression.
+    /// Most of Reimagined's headline spells deal their damage through a missile, and the
+    /// missile carries its own damage percentage — <c>royalstrikemeteor</c> scales off
+    /// <c>skill('Fists of Fire'.blvl)</c>, <c>arcticblast_*</c> off
+    /// <c>skill('Summon Spirit Wolf'.blvl)</c> — which is otherwise nowhere on the wire, so
+    /// the website would apply no bonus at all. Same grammar and same live-rank evaluation
+    /// as <c>Calculation.PhysicalDamage</c>/<c>ElementalDamage</c>.
+    /// </summary>
+    [JsonPropertyName("scaleCalc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ScaleCalc { get; set; }
+
+    /// <summary>
     /// Plural template (<c>desctextB</c>) for the description functions that ship a
     /// singular/plural pair. The website picks this one whenever the rendered value is not
     /// exactly 1. Serialized only when the function supplies it.
@@ -495,4 +539,41 @@ public sealed class SkillDescriptionLine
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonConverter(typeof(LevelTableConverter))]
     public List<double[]>? Values { get; set; }
+
+    /// <summary>
+    /// Present only on the lines whose formula actually reads <c>blvl</c> — the hard-point
+    /// level, which D2 treats as a different quantity from the effective level and which
+    /// Reimagined uses as a designed mechanic (<c>Fire Mastery</c>'s
+    /// <c>blvl*par1 + min((lvl-blvl)*par2, par3)</c>). For those, one table per numeric
+    /// argument indexed <c>[hardPoints][bonusLevels]</c>: the first axis is points the
+    /// character spent, the second is levels granted by gear. Row <c>0</c> is the oskill
+    /// case — no hard points, all bonus.
+    ///
+    /// Both axes drop their constant tail exactly as <see cref="Values"/> does, so consumers
+    /// must clamp each index to the last element. When this is present, prefer it over
+    /// <see cref="Values"/>; <see cref="Values"/> is still written for the same line so an
+    /// older consumer keeps rendering (it reads as "every level is a hard point").
+    /// </summary>
+    [JsonPropertyName("values2d")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonConverter(typeof(LevelGridConverter))]
+    public List<double[][]>? Values2D { get; set; }
+
+    /// <summary>
+    /// Present only on the lines whose formula actually reads <c>ulvl</c>, the caster's own
+    /// <em>character</em> level — a quantity neither skill-level axis can express
+    /// (<c>Thorns</c>' <c>aurastatcalc1 = edmn * (ulvl + 100)/100</c>, and the summon
+    /// <c>calc2 = ulvl</c> columns that set a minion's level). One table per numeric
+    /// argument indexed <c>[skillLevel - 1][characterLevel - 1]</c>, the second axis running
+    /// to <see cref="SkillDescriptionSet.CharacterLevelCap"/>.
+    ///
+    /// Both axes drop their constant tail, so consumers must clamp each index. A save-file
+    /// viewer knows the character level exactly; a planner needs an input for it. When this
+    /// is present prefer it over <see cref="Values"/>, which is still written for the same
+    /// line but solved at the maximum character level.
+    /// </summary>
+    [JsonPropertyName("valuesUlvl")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonConverter(typeof(LevelGridConverter))]
+    public List<double[][]>? ValuesUlvl { get; set; }
 }

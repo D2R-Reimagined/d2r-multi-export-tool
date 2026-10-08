@@ -3,27 +3,17 @@ using System.CommandLine;
 using D2RMultiExport.Lib;
 
 // ── Required path arguments ─────────────────────────────────────────────────────
-var excelOption = new Option<string>("--excel", "-e")
+// Every input is derived from these two directories by D2RMultiExport.Lib.SourceRoots.
+var modDataOption = new Option<string>("--mod-data", "-m")
 {
-    Description = "Path to the .txt data files (excel directory)",
+    Description = "The mod's data directory (contains global\\excel and local\\lng\\strings). The mod repository root that contains data\\ is accepted too.",
     Required = true
 };
 
-// `--translations` is kept as a back-compat alias so existing scripts continue to work.
-var modStringsOption = new Option<string>("--mod-strings", "--translations", "-t")
+var cascDataOption = new Option<string?>("--casc-data", "-c")
 {
-    Description = "Path to the mod's local\\lng\\strings directory (.json translation files; mod overrides win over CASC base)",
-    Required = true
-};
-
-var baseStringsOption = new Option<string?>("--base-strings", "-b")
-{
-    Description = "Optional path to the read-only CASC base strings dir (used to fill keys missing from the mod overrides). Example: C:\\z_Casc\\data\\data\\local\\lng\\strings"
-};
-
-var baseAssetsOption = new Option<string?>("--base-assets")
-{
-    Description = "Optional path to an extracted vanilla D2R data root. Vanilla HD sprites are overlaid by matching mod sprites and exported as WebP."
+    Description = "The extracted vanilla D2R data directory (data\\ or CascView's nested data\\data\\; the extraction root is accepted too). "
+        + "Supplies every file the mod does not ship: HD sprites, base strings, vanilla tables. Strongly recommended."
 };
 
 var exportOption = new Option<string>("--export", "--out", "-o")
@@ -63,29 +53,35 @@ var continueOnExceptionOption = new Option<bool>("--continue-on-exception")
 
 var exportCommand = new Command("export", "Import game data and export the key-based JSON bundle (keyed/*.json + strings/{lang}.json × 13)")
 {
-    excelOption, modStringsOption, baseStringsOption, baseAssetsOption, exportOption, configOption,
+    modDataOption, cascDataOption, exportOption, configOption,
     prettyOption,
     earlyStopOption, cubeRecipeDescOption, continueOnExceptionOption
 };
 
 exportCommand.SetAction(async (parseResult, cancellationToken) =>
 {
-    var excel        = parseResult.GetValue(excelOption)!;
-    var modStrings   = parseResult.GetValue(modStringsOption)!;
-    var baseStrings  = parseResult.GetValue(baseStringsOption);
-    var baseAssets   = parseResult.GetValue(baseAssetsOption);
+    var modData      = parseResult.GetValue(modDataOption)!;
+    var cascData     = parseResult.GetValue(cascDataOption);
     var export       = parseResult.GetValue(exportOption)!;
     var config       = parseResult.GetValue(configOption);
 
-    var pipeline = new D2RMultiExportPipeline(excel, modStrings, export, config)
+    D2RMultiExportPipeline pipeline;
+    try
     {
-        PrettyPrintJson           = parseResult.GetValue(prettyOption),
-        BaseStringsPath           = baseStrings,
-        BaseAssetsPath            = baseAssets,
-        EarlyStopSentinelEnabled  = parseResult.GetValue(earlyStopOption),
-        CubeRecipeUseDescription  = parseResult.GetValue(cubeRecipeDescOption),
-        ContinueOnException       = parseResult.GetValue(continueOnExceptionOption),
-    };
+        pipeline = new D2RMultiExportPipeline(modData, cascData, export, config)
+        {
+            PrettyPrintJson           = parseResult.GetValue(prettyOption),
+            EarlyStopSentinelEnabled  = parseResult.GetValue(earlyStopOption),
+            CubeRecipeUseDescription  = parseResult.GetValue(cubeRecipeDescOption),
+            ContinueOnException       = parseResult.GetValue(continueOnExceptionOption),
+        };
+    }
+    catch (SourceLayoutException ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 3;
+    }
+    foreach (var line in pipeline.Sources.Describe()) Console.WriteLine(line);
 
     try
     {
@@ -116,9 +112,50 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
     }
 });
 
+// ── publish: stage only the files the last run vouched for ─────────────────────────
+var publishFromOption = new Option<string>("--from", "--out", "-o")
+{
+    Description = "The export output directory (contains manifest.json)",
+    Required = true
+};
+var publishToOption = new Option<string>("--staging", "-s")
+{
+    Description = "A new or empty directory to receive the publishable bundle (never inside --from)",
+    Required = true
+};
+var allowIncompleteOption = new Option<bool>("--allow-incomplete")
+{
+    Description = "Stage a run whose manifest says Complete: false (a skipped exporter). Failed runs are never staged.",
+    DefaultValueFactory = _ => false
+};
+var publishCommand = new Command("publish",
+    "Copy exactly the files listed in manifest.json (re-verified by SHA-256) into a staging directory. "
+    + "Refuses failed runs, incomplete runs unless --allow-incomplete, and files changed since the run. "
+    + "The output directory itself is never modified.")
+{
+    publishFromOption, publishToOption, allowIncompleteOption
+};
+publishCommand.SetAction(async (parseResult, cancellationToken) =>
+{
+    var result = await D2RMultiExport.Lib.Exporters.PublishStager.StageAsync(
+        parseResult.GetValue(publishFromOption)!,
+        parseResult.GetValue(publishToOption)!,
+        parseResult.GetValue(allowIncompleteOption));
+    foreach (var problem in result.Problems)
+        (result.Staged ? Console.Out : Console.Error).WriteLine(problem);
+    if (!result.Staged)
+    {
+        Console.Error.WriteLine("No completed bundle was staged.");
+        return 4;
+    }
+    Console.WriteLine($"Staged {result.Files.Count} file(s).");
+    return 0;
+});
+
 var rootCommand = new RootCommand("D2R Reimagined mod data exporter — generates the key-based, language-agnostic JSON bundle consumed by the D2R Reimagined website.")
 {
-    exportCommand
+    exportCommand,
+    publishCommand
 };
 
 return await rootCommand.Parse(args).InvokeAsync();

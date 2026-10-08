@@ -34,6 +34,15 @@ public sealed class KeyedLine
     public object[] Args { get; set; } = [];
 
     /// <summary>
+    /// Original identifier bounds for engine function 12 or grouped skill tabs. These
+    /// are skill/class/tab identifiers, never a range of the displayed bonus.
+    /// Optional so existing consumers can continue rendering key/args unchanged.
+    /// </summary>
+    [JsonPropertyName("selection")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PropertySelection? Selection { get; set; }
+
+    /// <summary>
     /// Marker for descfunc=19 stats whose underlying stat name actually scales
     /// per character level (e.g. <c>*_perlevel</c>, <c>*_perlvl</c>).
     ///
@@ -201,4 +210,22 @@ public sealed class KeyedLine
     public int Priority { get; set; }
 
     public static KeyedLine Of(string key, params object[] args) => new() { Key = key, Args = args };
+}
+
+/// <summary>Identifier bounds whose selection was previously represented only by a class label.</summary>
+public sealed class PropertySelection
+{
+    /// <summary>Engine stat defining the selected identifier domain; structural, not a display key.</summary>
+    [JsonPropertyName("stat")]
+    public string Stat { get; init; } = "";
+
+    /// <summary>Original lower identifier, omitted when absent.</summary>
+    [JsonPropertyName("min")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Min { get; init; }
+
+    /// <summary>Original upper identifier, omitted when absent.</summary>
+    [JsonPropertyName("max")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Max { get; init; }
 }

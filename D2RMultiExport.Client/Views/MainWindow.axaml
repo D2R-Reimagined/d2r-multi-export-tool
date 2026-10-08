@@ -24,6 +24,15 @@
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
+        <Style Selector="TextBlock.hint.invalid">
+            <Setter Property="Foreground" Value="#FF8A80"/>
+        </Style>
+        <Style Selector="TextBlock.logline.warning">
+            <Setter Property="Foreground" Value="#FFD54F"/>
+        </Style>
+        <Style Selector="TextBlock.logline.error">
+            <Setter Property="Foreground" Value="#FF8A80"/>
+        </Style>
         <Style Selector="Label.field">
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="HorizontalAlignment" Value="Right"/>
@@ -38,30 +47,26 @@
                 Padding="12" Margin="0,0,0,12">
             <Grid ColumnDefinitions="220,*,110" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
 
-                <Label Grid.Row="0" Grid.Column="0" Classes="field" Content="Mod Excel Directory"/>
-                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ExcelPath}" Margin="0,3"/>
-                <Button Grid.Row="0" Grid.Column="2" Content="Browse..." Click="BrowseExcel_Click"
+                <Label Grid.Row="0" Grid.Column="0" Classes="field" Content="Mod Data Directory"
+                       ToolTip.Tip="The mod's data folder (contains global\excel, local\lng\strings and optionally hd). The mod repository root containing data is accepted too."/>
+                <TextBox Grid.Row="0" Grid.Column="1" x:Name="ModDataBox" Text="{Binding ModDataPath}" Margin="0,3"/>
+                <Button Grid.Row="0" Grid.Column="2" Content="Browse..." Click="BrowseModData_Click"
                         HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" x:Name="ModDataStatusText"
+                           Classes="hint" Classes.invalid="{Binding !ModDataValid}"
+                           Text="{Binding ModDataStatus}" Margin="0,0,0,6"/>
 
-                <Label Grid.Row="1" Grid.Column="0" Classes="field" Content="Mod JSON Strings Directory"/>
-                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TranslationsPath}" Margin="0,3"/>
-                <Button Grid.Row="1" Grid.Column="2" Content="Browse..." Click="BrowseTranslations_Click"
+                <Label Grid.Row="2" Grid.Column="0" Classes="field" Content="CASC Data Directory"
+                       ToolTip.Tip="The extracted vanilla D2R data folder (data or CascView's data\data). Supplies every file the mod does not ship: HD sprites, base strings, vanilla tables."/>
+                <TextBox Grid.Row="2" Grid.Column="1" x:Name="CascDataBox" Text="{Binding CascDataPath}" Margin="0,3"/>
+                <Button Grid.Row="2" Grid.Column="2" Content="Browse..." Click="BrowseCascData_Click"
                         HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
-
-                <Label Grid.Row="2" Grid.Column="0" Classes="field" Content="CASC Base Strings (optional)"
-                       ToolTip.Tip="Optional read-only CASC base strings used to fill keys missing from mod overrides."/>
-                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding BaseStringsPath}" Margin="0,3"/>
-                <Button Grid.Row="2" Grid.Column="2" Content="Browse..." Click="BrowseBaseStrings_Click"
-                        HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
-
-                <Label Grid.Row="3" Grid.Column="0" Classes="field" Content="CASC Base Data (optional)"
-                       ToolTip.Tip="Optional extracted vanilla D2R data root. Mod item sprites override vanilla sprites and all referenced assets are converted to WebP."/>
-                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding BaseAssetsPath}" Margin="0,3"/>
-                <Button Grid.Row="3" Grid.Column="2" Content="Browse..." Click="BrowseBaseAssets_Click"
-                        HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
+                <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="CascDataStatusText"
+                           Classes="hint" Classes.invalid="{Binding !CascDataValid}"
+                           Text="{Binding CascDataStatus}" Margin="0,0,0,6"/>
 
                 <Label Grid.Row="4" Grid.Column="0" Classes="field" Content="Output Files Directory"/>
-                <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding OutputPath}" Margin="0,3"/>
+                <TextBox Grid.Row="4" Grid.Column="1" x:Name="OutputBox" Text="{Binding OutputPath}" Margin="0,3"/>
                 <Button Grid.Row="4" Grid.Column="2" Content="Browse..." Click="BrowseOutput_Click"
                         HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
             </Grid>
@@ -90,7 +95,7 @@
 
         <!-- ─── Run button + progress bar ───────────────────────────── -->
         <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" Margin="0,0,0,8">
-            <Button Grid.Column="0" Content="Import and Export"
+            <Button Grid.Column="0" x:Name="RunButton" Content="Import and Export"
                     Command="{Binding RunPipelineCommand}"
                     Padding="20,6" FontWeight="Bold"/>
             <!-- Real percentage progress bar driven by PipelineProgress milestones.
@@ -111,21 +116,34 @@
         </Grid>
 
         <!-- ─── Live log panel ──────────────────────────────────────── -->
-        <Border Grid.Row="3" BorderBrush="#555" BorderThickness="1" CornerRadius="4"
-                Padding="6" Margin="0,0,0,8">
+        <!-- Clicking anywhere in the log opens the expanded, non-modal viewer. -->
+        <Border Grid.Row="3" x:Name="LogPanel" BorderBrush="#555" BorderThickness="1" CornerRadius="4"
+                Padding="6" Margin="0,0,0,8" Cursor="Hand"
+                ToolTip.Tip="Click to open the full log (search, filter, copy, save).">
             <Grid RowDefinitions="Auto,*">
-                <TextBlock Grid.Row="0" Text="Pipeline log"
-                           FontWeight="Bold" Margin="4,2,0,4"/>
+                <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="4,2,0,4">
+                    <TextBlock Grid.Column="0" Text="Pipeline log" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" x:Name="LogSummaryText" Classes="hint" Text="{Binding LogSummary}"
+                               Margin="10,0" VerticalAlignment="Center"/>
+                    <Button Grid.Column="2" x:Name="OpenLogButton" Content="Open full log" Click="OpenLog_Click" Padding="8,2"/>
+                </Grid>
                 <ListBox Grid.Row="1"
                          x:Name="LogListBox"
-                         ItemsSource="{Binding LogLines}"
+                         ItemsSource="{Binding LogEntries}"
                          FontFamily="Consolas, Menlo, Monospace"
                          FontSize="12"
                          Background="#111"
                          Foreground="#DDD"
                          BorderThickness="0"
                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                         ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+                         ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:LogEntry">
+                            <TextBlock Classes="logline" Classes.warning="{Binding IsWarning}" Classes.error="{Binding IsError}"
+                                       Text="{Binding Text}"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </Grid>
         </Border>
 

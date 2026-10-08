@@ -1,226 +1,125 @@
-# AGENTS.md
+# Project development standards
 
-Rules for AI agents editing `d2r-multi-export-tool` — exporter producing the keyed JSON bundle for the D2R Reimagined website. Human onboarding/build/PR/release/branding: [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+`d2r-multi-export-tool` produces the keyed JSON, localization and sprite bundle for the D2R Reimagined website. This file is authoritative for all coding agents and contributors. `CLAUDE.md` imports it; do not maintain a second ruleset. Read the linked contract document before changing its subsystem.
 
-## Three rules that matter most
+## 1. Purpose and architecture
 
-1. **No hardcoding** — content data goes in `D2RMultiExport.Lib/Config/*.json` + typed `*Config.cs`, never inline in importer/exporter code.
-2. **Exports are keyed** — every player-facing string in `<out>/keyed/*.json` is a translation `key` or `KeyedLine { key, args }`, never a baked English sentence.
-3. **Only three documented raw-English exceptions**: cube recipe `Description`, `PType` Prefix/Suffix discriminator, `RequiredClass`. A fourth requires updating this file in the same change.
+The pipeline is **load → import → resolve → export → audit**, orchestrated by `D2RMultiExport.Lib/D2RMultiExportPipeline.cs`.
 
-## Repository layout
-
-| Path | Purpose |
+| Path | Responsibility |
 |---|---|
-| `D2RMultiExport.Lib/` | Core import → translation → export pipeline. |
-| `D2RMultiExport.Lib/Config/` | Bundled JSON config + `*Config.cs` POCOs. `CASC_DATA/runes.txt` ships; users supply `data\local\lng\strings\*.json` via `--base-strings`. **Optional, not committed**: `supplemental-translations.json` — `TranslationService.LoadSupplementalAsync` guards with `File.Exists`; intentionally not in `<None Update>`. |
-| `D2RMultiExport.Lib/Import/` | One importer per `.txt` family: `UniqueImporter`, `SetImporter`, `RunewordImporter`, `CubeRecipeImporter`, `SkillDescriptionImporter`; helpers `PropertyMapper`, `EquipmentHelper`, `RequirementHelper`, `DamageArmorCalculator`, `PropertyCleanup`, `SkillCalculator`, `DataLoader`. |
-| `D2RMultiExport.Lib/Translation/` | `PropertyKeyResolver`, `SyntheticStringRegistry`, `MultiLanguageTranslationService`, `TranslationService` (enUS descfunc probing + missing-translations audit), `EquipmentLineBuilder`, `CubeQualifierKeyMap`. **No parallel English-string property renderer exists** — old `PropertyStringResolver`/`DisplayString`/`PropertyString` was removed. To render English, resolve `KeyedLine` against `strings/enUS.json`. |
-| `D2RMultiExport.Lib/Exporters/` | `KeyedJsonExporter` (`keyed/*.json`), `SkillTreeExporter` (`keyed/skills.json`), `LanguageBundleExporter` (`strings/<lang>.json`). |
-| `D2RMultiExport.Lib/Models/` | DTOs (`ExportModels.cs`). |
-| `D2RMultiExport.Lib/ErrorHandling/` | `ImportResult<T>` + per-phase error collection. |
-| `D2RMultiExport.Lib/D2RMultiExportPipeline.cs` | Orchestration (load → import → resolve → export → audit). |
-| `D2RMultiExport.Console/` | Headless CLI (`export` command). |
-| `D2RMultiExport.Client/` | Avalonia GUI (MVVM). |
-| `docs/TESTING.md` | Verified end-to-end smoke export. |
-| `test-output/` | Local scratch output. **Not a committed fixture.** |
+| `D2RMultiExport.Lib/Config/` | Bundled JSON and typed `*Config.cs`; `CASC_DATA/` contains upstream reference tables. |
+| `D2RMultiExport.Lib/Import/` | Typed row importers, shared property mapping, equipment arithmetic and BBE calculation scopes. |
+| `D2RMultiExport.Lib/Translation/` | Property-key resolution, synthetic strings, equipment lines and multi-language bundles. Render English by resolving `KeyedLine` against `strings/enUS.json`; do not add a parallel English property renderer. |
+| `D2RMultiExport.Lib/Exporters/` | Keyed documents, language bundles, sprites, reports and publish staging. `ExportOutputs` is the output gateway. |
+| `D2RMultiExport.Lib/Models/`, `ErrorHandling/` | Wire DTOs and contextual phase/row diagnostics. |
+| `D2RMultiExport.Lib/SourceRoots.cs` | Sole source-path authority for Mod Data and optional CASC Data. |
+| `D2RMultiExport.Console/`, `D2RMultiExport.Client/` | CLI (`export`, `publish`) and Avalonia MVVM desktop front ends. |
+| `D2RMultiExport.Tests/`, `D2RMultiExport.Client.Tests/` | Library regressions and Avalonia headless interaction/optional real-data tests. |
+| `test-output/` | Ignored smoke-export scratch output, never a committed fixture. |
 
-## Coding rules
+Keep the tool focused on this website bundle. Do not broaden it into a general D2R dumper or rewrite working systems without a demonstrated need.
 
-- **Target:** `net10.0`, **C# 14**, nullable enabled. 4-space indent, no tabs. Don't normalize line endings on unrelated edits.
-- **Braces:** Allman. Single-line `if` without braces only for guard `return`/`continue` already used in the file.
-- **Namespaces:** file-scoped only. **`using`s** outside namespace, match file's existing order/qualification.
-- **Classes:** `public sealed` for leaves; `static` for stateless helpers.
-- **Collections:** C# 12 expressions (`= []`, `[..src]`); don't revert to `new List<...>()`.
-- **Dicts/sets keyed by D2R codes** (`"cjw"`, `"rin"`, …) **must** use `StringComparer.OrdinalIgnoreCase`.
-- **Async** all the way: `async Task`/`async Task<T>`, no `.Result`/`.Wait()`. Static loaders: `LoadAsync(path)`.
-- **Importers never throw** for per-row failures — record into `ImportResult<T>` via `AddError`/`AddWarning`. Only fatal load failures (missing file, unparseable JSON) propagate.
-- **XML doc** `<summary>` on public types and non-obvious static lookup tables. Match existing comment density.
-- `var` vs explicit type, comment frequency: match surrounding code.
+## 2. Mandatory engineering standards
 
-### Naming
+- Target `net10.0`, C# 14, nullable enabled. Use 4 spaces, no tabs, Allman braces, file-scoped namespaces and `using`s outside namespaces. Match existing order, qualification, `var` usage and comment density; do not normalize unrelated line endings.
+- Single-line unbraced `if` is allowed only for guard `return`/`continue` already used in the file. Use `public sealed` for leaf classes and `static` for stateless helpers.
+- Use collection expressions (`[]`, `[..source]`). D2R-code dictionaries/sets must use `StringComparer.OrdinalIgnoreCase`; translation keys are opaque, ordinal strings.
+- Use `PascalCase` for types/methods/public properties/constants/static readonly tables; `camelCase` for locals/parameters; `_camelCase` for private fields. Config-derived sets end in `Set`.
+- Keep I/O async (`Task`/`Task<T>`, static `LoadAsync(path)`); no `.Result`/`.Wait()`.
+- Add XML `<summary>` to public types and non-obvious static tables. Preserve/add `// SPDX-License-Identifier: GPL-3.0-or-later` on C# sources.
+- Mirror an analogous existing implementation when choosing routine patterns; do not create parallel interpretations or conventions.
 
-- Types/methods/public properties: `PascalCase`. Locals/parameters: `camelCase`. Private fields: `_camelCase` (`_excelPath`, `_data`, `_config`).
-- Constants/`static readonly` tables: `PascalCase` (`IdentifierOnlyProperties`, `IngredientTokenLabels`).
-- Config-derived hashsets: suffix `Set` on the derived property (`IgnoredUniqueItemsSet`); JSON source key stays plain (`ignoredUniqueItems`).
-- Translation keys: opaque `Ordinal` strings. Synthetic keys in `SyntheticStringRegistry.Keys`, conventionally `str…` (e.g. `strCubeNoteEarlyGamePotion`).
+## 3. Configuration and hardcoding
 
-### JSON conventions
+**Configurable game content belongs in `Config/*.json` with typed configuration, never inline in importer/exporter code.** This includes item/property/stat codes used as tunable lists, names to skip/override, vanilla row counts, automagic group ids, class allow-lists and legacy/doc-generator parity data. Engine-specific code paths below remain permitted.
 
-- `Config/*.json`: 4-space indent, `camelCase` keys, double-quoted strings. `Config/CASC_DATA/runes.txt` is upstream data — leave its formatting untouched.
-- Doc hints: sibling `$`-prefixed keys (e.g. `"$skippedCubeRecipesNote"`). Deserializer ignores them (`AllowTrailingCommas`, `JsonCommentHandling.Skip`, unmapped-property tolerance). **Preserve on edits.**
-- Wire `<out>/keyed/`: property names **`PascalCase`** (matches `Models/ExportModels.cs`). **No** camel-case policy — adding one breaks every website query path. Player-facing values are `KeyedLine` or arrays of them.
-- Wire `<out>/strings/<lang>.json`: flat `{ "key": "localized text", … }`.
+For a new `ExportConfig` setting:
 
-## "No hardcoding" rule
+1. Add a `camelCase` key to `export-config.json` with a sibling `$<key>Note`.
+2. Add `[JsonPropertyName(...)]` to its typed property, with empty defaults (`[]` or a comparer-aware dictionary).
+3. For O(1) membership, expose `[JsonIgnore] *Set` and initialize it in `BuildLookups()` with `StringComparer.OrdinalIgnoreCase`.
+4. Inject configuration through constructors; importers must not read config JSON directly.
 
-If you'd inline any of these in importer/exporter code, **stop** and put it in `export-config.json`:
+Config JSON uses 4-space indentation and double-quoted strings. Preserve `$` documentation hints; the deserializer accepts trailing commas/comments and ignores unmapped properties. Leave upstream `Config/CASC_DATA/*.txt` formatting untouched. The whole reference folder is copied by the csproj. Optional `supplemental-translations.json` is guarded by `File.Exists`, is not committed and must not become a required `<None Update>` input.
 
-- D2R item codes (`"cjw"`, `"aqv"`, `"cm1"`, …)
-- Unique/set/runeword names to skip or override
-- Property/stat codes (`dmg-fire`, `fire-min`, `state`, …)
-- Magic numbers for vanilla `*.txt` row counts (`441`, `142`, `100`)
-- AutoMagic group ids, class-name allow-lists
-- Any "doc-generator parity"/"legacy hardcoded" data
+### Authorized retained constants
 
-Canonical pattern:
+These exceptions cover fixed engine/file-format/key-shape behavior, not arbitrary game content. Keep non-configurable lookup tables `private static readonly` with an XML explanation. Do not invent a rule language merely to relocate an implementation predicate.
 
-1. Add to `export-config.json` under a `camelCase` key, with sibling `$<key>Note`.
-2. Add an `ExportConfig` property with `[JsonPropertyName(...)]`, defaulting to empty (`= []` / `= new(StringComparer.OrdinalIgnoreCase)`).
-3. For O(1) lookup, expose `[JsonIgnore]` `*Set`, populate in `BuildLookups()` with `StringComparer.OrdinalIgnoreCase`.
-4. Inject `ExportConfig` via importer constructor (see `CubeRecipeImporter`, `UniqueImporter`, `PropertyMapper`, `EquipmentHelper`). Do **not** read JSON directly inside an importer.
-
-If a value genuinely cannot live in JSON (code-shape lookup, not data), keep it `private static readonly` and document why in XML doc. **Content → config; wire-format/key-shape/`.txt` structure → may stay in code.**
-
-## External parser — fix upstream, not here
-
-`data\global\excel\*.txt` parsing is delegated to `D2RReimaginedTools.FileExtensions` NuGet (`D2RReimaginedTools.TextFileParsers`, `D2RReimaginedTools.Models.*`). Importers consume typed row DTOs (e.g. `D2RReimaginedTools.Models.CubeMain`) — they do **not** parse columns by hand.
-
-Rejected workarounds: re-parsing raw `.txt` inline; hand-patching the typed DTO; shadowing a misparsed column via `export-config.json`.
-
-Upstream: `..\d2r-dotnet-tools` (same org). To debug an unreleased fix, swap the `<PackageReference>` in `D2RMultiExport.Lib.csproj` for a local `<ProjectReference>`, validate via smoke export, ship the upstream PR, then bump `<PackageReference>` `Version`. **Revert the swap before committing** — committed `.csproj` must always restore from NuGet. Dependabot syncs versions via `.github/dependabot.yml`.
-
-## "Keyed exports" rule
-
-`keyed/loot-filter.json` keeps display names in `NameKey`. Its `BaseNameSelector`
-and `TypeNameSelector` fields are literal UnHoarder protocol identifiers, including
-case and whitespace; type/parent code fields preserve the source graph. They are
-identifier-only audit exclusions, not additional raw-English display exceptions.
-See `docs/LOOT-FILTER.md`.
-
-Every player-facing field in `<out>/keyed/*.json` is either a translation **key** present in `<out>/strings/<lang>.json`, or a `KeyedLine { "key", "args" }` whose `args` are primitives, nested `KeyedLine`s, or `KeyedLineArg` records.
-
-- **Never** write a finalized English sentence (e.g. `"+25% Enhanced Damage"`). Resolve via `Translation.PropertyKeyResolver`, register via `SyntheticStringRegistry` if no CASC key exists, emit `KeyedLine.Of(key, args)`.
-- **Numbers are finalized server-side** (here). Only positional `%d`/`%s` substitution is left to the client. Compute in C#, pass via `args` — don't split into "raw value + English template" on the wire.
-- **Wire property names are `PascalCase`.** Do not add `JsonNamingPolicy.CamelCase` to the keyed exporter.
-- New player-facing strings without a CASC key: register in `synthetic-strings.json` (human-readable English) so language bundles include them.
-
-## Documented exceptions (only these three)
-
-**1. Cube recipe descriptions.** `CubeRecipeExport.Description` ships raw English from `CubeMain.txt`, only when `CubeRecipeImporter.CubeRecipeUseDescription` is enabled. Ingredient-token labels: `export-config.json` → `cubeIngredientLabels` (separate `input`/`output` maps), also raw English (no CASC key for `"sock=#"`-style tokens). Recipe **content** (inputs, outputs, class restriction, notes) is keyed via `KeyedLine`, `RequiredClass`, `cubeRecipeNotes`.
-
-**2. `PType` Prefix/Suffix discriminator.** `KeyedMagicAffix.PType` ships raw `"Prefix"`/`"Suffix"` — structural identifier the website branches on, not a player-facing string. Enumerated in `D2RMultiExportPipeline.IdentifierOnlyProperties` along with `Code`, `NormCode`, `UberCode`, `UltraCode`, `AutoPrefix`, `Vanilla`, `RequiredClass`, `Class`, `ClassSpecific`, `ClassCode`, so the missing-translations audit ignores them.
-
-**3. Class-required equipment.** `KeyedEquipment.RequiredClass` ships the literal English class name (`"Sorceress"`, `"Barbarian"`, …). Allow-list: `export-config.json` → `validRequiredClassNames`, exposed as `ExportConfig.ValidRequiredClassNamesSet`. The list **only gates** — the resolved string is written through as-is. The website branches on this exact literal alongside the localized `KeyedLine` from `PropertyKeyResolver.TryGetClassOnlyKey`. Don't change to translation keys without coordinating a breaking change with the website.
-
-## Skill descriptions (not an exception)
-
-`keyed/skills.json` carries what each skill *does*, not just its name. Every class skill
-gets a `Descriptions` object holding the three boxes D2's own tooltip uses — `Stats`
-(`descline1..6`), `Details` (`dsc2line1..5`), `Synergies` (`dsc3line1..7`) — plus the
-`MaxLevel` its value tables reach.
-
-```jsonc
-{
-  "Id": 36, "Code": "Fire Bolt", "NameKey": "skillname36",
-  "Descriptions": {
-    "MaxLevel": 45,
-    "Stats": [
-      { "key": "StrSkill5", "values": [[3,4,6, /* … */], [6,7,9, /* … */]] },
-      { "key": "StrSkill120", "values": [[1,1,1,1,2, /* … */]] }
-    ],
-    "Details":   [ { "key": "StrSkill3", "values": [[2.5]] } ],
-    "Synergies": [ { "key": "Firedplev", "args": ["skillname47"], "values": [[14]] } ]
-  }
-}
-```
-
-Each line keeps the `KeyedLine` contract (camel-cased `key`/`args`, resolved against
-`strings/<lang>.json`) with two additions:
-
-- `values` — one table per numeric argument, indexed by `level - 1`, because the same line
-  reads differently at every skill level. Numbers are still finalized here; the client only
-  picks an index. The exporter drops each table's constant tail, so **consumers must clamp
-  the index to the last element**. Written on one line by `LevelTableConverter` — do not
-  remove it, the tables are ~300k numbers across the export.
-- `pluralKey` — the `desctextB` plural template for the description functions that ship a
-  singular/plural pair. The client picks it whenever the rendered value is not exactly 1.
-
-Layout lives in `Config/skill-desc-functions.json` (description function id → `layout` +
-`plural`/`nameArg` flags); the arithmetic lives in `Import/SkillCalculator.cs`. Reach for
-the config first — a new description function is data, not code.
-
-**Documented limits.** `SkillCalculator` drops a line rather than guessing, and
-`extras/import-report.txt` lists every drop. It cannot resolve:
-
-- `miss('firewall'.rang)` and the `m1en`/`m1eo`/`m1rn` missile symbols — missiles.txt is
-  not loaded. Loading it is the single biggest coverage win left.
-- `sklvl('Tainted Fire Ball'.lvl.edmn)` — a minion skill evaluated at the minion's level.
-- `ulvl` (character level), `mael`, `mps`, and the `ma··` mastery aggregates.
-
-Two things resolve to **0** on purpose, matching what the game shows a character with no
-other points and no gear: another skill's level (`skill('Fire Ball'.blvl)`, i.e. synergy
-terms) and gear-accumulated stats (`stat('extra_skelewarriors'.accr)`). The synergy list is
-exported alongside precisely so the website can show which skills feed this one without the
-exporter inventing an allocation.
-
-## Property groups (not an exception)
-
-When a unique's properties reference `propertygroups.txt` (e.g. crafted charms with `Magnetic-Affix1..6`/`Gelid-Affix*`), `UniqueImporter.ExpandPropertyGroup` emits a parent `KeyedLine`:
-
-- `code` — raw English group code (`"Magnetic-Affix1"`, …), structural; lowercase `code` is in `IdentifierOnlyProperties` (same shape as `PType`). No CASC key exists.
-- `nameKey` — synthetic `strPropertyGroupsProperty` (enUS: `"Random Grouped Affix"`, in `synthetic-strings.json`). The bucket label is keyed and resolved like any other; the parent line is **not** an exception.
-- `pickMode` — group's `PickMode` column (typically `"2"` for crafted-charm affix groups). Structural numeric token.
-- `children` — sub-property `KeyedLine`s, each carrying `chance` (per-row `ChanceN`: relative pick weight when `pickMode == "2"`, percentage otherwise).
-
-```jsonc
-{
-  "key": "", "args": [],
-  "code": "Magnetic-Affix1",
-  "nameKey": "strPropertyGroupsProperty",
-  "pickMode": "2",
-  "children": [
-    { "key": "...", "args": [...], "chance": 100 },
-    { "key": "...", "args": [...], "chance":  50 }
-  ]
-}
-```
-
-Do **not** flatten children to siblings or stamp `pickMode` on every child — the parent/child hierarchy is part of the website contract.
-
-## Verification (smoke test)
-
-No unit-test project exists. The end-to-end export in `docs/TESTING.md` **is** the smoke test. Any change touching import/translation/export must run it; success prints `Export completed successfully.` with no new errors in `extras/import-report.txt`.
-
-`test-output/` is the de-facto behavioural baseline owned by the smoke command. Agents may freely snapshot `test-output/` → `test-output-baseline/` before destructive work, diff `keyed/*.json` for parity, then delete the snapshot; or re-run the smoke export and overwrite `test-output/`.
-
-Skip the smoke export only for documented non-pipeline changes (docs/comments/tooling); state so explicitly in the submit summary.
-
-## Pre-submit checklist
-
-- [ ] Indent/naming/namespaces match rules above.
-- [ ] New lookup data is in `Config/*.json` (not inline); new JSON keys are `camelCase` with `$<key>Note` if non-obvious.
-- [ ] New `ExportConfig` properties have `[JsonPropertyName(...)]`, default empty, and (if needed) `[JsonIgnore] *Set` populated in `BuildLookups()` with `StringComparer.OrdinalIgnoreCase`.
-- [ ] No new player-facing raw English in `<out>/keyed/*.json` — `KeyedLine` keyed against CASC or registered in `synthetic-strings.json`.
-- [ ] New raw-identifier fields added to `D2RMultiExportPipeline.IdentifierOnlyProperties`.
-- [ ] Fourth keyed-export exception (if genuinely needed) documented in this file in the same change.
-- [ ] Smoke export from `docs/TESTING.md` ran successfully (when pipeline touched).
-- [ ] `dotnet build .\D2RMultiExport.sln` clean locally (matches the manual-only **Build Check** workflow `ci.yml`, run on demand via `workflow_dispatch` before merge — no automatic PR trigger).
-- [ ] At least one commit follows Conventional Commits (`type(scope?)!?: lowercase description`; types: `feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`; `!` or `BREAKING CHANGE:` body for breaks). Enforced by `pr-semantic-commits.yml` (status `validate-commits`). Squash-merge with PR title is the intended flow.
-- [ ] No leftover local `<ProjectReference>` swap for `D2RReimaginedTools.FileExtensions` — committed `.csproj` uses `<PackageReference>`.
-
-Release/branding/icon workflow and full human-contributor onboarding: [`CONTRIBUTING.md`](./CONTRIBUTING.md), [`docs/RELEASING.md`](./docs/RELEASING.md).
-
-## Quick reference — where things live
-
-| You want to … | Edit this |
+| Permitted category | Existing scope and limits |
 |---|---|
-| Skip a unique/set/runeword | `export-config.json` → `ignoredUniqueItems` / `vanilla*MaxRow` / `vanillaUniqueOverrides` |
-| Drop a stat code | `export-config.json` → `ignoredPropertyCodes` |
-| Add a magic-quality name override | `export-config.json` → `magicNameOverrides` |
-| Skip a cube recipe by op/param/value | `export-config.json` → `skippedCubeRecipes` |
-| Block a cube input code | `export-config.json` → `blockedCubeInputCodes` |
-| Annotate cube recipes | `export-config.json` → `cubeRecipeNotes` (`notes` are translation keys) |
-| Add a synthetic player-facing string | `synthetic-strings.json` |
-| Override a stat's display formatting | `stat-overrides.json` (+ `StatOverrideConfig.cs`) |
-| Adjust per-class skill/level ranges | `class-ranges.json` (+ `ClassRangeConfig.cs`) |
-| Teach the exporter a new skilldesc description function | `skill-desc-functions.json` (+ `SkillDescFunctionConfig.cs`) |
-| Change how far past `maxlvl` skill descriptions are solved | `export-config.json` → `skillDescriptionBonusLevels` |
-| Resolve a new skilldesc calc symbol | `Import/SkillCalculator.cs` |
-| Resolve a property to a translation key | `Translation/PropertyKeyResolver.cs` |
-| Change wire shape of a keyed export | `Models/ExportModels.cs` + `Exporters/KeyedJsonExporter.cs` together |
-| Add a new identifier-only property | `D2RMultiExportPipeline.IdentifierOnlyProperties` |
-| Fix a `.txt` parser bug / missing column | Upstream in `..\d2r-dotnet-tools`; bump `<PackageReference>` `Version` after release |
-| Bump/add/remove a NuGet package | Edit `<PackageReference>`, then `dotnet restore .\D2RMultiExport.sln` |
+| Cube grammar | `CubeQualifierKeyMap`/`CubeRecipeImporter`: qualifier/protocol tokens (`low`, `mag`, `sock`, `qty=`, `pre=`, `usetype`, `useitem`, `any`, op 1/18). Labels remain `cubeIngredientLabels` config. |
+| Structural sentinel | `Expansion` in unique/set/monstats loaders; not an item skip list. |
+| Internal runeword scopes | `(Weapon)`/`(Armor)`/`(Shield)` in importer/cleanup; map to keyed-line `qualifier`, never display as raw text. |
+| Fixed CASC key crosswalks | Class code → `AmaOnly`/`Amazon`-style keys and skill tab → `StrSklTabItem*` in `PropertyKeyResolver`; accepted class names stay in config. |
+| Engine damage/defense formulas | Per-property arithmetic in `DamageArmorCalculator` (`dmg%`, `dmg-min`, `dmg/lvl`, `ac%`, `ac/lvl`, `ethereal`, `dur`, engine stat ids); each case selects a formula, not a tunable list. |
+| Engine equipment behavior | Shield types `shld`/`ashd` for smite/block; `boot` for kick. Internal `"Smite Damage"`/`"Kick Damage"` selectors choose synthetic keys; `DamageStringPrefix` must never serialize. |
+| Special stat rendering/encoding | `PropertyKeyResolver`/`PropertyMapper`/`RequirementHelper` paths for `ease`, `item_req_percent`, `item_levelreq`, `item_indesctructible`, `item_cannotbefrozen`, `item_extrablood`, `reqlevel`, `fade`, `charm-weight`, `item_addclassskills`, `randclassskill`, `item_addskill_tab`, `tab-rand`, `skill`, `oskill`; engine `coldlength`/`poisonlength` frame-to-second conversion. |
 
-When in doubt, mirror an analogous existing case (e.g. `magicNameOverrides` flowing JSON → `ExportConfig` → `EquipmentHelper`).
+**Deferred content exceptions remain narrowly scoped:**
+
+- `CubeRecipeImporter.ProcessNotes`: existing compound input/output/param/name predicates (including `ka3`, `ooc`, `pk1`, `cx7`, Torch/Annihilus/Latent fissures, param 386, corruption/ethereal checks; `bag` is not in the configured reroll set). Extraction needs a predicate schema and recipe-by-recipe baseline; do not expand this into permission for new hardcoded content.
+- `PropertyCleanup`: existing elemental merge/pairing table and priorities 100/98/96/92, partially overlapping `elementalDamagePairs`/`splitElementalCodes`. Consolidation must preserve merge order and compare uniques/sets output.
+- Existing cube portal names (Cow, Pandemonium, Pandemonium Finale, Red Portal) mapped to synthetic keys.
+
+## 4. Importer and exporter conventions
+
+- Consume the `D2RReimaginedTools.FileExtensions` NuGet typed DTOs. Fix parser bugs in sibling `../d2r-dotnet-tools`; do not reparse raw `.txt` inside importers, patch typed DTOs or shadow misparsed columns in config. The local ProjectReference debug procedure is in [CONTRIBUTING.md](CONTRIBUTING.md#repository-layout-high-level); committed csproj files must use the published PackageReference.
+- Every raw property column uses `PropertyMapper.MapRows`/`MapExpanded`, including set bonuses, runewords, gems/runes, cube outputs, affixes, automagic and property-group children. Never call `Map` directly on an unexpanded column code. Preserve param/min/max, `itemsRequired`, `qualifier`, `ModChance` and row metadata on expanded/merged lines.
+- Resolve root-relative inputs through `SourceRoots`: mod first, CASC next, bundled reference tables last where supported. Accept layouts only there; never infer parents/siblings of Excel, use `..` to find sources or recursively search. Lookup is case-insensitive per segment. `global/animdata.d2` is deliberately mod-only via `ResolveIn(SourceOrigin.Mod, ...)`.
+- Register each exporter with `RunExportStepAsync`, declare its `OutputPath`(s), and route a non-null warning callback to `Export/<producer>`. Gate optional table sets through `ExcelInputs.RequireAll`; a missing optional input skips only that output.
+- Never `ToDictionary` over keyed `.txt` rows without duplicate handling. Use `ExcelInputs.IndexFirst` (report, first wins) or `DataLoader.Put` (report, last wins). Preserve intentionally row-based affixes/treasure classes rather than deduplicating them by name.
+- Use typed numbered-column accessors (`SkillCalcSource`, exporter accessors), not unchecked reflection. Legacy `ImportReflection` slot readers distinguish empty cell (`null`), invalid integer (warn with file/row, `null`) and missing/wrongly typed DTO property (`ImportColumnException` with DTO/column/caller; programming error).
+- For skill work, read [SKILL-CALCULATIONS.md](docs/SKILL-CALCULATIONS.md) and the CASC Data Guide `dataguide/docs/bbe-calc.html` before changing semantics. Use shared `CalcExpression`/`ICalcScope`; formulas and column aliases come from skillcalc/misscalc tables, not transcribed C#. Description layouts belong in `skill-desc-functions.json`; arithmetic belongs in the calculator.
+
+## 5. Error handling and file integrity
+
+- Importers record per-row failures in `ImportResult<T>` (`AddError`/`AddWarning`) and continue. Fatal load/configuration failures may propagate; do not disguise programming errors as empty data.
+- Missing optional inputs produce contextual warnings and omissions, never exceptions. Malformed required calculator input or invalid config fails its isolated export step; later exporters, reports and the manifest still run. Existing optional art-manifest/sprite readers explicitly warn and omit invalid art while retaining item rows; do not conflate that supported degradation with malformed required tables.
+- Report phase/producer, file, row/identifier, expression/column and root cause as applicable. Use `CalcTrace` expansion chains for unresolved calculations; drop an unsolved description line rather than guessing. Asset diagnostics include mapping, searched paths, reason and fallback, summarized once per reason in the import report.
+- **All export writes go through `ExportOutputs.WriteJsonAsync`/`WriteTextAsync`/`WriteAsync`.** Never directly `File.Create`/`File.WriteAll*` an output. Writes use temp + flush + atomic rename. Reject rooted/escaping paths and links/junctions below the output root, including on deletion.
+- **The exporter does not own the output directory.** Never sweep `keyed`, `strings`, `sprites` or `extras`; never delete stale, skipped or unrelated files. Delete only paths a failed step attempted during this run, and the previous manifest at the start of the output phase. Declared-but-unwritten files are `NotWritten`, never vouched for.
+- Abandoned temp cleanup is limited to the same output's directory and exact `.<name>.<32 lowercase hex>.tmp` shape, not open files or links; report `AbandonedTempFilesRemoved`. No general cleanup.
+- Preserve opened-handle containment checks on Windows/Linux and path revalidation before rename. The final check-to-rename link race remains a documented limit; other platforms have path checks only. Do not claim an atomic filesystem snapshot.
+- Manifest schema **2** is written last: current-run file paths, SHA-256, bytes, producer, every output/report step and its `Written`/`Skipped`/`Failed`, `Outputs`, `NotWritten`, `Removed`, `Message`. `Succeeded` requires no recorded errors; `Complete` additionally requires all steps written with no declared output missing. Translation harvest/audits read current-run outputs only.
+- Publish through `PublishStager`, never copy the export directory wholesale. Require a new/empty staging directory not nested in either direction with output (physical roots checked on Windows/Linux), schema 2, successful run, complete run unless explicitly allowed, and matching copied payload hashes/lengths. Capture the manifest and commit it last; failed staging has no completed manifest. Never modify the source export to repair staging.
+- Every emitted `Sprite`/`Icon` must resolve to a file this run wrote; otherwise record `Completeness/asset-references`. Run skill icons before skill JSON and emit only successful icon references.
+
+## 6. Data and website compatibility
+
+**Player-facing values under `keyed/` are translation keys or `KeyedLine { key, args }`, not finalized English.** Resolve properties through `PropertyKeyResolver`; register new strings in `synthetic-strings.json`/`SyntheticStringRegistry.Keys` (conventionally `str…`). Arguments are primitives, nested keyed lines or `KeyedLineArg` records.
+
+- Keyed DTO properties are **PascalCase**; keyed-line members deliberately use `key`/`args` and their annotated casing. Never add a global camel-case policy. `strings/<lang>.json` remains a flat key → localized text map.
+- Finalize numeric arguments/tables here. Consumers substitute positional `%d`/`%s`, select/clamp table axes and evaluate the explicitly exported live synergy percentages/calculator inputs; do not replace finalized values with raw values plus English templates.
+- The three authorized raw-English cases remain: optional cube `Description` (configured ingredient-token labels also belong to that existing cube allowance), structural `PType` (`Prefix`/`Suffix`), and `RequiredClass` English literals gated by `validRequiredClassNames`. Do not convert `RequiredClass` to keys without a coordinated breaking website change. A new display exception requires updating this file in the same change.
+- Structural identifiers are separate from display exceptions: register new identifier-only fields in `D2RMultiExportPipeline.IdentifierOnlyProperties`. Loot-filter selectors preserve literal UnHoarder case/whitespace and source type graph ([LOOT-FILTER.md](docs/LOOT-FILTER.md)). Automagic `Code` is the row name; optional `NameKey` is emitted only when resolvable.
+- `NameKey` is a promise of a resolvable translation, never a raw identifier. For existing unnamed skill/monster contracts, omit null `NameKey` and retain `FallbackName`; consumers render the fallback when absent. Audit actual display references against final enUS (the language fallback), including unprobed keys/arguments/composite tables; exclude structural fields. Zero missing keys does not mean every source identifier is translated.
+- Preserve grouped-property parent/child shape: structural `code`, keyed `nameKey` (`strPropertyGroupsProperty`), parent `pickMode`, children with `chance` (relative weights for mode `"2"`, percentages otherwise). Never flatten children or copy `pickMode` to each child.
+- Preserve skill axes: `lvl` effective, `blvl` hard points, `ulvl` character level. Keep `values`, meaningful hard row 0, per-row bonus range to the effective cap, conditional `values2d`/`valuesUlvl`, trimmed constant tails and `LevelTableConverter`. Keep actual source percentage context for `scale`/`scaleCalc`; never borrow the describing row's Params or invent approximations. Detailed contracts/limits: [SKILL-CALCULATIONS.md](docs/SKILL-CALCULATIONS.md).
+- Cube recipe `Id` is a published stable contract, including raw-cell normalization and collision suffix ordering. Do not change its algorithm/columns or allow a parser bump to rotate ids without a coordinated migration ([WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md#stable-cube-recipe-identity)).
+- Update [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md) in the same change whenever adding/reshaping a keyed field. Coordinate breaking changes; distinguish exporter behavior from verified website adoption. Manifest hashes are export/publishing integrity metadata, not a requirement for browser verification or additional requests.
+
+## 7. Testing and validation
+
+- [TESTING.md](docs/TESTING.md) owns detailed commands and subsystem test selection. Level A: localized code uses an affected build and fast deterministic suites; documentation/comments use diff/link review only. Level B: importer/exporter corrections use applicable regression and final-JSON tests; run independent Python tests for audit/shared property calculations.
+- Level C is required for broad exporter changes, shared arithmetic/mapping/schema changes, parser upgrades, releases, explicitly requested complete verification, or inadequate targeted coverage. Use the full-validation script once; reuse its retained export for compatible content audits. CLI/publishing changes and releases require its independent CLI repeat/staging option. Add meaningful regressions for defects and failure paths.
+- Build once per configuration/change set and use matching `--no-build`; repeat only after new changes, failures or unresolved concerns. Read the affected subsystem contract and tests. Inspect reports/affected JSON: no new errors, unexplained calculation drops or missing display keys; review new warnings.
+- Disclose excluded, skipped and unexecuted checks. Optional real-data tests explicitly skip without inputs; Level C must fail when required inputs/checks cannot execute. Never equate deterministic passes with required full-data validation. Keep scratch sessions separate and never clean unrelated output/source directories. Headless desktop tests are not manual GUI verification, source inspection/function execution is not browser rendering, and portable code is not verified Linux execution.
+
+## 8. Documentation and commits
+
+- Keep docs/examples aligned with actual CLI options, two-root layouts, failure behavior and wire contracts. Preserve known limitations without turning each into a redesign. Investigation history, run counts, commit hashes and local paths belong in commit/PR descriptions, not committed docs; do not add transient counts or claims of pending website work to permanent standards.
+- Follow Conventional Commits: `type(scope?)!?: lowercase description`; types `feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`, `!` or `BREAKING CHANGE:` for breaks. At least one compliant commit is required by `validate-commits`; squash merge with PR title is intended.
+- Build Check is manual `workflow_dispatch`, not an automatic PR build. Build/test locally; the manual workflow can confirm on a clean runner before merge. Follow [CONTRIBUTING.md](CONTRIBUTING.md) and the PR template; run `dotnet restore .\D2RMultiExport.sln` after package changes and leave no local parser ProjectReference swap.
+
+## 9. Detailed references
+
+- [README.md](README.md): supported source layouts, CLI/GUI usage and output layout.
+- [CONTRIBUTING.md](CONTRIBUTING.md), [RELEASING.md](docs/RELEASING.md): onboarding, parser debugging, PR/release/branding procedures.
+- [TESTING.md](docs/TESTING.md): smoke commands, reports, fixtures and opt-in desktop parity tests.
+- [SKILL-CALCULATIONS.md](docs/SKILL-CALCULATIONS.md): skill wire axes, BBE scopes/vocabulary and bounded limitations.
+- [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md): verified adoption, remaining website checklist, recipe ids and manifest/publishing contract.
+- [DROP-CALCULATOR.md](docs/DROP-CALCULATOR.md), [IAS-CALCULATOR.md](docs/IAS-CALCULATOR.md), [HEALTH-CALCULATOR.md](docs/HEALTH-CALCULATOR.md), [LOOT-FILTER.md](docs/LOOT-FILTER.md): specialized exporter contracts.
+- [SECURITY.md](SECURITY.md): threat model, private reporting and filesystem/integrity limits.
+- [PROPERTY-RANGES.md](docs/PROPERTY-RANGES.md): current property mapping, range preservation and independent audit limits.
