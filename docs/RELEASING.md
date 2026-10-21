@@ -45,14 +45,20 @@ D2RMultiExport\
 │   ├── synthetic-strings.json
 │   ├── stat-overrides.json
 │   ├── class-ranges.json
-│   └── CASC_DATA\runes.txt
+│   ├── skill-desc-functions.json
+│   └── CASC_DATA\                    # runes.txt, skillcalc.txt, misscalc.txt
 ├── LICENSE.txt                      # GPL-3.0
+├── AUTHORS.md                       # copyright and authorship line
 └── README.txt                       # short "how to run" pointer back to the repo
 ```
 
 Both `.exe` files share the same `Config\` folder, so end-users can
 run either entry point from inside the extracted directory without
-extra setup.
+extra setup. The `Config\` files come from the `<None Update>`
+`CopyToOutputDirectory` rules in `D2RMultiExport.Lib.csproj`; the workflow's
+`Verify Config\ tree shipped` step checks both executables plus
+`export-config.json`, `synthetic-strings.json`, `stat-overrides.json`,
+`class-ranges.json` and `CASC_DATA\runes.txt`.
 
 ## Prerequisites
 
@@ -76,7 +82,7 @@ is normally already in place.
 
 Before triggering a release, confirm:
 
-- [ ] `main` is green on the **Build Check** workflow (`build-check`).
+- [ ] A manual **Build Check** run (`build-check`) on the release commit passed.
 - [ ] Complete [Level C validation](TESTING.md#level-c--comprehensive-validation)
       with `-CheckCliAndPublish` against the current mod/CASC roots, with no
       skipped required checks; record its session/results and review reports
@@ -98,6 +104,20 @@ Before triggering a release, confirm:
   development default (`0.0.0`); the workflow overrides it with
   `-p:Version=<input>` at publish time, so committed changes to
   `Directory.Build.props` are not required for a release.
+- Shared assembly metadata (`Company`, `Copyright`,
+  `PackageLicenseExpression=GPL-3.0-or-later`, `RepositoryUrl`, etc.) is
+  declared in the root `Directory.Build.props` and applies to every project.
+
+## Application icon
+
+The branding artwork lives under `branding/` (the master PNG +
+`build-icon.ps1`, which produces a multi-size PNG-in-ICO). The shipping
+icon `D2RMultiExport.Client/Assets/icon.ico` is a copy of
+`branding/icon.ico`; if the source PNG changes, re-run
+`branding/build-icon.ps1` and copy the regenerated `icon.ico` over the
+Client `Assets\` copy. Both `.csproj` files reference an
+`<ApplicationIcon>` so the generated `.exe` files carry the icon as a
+Win32 resource.
 
 ## Troubleshooting
 

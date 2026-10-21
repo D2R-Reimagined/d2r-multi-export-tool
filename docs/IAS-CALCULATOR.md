@@ -22,7 +22,7 @@ first row and is reported.
 
 | Key | Meaning |
 |---|---|
-| `curveLevels` | skill levels each curve is solved for (100). Formerly hardcoded. |
+| `curveLevels` | skill levels each curve is solved for (100). |
 | `classTokens`, `formTokens` | class/shape-shift animation tokens; also filter which `animdata.d2` records are exported |
 | `animationModes` | `skills.txt` `anim` values that make a skill a speed-relevant attack |
 | `excludedSkills`, `commonSkills` | skills dropped / non-class skills kept |
@@ -50,16 +50,25 @@ then passive N.
 
 The diminishing-returns family (`dm12`, `dm34`, …) must use the engine's
 truncated percentage (`export-config.json` → `calcFormulaOverrides`; see
-[SKILL-CALCULATIONS.md](SKILL-CALCULATIONS.md)). A level-20 Fanaticism speed of 770 instead of 35 means `dmXY`
-is being treated as linear growth. The current four curves match all 100
-levels with two-stage truncation and no implicit max clamp:
+[SKILL-CALCULATIONS.md](SKILL-CALCULATIONS.md#the-calc-symbol-vocabulary-is-data-not-code)).
+A level-20 Fanaticism speed of 770 instead of 35 means `dmXY` is being treated as
+linear growth. All four diminishing curves use integer truncation in **two**
+stages, with no implicit max clamp:
 
-| Buff | Level 1 | Level 20 | Level 60 | Level 100 |
+```text
+pct = (110 * lvl) / (lvl + 6)
+value = min + ((max - min) * pct) / 100
+```
+
+| Buff (min/max) | Level 1 | Level 20 | Level 60 | Level 100 |
 |---|---:|---:|---:|---:|
-| Fanaticism | 14 | 35 | 40 | 40 |
-| Frenzy | 7 | 42 | 50 | 51 |
-| Wearwolf | 20 | 68 | 80 | 82 |
-| Quickness | 21 | 52 | 60 | 61 |
+| Fanaticism (10/40) | 14 | 35 | 40 | 40 |
+| Frenzy (0/50) | 7 | 42 | 50 | 51 |
+| Wearwolf (10/80, source spelling) | 20 | 68 | 80 | 82 |
+| Quickness (15/60) | 21 | 52 | 60 | 61 |
+
+Fanaticism level 3 is **20** under this formula; the single combined division
+would give 21.
 
 Verify the generated data locally (no website modification needed):
 
@@ -79,5 +88,4 @@ foreach ($iasCode in $iasRanges.Keys) {
 ```
 
 Adapt ranges to intentional source balance changes. `Maul.Values: null` is the
-configured empty override, not a failed evaluation. The current website's IAS
-test anchors already agree with these corrected values.
+configured empty override, not a failed evaluation.

@@ -55,7 +55,7 @@ so a single table indexed by effective level overstates every geared character.
 
 `CalcLevels` carries both numbers and records whether an evaluation read `blvl`;
 `SkillDescriptionImporter` solves the flat table first and pays for the grid only when that
-flag came back set (~75 of ~1540 lines, so the bundle grows by a few percent, not 20×).
+flag came back set (a small minority of lines, so the bundle grows modestly).
 
 - First axis is **hard points**, `0..HardPointCap`. Row `0` is kept on purpose: an oskill
   granted purely by an item has no hard points and the game renders it as all-soft.
@@ -64,8 +64,8 @@ flag came back set (~75 of ~1540 lines, so the bundle grows by a few percent, no
 - `values` is still written for the same line, so an older consumer keeps rendering (it
   reads as "every level is a hard point"). Prefer `values2d` when present.
 
-Don't collapse the two levels back together in `SkillCalcContext` — that is the bug this
-exists to fix.
+Don't collapse the two levels back together in `SkillCalcContext`: a single
+effective-level table overstates every geared character.
 
 ### How far the tables run
 
@@ -78,9 +78,9 @@ and what the `values2d` bonus axis is sized from.
 ### Character level is a third axis (`valuesUlvl`)
 
 `ulvl` is "the caster unit's current Level" — neither skill-level axis can stand in for it.
-`Thorns`' `aurastatcalc1 = edmn * (ulvl + 100)/100` is the only *description* line that
-reaches it today (the other ten `ulvl` cells are summon `calc2` columns that set a minion's
-level and are never read by a desccalc), so the axis costs almost nothing.
+`Thorns`' `aurastatcalc1 = edmn * (ulvl + 100)/100` is the canonical description line that
+reaches it. `ulvl` cells in summon `calc2` columns set a minion's level and are not read by
+a desccalc, so the axis is emitted only for the few lines that need it.
 
 - `CalcLevels.ReadCharacterLevel()` flags an evaluation the same way `blvl` does;
   `SkillDescriptionImporter.BuildCharacterLevelGrid` only pays for the grid when it fires.
@@ -113,12 +113,12 @@ without the exporter inventing an allocation.
 Most of Reimagined's headline spells deal their damage through a **missile**, and the
 percentage then lives on the `missiles.txt` row instead (`royalstrikemeteor` →
 `skill('Fists of Fire'.blvl) * 10`, `arcticblast_*` → `skill('Summon Spirit Wolf'.blvl)`,
-`meteorfire` → `skill('Inferno'.blvl)*3`). Nothing else on the wire carries those, so the
-website used to apply no bonus at all. When a line's damage comes from a missile — through
-the `m1en`/`m2ex`/`me3y` family (the skilldesc row's `descmissile1..3`) or an explicit
-`miss('name'.edmn)` — the exporter now attaches that missile's expression as `scaleCalc`,
-same grammar and same client-side evaluation. Counts depend on the source checkout; `scaleCalc` also covers safely bound
-percentages from referenced skill rows, as described below.
+`meteorfire` → `skill('Inferno'.blvl)*3`). Nothing else on the wire carries those. When a
+line's damage comes from a missile — through the `m1en`/`m2ex`/`me3y` family (the skilldesc
+row's `descmissile1..3`) or an explicit `miss('name'.edmn)` — the exporter attaches that
+missile's expression as `scaleCalc`, same grammar and same client-side evaluation.
+`scaleCalc` also covers safely bound percentages from referenced skill rows, as described
+in [Referenced percentage contexts](#referenced-percentage-contexts).
 
 ### The grammar is BBE, and it is documented
 
@@ -139,14 +139,13 @@ Two of those have semantics worth not re-deriving:
   different one. `CalcExpression.ReferenceAliases` therefore maps it onto `skill`, and that
   is exact rather than an approximation.
 - **`sklvl('Skill'.identifierToGetLevel.identifier)`'s middle field is evaluated in the
-  *calling* scope** ("must be an identifier of the base BBE scope"), not the target's. All
-  ten of the mod's uses pass `lvl`, so solving the referenced skill at the describing
+  *calling* scope** ("must be an identifier of the base BBE scope"), not the target's. When
+  it is `lvl`, as in the Reimagined data, solving the referenced skill at the describing
   skill's own levels is what the game does — see `SkillCalculator.TryResolveMinionSkill`.
 
-`%`, `^` and `rand` appear in no live calc cell in Reimagined (`rand(par3,par4)` sits on
-`Imp Inferno.calc1`, which no skilldesc line reads); they are implemented so the parser
-matches the documented language rather than the current data. `rand` deliberately *fails* —
-it is rolled per cast, so there is no single number to export.
+`%`, `^` and `rand` are implemented so the parser matches the documented language rather
+than only the current data. `rand` deliberately *fails* — it is rolled per cast, so there
+is no single number to export.
 
 ### The calc symbol vocabulary is data, not code
 
@@ -184,24 +183,26 @@ would be redundant if `dm*` clamped. Do **not** instead edit `Config/CASC_DATA/s
 (upstream data, and the mod ships its own copy that wins anyway) or hardcode a
 "diminishing" helper.
 
-**Documented limits.** `SkillCalculator` drops a line rather than guessing, and
+### Documented limits and the isolated preview
+
+`SkillCalculator` drops a line rather than guessing, and
 `extras/import-report.txt` lists every drop **with its root cause**. `CalcTrace`
 (in `Import/CalcExpression.cs`) records the deepest failure and each enclosing
 expansion prepends itself as the stack unwinds, because the outermost expression is
 usually an alias that resolved fine — `ast1` is just `skillcalc.txt`'s name for
-`aurastatcalc1`, and Thorns' real blocker was the `ulvl` inside that column. When a
+`aurastatcalc1`, and the real blocker lies inside that column. When a
 warning looks like it names a symbol the tables already define, read the tail of the
 message, not the head. A calculation warning against the Reimagined mod is a regression or a
-new mod data gap, not an expected drop. What the evaluator still cannot resolve, should a mod
+new mod data gap, not an expected drop. What the evaluator cannot resolve, should a mod
 reach for it:
 
 - `sctk` (the channeling tick) — derived from cast rate, which the export does not model.
 - `rand(a,b)` — rolled at run time.
 - the seven `cond` conditions that interrogate a live unit.
 
-(`ulvl`, `cond('Difficulty', …)`, `mps` and minion-level `sklvl` used to be on this list.
-All now resolve: `mps` is `(usmc*25)/256` — the 256ths cost drained once per frame at 25
-frames per second — and the other three are covered by the sections above.)
+`ulvl`, `cond('Difficulty', …)` and minion-level `sklvl` resolve as described above;
+`mps` resolves as `(usmc*25)/256` — the 256ths cost drained once per frame at 25 frames
+per second.
 
 The preview allocates points to **exactly one skill** — the one being described — and wears
 no gear, which is what the game shows a character with no other points. So another skill's
@@ -218,9 +219,9 @@ by `SkillCalcContext.TryResolveUnallocatedSkill`. Reimagined's synergy columns c
 referencing skill among their own operands (`Raven.calc5` and `Firestorm.calc5` each sum ten
 `skill('…'.blvl)` terms, their own included), so cells are written as
 `skill('Raven'.clc5) - blvl` and are only correct once that self term survives to cancel the
-subtraction. Short-circuiting left the bare `- blvl` behind as a *penalty*: the three Druid
-summons shipped a negative `SynergyCap`, `Cyclone Armor`'s bonus shrank as it levelled, and
-`Armageddon`/`Hurricane` durations were pinned flat. Inside the nested scope every bare
+subtraction. Short-circuiting such references to zero leaves the bare `- blvl` behind as a
+*penalty* (negative synergy caps, bonuses that shrink as the skill levels, flat
+durations). Inside the nested scope every bare
 `lvl`/`blvl` is 0, a reference back to the described skill reads its real level (that is
 what the `Anchor` chain is for), and any further skill recurses into the same rule; the mod's
 own `(lvl>=1)?(…):0` guards on `Shape Shifting`'s passive columns are written for exactly
@@ -274,8 +275,6 @@ source-context wire contract and matching website support. Replacing symbols
 with values from the describing skill is incorrect. Do not add that architecture
 until the data actually reaches such a context.
 
-The website's evaluator expands cross-skill `clcN` against the referenced row
-and separates hard/effective rank maps. Its grammar is narrower than the
-exporter's complete BBE grammar: it handled every expression emitted when it was
-reviewed, not arbitrary future `miss`, `sklvl`, `sksrc`, `cond`, `%`, `^` or
-live-state uses. See [WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md).
+Consumer requirements for these fields (axis selection, live rank maps and BBE
+subset re-checks) are in
+[WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#skill-data-contract).

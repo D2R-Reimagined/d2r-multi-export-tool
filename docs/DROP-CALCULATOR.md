@@ -1,9 +1,10 @@
 # Drop calculator export
 
-The normal console and GUI pipeline now emits `keyed/drop-calculator.json`.
-Publish the bundle through the staging command in [TESTING.md](TESTING.md#22-publishing)
-before refreshing the website's `static/data`; do not copy the output directory wholesale. There is no version
-selector or separately maintained drop-rate catalog.
+The console and GUI pipeline emits `keyed/drop-calculator.json`. Publish the
+bundle through the staging command
+([WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-publishing));
+do not copy the output directory wholesale. There is no version selector or
+separately maintained drop-rate catalog.
 
 The bundle contains named item eligibility and rarity, rune item types,
 equipment quality levels, expansion item ratios, generated equipment treasure
@@ -32,20 +33,17 @@ Fixed vanilla placements were checked against Blizzard's Arreat Summit:
 [Act V](https://classic.battle.net/diablo2exp/monsters/act5-superuniques.shtml).
 The Cow King and Reimagined's Cow Queen share the source's cowking class.
 
-## Parser dependency
-
-The drop-table DTOs/parsers (`DropTreasureClassParser`, `DropItemRatioParser`,
-`DropNamedItemParser`, `DropLevelParser`) ship in the published
-`D2RReimaginedTools.FileExtensions` package that `D2RMultiExport.Lib.csproj`
-references; no local `ProjectReference` or sibling worktree is involved.
-
 ## Inputs, conditions and failure handling
 
 The exporter needs `treasureclassex.txt`, `itemratio.txt`, `uniqueitems.txt`,
 `setitems.txt`, `itemtypes.txt`, `armor.txt`, `weapons.txt`, `misc.txt`,
-`monstats.txt`, `superuniques.txt` and `levels.txt` in the excel directory. If
-any is absent the step is reported as skipped in `extras/import-report.txt` and
-`manifest.json`; an earlier `keyed/drop-calculator.json` is left untouched but is
+`monstats.txt`, `superuniques.txt` and `levels.txt`, each resolved through
+`SourceRoots` (mod copy, else CASC copy). The drop-table parsers
+(`DropTreasureClassParser`, `DropItemRatioParser`, `DropNamedItemParser`,
+`DropLevelParser`) come from the published `D2RReimaginedTools.FileExtensions`
+package. If any input is absent the step is reported as skipped in
+`extras/import-report.txt` and `manifest.json`; an earlier
+`keyed/drop-calculator.json` is left untouched but is
 listed under the step's `NotWritten`, not in `Files[]`, so it is never presented
 as current. A duplicate `itemtypes.txt` `Code` keeps the first
 row and is reported; a repeated treasure-class name is reported and every row
@@ -58,46 +56,38 @@ also evaluated with
 the same `CalcExpression` grammar the skill exporter uses
 (`Import/DropConditionValidator.cs`): unbalanced or unknown syntax, a `cond`
 name BBE does not define, or a `stat`/`skill`/`miss` reference to a row the mod
-lacks is reported with its file and row. The current Reimagined data reports
-none.
+lacks is reported with its file and row.
 
-## Verified smoke export
+## Condition metadata
 
-Use the standard smoke export in [TESTING.md](TESTING.md) §2. The current
-Reimagined checkout ships every input listed above, so
-`keyed/drop-calculator.json` is produced directly from
-`<mod>\data\global\excel` (any table the mod omits falls back to the CASC copy).
-With a complete CASC extraction on `--casc-data`, the run reports 0 errors and 0
-missing translations, and `manifest.json` lists the step as `Written`.
-
-Each non-empty `Condition` additionally carries, without changing the raw text:
+Each non-empty `Condition` on named `Items[]` and `TreasureClasses[]`
+additionally carries, without changing the raw text:
 `ConditionDifficulties` — the difficulty indexes (0 normal, 1 nightmare, 2 hell) on
 which a difficulty-only condition holds, solved with the same `CalcExpression`
 grammar per difficulty — or `ConditionRuntime: true` when it reads live game state
 (`stat(…)`, another `cond`, a skill), in which case the raw expression is the only
-truth. Both are omitted for an empty condition. Current mod: the five Desecrated TCs
-resolve to `[2]`; the 28 herald conditions are `ConditionRuntime`. Raw values keep
-the source's surrounding double quotes (`"cond('Difficulty', hell)"`), which the
-website strips before matching; the resolver parses them identically.
+truth. Both are omitted for an empty condition. For example, Desecrated treasure
+classes resolve to `[2]` and herald conditions are `ConditionRuntime`. Raw values
+keep the source's surrounding double quotes (`"cond('Difficulty', hell)"`);
+consumers strip them before matching, and the resolver parses them identically.
+
+Live state cannot be recovered from this static bundle. Consumers must keep
+runtime or unrecognized conditions unavailable wherever they can affect
+eligibility or capacity; never treat them as false or zero.
 
 ## Calculation scope
 
-The website computes per-kill probability of at least one selected item,
+The bundle supports computing the per-kill probability of at least one selected item,
 including player/nearby-party no-drop scaling, positive and ordered negative
 picks, six generated-item capacity, unique/set quality rolls and rarity, and
 directly assigned named items. Magic find does not affect runes.
 
 Calculations cover ordinary non-terrorized monster sources and separate quest
 boss sources. They assume a unique has not already dropped in the current game.
-For unrelated conditional drops, the engine evaluates both gate extremes and
+For unrelated conditional drops, the calculator evaluates both gate extremes and
 only returns a percentage if their capacity effects cannot change the result.
 Unsupported conditional eligibility or capacity effects remain unavailable,
 rather than being treated as zero. Scripted sources without an exported area
 use their source monster levels and are labeled fixed/summoned spawns.
 
-The website currently consumes the raw literal Hell condition rather than the two
-resolved metadata fields; adoption is pending ([WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md)).
-
-The website regression suite covers known exact probabilities, ordered cap
-behavior, conditional gates, nonrandom named items, quality and rarity,
-suggestions, and graph resolution against this export in all difficulties.
+The calculator itself and its regression suite live in the website repository.

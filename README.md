@@ -81,7 +81,7 @@ NuGet package; this repo only consumes the strongly-typed row DTOs it
 returns. Parser bugs (wrong column mapping, missing columns, row-count
 mismatches, etc.) are fixed upstream in the sibling `d2r-dotnet-tools`
 repo rather than worked around inline here — see
-[CONTRIBUTING.md](CONTRIBUTING.md#repository-layout-high-level) for the local-debug swap recipe.
+[CONTRIBUTING.md](CONTRIBUTING.md#parser-dependency) for the local-debug swap recipe.
 
 ## Intended use
 
@@ -116,7 +116,7 @@ Release as
 `D2RMultiExport-v<version>-win-x64.zip`. The zip's top-level folder is
 `D2RMultiExport\` and contains the CLI (`D2RMultiExport.Console.exe`),
 the Avalonia GUI (`D2RMultiExport.Client.exe`), the bundled `Config\`
-tree, `LICENSE.txt`, and a short `README.txt`. Both executables are
+tree, `LICENSE.txt`, `AUTHORS.md` and a short `README.txt`. Both executables are
 self-contained, single-file `win-x64` builds — no .NET install
 required.
 
@@ -141,7 +141,8 @@ dotnet build .\D2RMultiExport.sln
 
 The **Build Check** workflow (`.github/workflows/ci.yml`, status
 context `build-check`) is manual-only (`workflow_dispatch`). It builds Release
-and runs library and headless desktop tests; build/test locally before submission.
+and runs the library, Python auditor and headless desktop tests without private
+game data; build/test locally before submission ([TESTING.md](docs/TESTING.md)).
 
 ## Run — CLI
 
@@ -157,6 +158,23 @@ The console tool exposes an `export` command and a `publish` command.
 | `--early-stop` | | Stop importing `CubeMain.txt` at the first sentinel row (default `true`) |
 | `--cube-recipe-descriptions` | | Include the raw English `Description` column from `CubeMain.txt` on each cube recipe (default `false`) |
 | `--continue-on-exception` | | Continue past per-phase failures instead of aborting the run; failures are still recorded in `extras\import-report.txt` (default `false`) |
+
+### Source roots
+
+`SourceRoots` derives every input from these two directories:
+
+| Root | Accepted selections | Must contain |
+|---|---|---|
+| `--mod-data` | the mod's `data\` folder, or the folder containing it | `global\excel` and `local\lng\strings` |
+| `--casc-data` | the CASC `data\` root, the extraction root containing `data\`, or CascView's nested `data\data\` | any of `global\excel`, `hd\global`, `local\lng\strings` |
+
+Every input resolves as *mod copy, else CASC copy* (bundled reference tables last
+where supported). Without `--casc-data`, vanilla sprites, CASC base strings (the
+only source for keys the mod does not override, such as town NPC names, controller
+action labels and object names) and any table the mod does not ship are
+unavailable: they are reported, never substituted. The only input deliberately
+read from the mod root alone is `global\animdata.d2`
+([IAS inputs](docs/IAS-CALCULATOR.md#inputs)).
 
 Example:
 
@@ -228,8 +246,8 @@ only the manifest identifies files produced by its output phase. Hashes verify
 payload integrity, not source freshness or release authenticity. No browser
 manifest requests or cache checks are required.
 
-Current website adoption and its remaining work are recorded in
-[WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md).
+Website-facing wire contracts, stable recipe ids and the manifest/publishing
+contract are documented in [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md).
 
 ## License
 

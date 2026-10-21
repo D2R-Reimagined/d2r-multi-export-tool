@@ -24,7 +24,8 @@ never in `Files[]`.
 
 Malformed required input or invalid bonus configuration fails this isolated
 step with contextual errors; later exporters, reports and schema-2 manifest
-still run. Publish only a validated staging bundle ([TESTING.md](TESTING.md#22-publishing)).
+still run. Publish only a validated staging bundle
+([WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-publishing)).
 
 ## Configuration (`export-config.json` → `monsterHealth`)
 
@@ -33,7 +34,7 @@ still run. Publish only a validated staging bundle ([TESTING.md](TESTING.md#22-p
 | `additionalPlayerPercent` | HP added per extra player (engine rule, 50). |
 | `maximumPlayers` | Player-count cap (8). |
 | `maximumLife` | Engine life ceiling (8388607). |
-| `minionBonusModifierId` / `championBonusModifierId` / `uniqueBonusModifierId` | `monumod.txt` row id of the normal-difficulty bonus; nightmare and hell are the next two rows (1, 4, 7). Formerly hardcoded. A missing row or empty `constants` fails the step with the row id in the error. |
+| `minionBonusModifierId` / `championBonusModifierId` / `uniqueBonusModifierId` | `monumod.txt` row id of the normal-difficulty bonus; nightmare and hell are the next two rows (1, 4, 7). A missing row or empty `constants` fails the step with the row id in the error. |
 
 `dropMonsterAreas` (shared with the drop calculator) adds fixed boss areas.
 
@@ -51,10 +52,6 @@ still run. Publish only a validated staging bundle ([TESTING.md](TESTING.md#22-p
 | `Sources[]` | `{ Code, Hash }` — SHA-256 of each input table present |
 
 ## Regression check
-
-The sibling website's health page already handles optional `NameKey` and
-`FallbackName`; the earlier pending-fallback claim is obsolete. Source adoption
-was inspected, not manually rendered ([WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md)).
 
 After the smoke export in [TESTING.md](TESTING.md):
 
