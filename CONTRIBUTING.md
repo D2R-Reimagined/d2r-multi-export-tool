@@ -177,10 +177,11 @@ bundles include it.
   version or commit, the command/options used and the relevant
   `extras\import-report.txt` lines. Note the project scope above; requests
   outside it will be declined with a pointer back here.
-- **Questions / discussion** → GitHub Discussions.
-- **Security vulnerabilities** → **Do not open a public issue.**
-  Use [GitHub private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new).
-  See [`SECURITY.md`](./SECURITY.md).
+- **Questions and support requests** → GitHub Issues (GitHub Discussions is
+  not enabled for this repository).
+- **Security concerns** → **do not open a public issue.** Use
+  [GitHub private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new);
+  see [`SECURITY.md`](./SECURITY.md) for the threat model and what to include.
 - **Code-of-conduct concerns** → see [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)
   for the reporting channel.
 

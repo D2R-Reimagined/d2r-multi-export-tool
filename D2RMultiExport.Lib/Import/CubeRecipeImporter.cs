@@ -54,7 +54,7 @@ public sealed class CubeRecipeImporter
         // while still recovering the tail-of-file socket-punch recipes the OG
         // tool used to produce.
         bool postSentinel = false;
-        // Stable recipe ids (docs/WEBSITE-INTEGRATION.md §6). Collision suffixes are
+        // Stable recipe ids (docs/WEBSITE-INTEGRATION.md#stable-cube-recipe-identity). Collision suffixes are
         // handed out where a row is *accepted*, not where it is built, so they depend on
         // recipe content rather than on which rows the filters above happened to drop.
         var idCounts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -180,7 +180,7 @@ public sealed class CubeRecipeImporter
     /// recipe with a different id, which is the intent.
     ///
     /// The column list, the order, the separator and the hash are a published contract
-    /// (<c>docs/WEBSITE-INTEGRATION.md</c> §6b) — changing any of them rotates every id
+    /// (<c>docs/WEBSITE-INTEGRATION.md#stable-cube-recipe-identity</c>) — changing any of them rotates every id
     /// and breaks every saved build link. Note that this includes how
     /// <c>D2RReimaginedTools.FileExtensions</c> normalizes a cell: it hands quotes through
     /// verbatim today, so a parser bump that started stripping them would be a breaking

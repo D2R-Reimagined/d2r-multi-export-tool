@@ -1,15 +1,12 @@
 ﻿# Security policy
 
-## Reporting a vulnerability
+## Reporting a security concern
 
-**Please do not open a public GitHub issue for security reports.**
+**Please do not open a public GitHub issue for security concerns.**
 
-Use **[GitHub private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new)**
-instead. That channel is private to the repo's security responders and
-keeps the report out of the public timeline until a fix and disclosure
-plan are in place.
-
-When reporting, please include:
+Report suspected security problems through
+**[GitHub private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new)**.
+See the threat model below for what is in scope, and include:
 
 - The affected component (`D2RMultiExport.Lib`,
   `D2RMultiExport.Console`, `D2RMultiExport.Client`, the release ZIP,
@@ -18,11 +15,6 @@ When reporting, please include:
 - The version (release tag, or commit SHA if reporting against `main`).
 - A minimal reproduction or proof of concept where possible.
 - The impact you observed or believe is possible.
-
-You should expect an initial acknowledgement within roughly **7
-calendar days**. Resolution timelines vary with severity; we will keep
-the advisory updated as the fix progresses, and we will coordinate the
-public disclosure with you before publishing.
 
 ## Supported versions
 
@@ -72,8 +64,8 @@ therefore narrow but non-empty:
    [`D2RReimaginedTools.FileExtensions`](https://www.nuget.org/packages/D2RReimaginedTools.FileExtensions)
    NuGet package. Vulnerabilities in that package are in scope to the
    extent they affect this project's output; please also report them
-   upstream at
-   [`d2r-dotnet-tools`](https://github.com/D2R-Reimagined/d2r-dotnet-tools/security/advisories/new).
+   upstream in
+   [`d2r-dotnet-tools`](https://github.com/D2R-Reimagined/d2r-dotnet-tools).
 3. **Path / file handling in the importer and exporter.** Anything
    that lets a maliciously crafted mod source tree write outside the
    user-specified `--out` directory, traverse with `..`, follow
@@ -126,7 +118,7 @@ the resulting payload; it does not authenticate that executable or ZIP:
    in those inputs before treating divergent hashes as evidence of tampering.
 
 Report a reproducible integrity discrepancy with a suspected security impact
-through the private channel above.
+as described in [Reporting a security concern](#reporting-a-security-concern).
 
 
 Publish staging resolves physical directory roots on Windows and Linux,

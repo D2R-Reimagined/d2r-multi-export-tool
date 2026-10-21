@@ -137,7 +137,10 @@ jobs:
             'Config\synthetic-strings.json',
             'Config\stat-overrides.json',
             'Config\class-ranges.json',
-            'Config\CASC_DATA\runes.txt'
+            'Config\skill-desc-functions.json',
+            'Config\CASC_DATA\runes.txt',
+            'Config\CASC_DATA\skillcalc.txt',
+            'Config\CASC_DATA\misscalc.txt'
           )
           $missing = @()
           foreach ($r in $required) {

@@ -62,7 +62,7 @@ public sealed class ExportOutputs
     /// <summary>Name of the run manifest written at the export root.</summary>
     public const string ManifestFileName = "manifest.json";
 
-    /// <summary>Version of the <c>manifest.json</c> contract; see <c>docs/WEBSITE-INTEGRATION.md</c> §9.</summary>
+    /// <summary>Version of the <c>manifest.json</c> contract; see <c>docs/WEBSITE-INTEGRATION.md#manifest-schema-2-and-publishing</c>.</summary>
     public const int ManifestSchemaVersion = 2;
 
     private readonly Dictionary<string, ExportedFile> _files = new(StringComparer.OrdinalIgnoreCase);

@@ -113,7 +113,7 @@ public sealed class CubeRecipeExport
     /// Stable identity for the recipe, independent of its row position: an FNV-1a-64
     /// hash of the cells the game matches a cube combination on. See
     /// <see cref="Import.CubeRecipeImporter.ComputeRecipeId"/> and
-    /// <c>docs/WEBSITE-INTEGRATION.md</c> §6.
+    /// <c>docs/WEBSITE-INTEGRATION.md#stable-cube-recipe-identity</c>.
     /// </summary>
     public string Id { get; set; } = "";
 

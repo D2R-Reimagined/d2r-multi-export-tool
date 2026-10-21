@@ -58,7 +58,8 @@ extra setup. The `Config\` files come from the `<None Update>`
 `CopyToOutputDirectory` rules in `D2RMultiExport.Lib.csproj`; the workflow's
 `Verify Config\ tree shipped` step checks both executables plus
 `export-config.json`, `synthetic-strings.json`, `stat-overrides.json`,
-`class-ranges.json` and `CASC_DATA\runes.txt`.
+`class-ranges.json`, `skill-desc-functions.json` and the `CASC_DATA\`
+tables `runes.txt`, `skillcalc.txt` and `misscalc.txt`.
 
 ## Prerequisites
 

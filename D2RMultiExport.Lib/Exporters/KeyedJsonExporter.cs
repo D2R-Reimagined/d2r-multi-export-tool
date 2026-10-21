@@ -206,8 +206,8 @@ public static class KeyedJsonExporter
         /// <summary>
         /// Row-independent recipe identity; see
         /// <see cref="Import.CubeRecipeImporter.ComputeRecipeId"/>. Declaration order is
-        /// wire order, so it sits directly after <see cref="Index"/> as
-        /// <c>docs/WEBSITE-INTEGRATION.md</c> §6a specifies.
+        /// wire order, so it sits directly after <see cref="Index"/>. Contract:
+        /// <c>docs/WEBSITE-INTEGRATION.md#stable-cube-recipe-identity</c>.
         /// </summary>
         public string Id { get; set; } = "";
         public string Description { get; set; } = "";

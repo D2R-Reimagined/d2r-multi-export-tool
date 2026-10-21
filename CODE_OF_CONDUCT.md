@@ -12,7 +12,7 @@ enforcement guidelines — is available at the canonical source:
 - Markdown / HTML rendering:
   <https://www.contributor-covenant.org/version/2/1/code_of_conduct/>
 
-By participating in this project (issues, pull requests, discussions,
+By participating in this project (issues, pull requests, reviews,
 or any other space owned by the project) you agree to abide by that
 document.
 
@@ -21,26 +21,18 @@ document.
 ## Scope
 
 This Code of Conduct applies within all project spaces — the GitHub
-repository, issue tracker, pull-request reviews, GitHub Discussions,
-and any other communication channel the maintainers operate on behalf
+repository, issue tracker, pull-request reviews, and any other
+communication channel the maintainers operate on behalf
 of the project — and it also applies when an individual is officially
 representing the project in public spaces.
 
 ## Reporting
 
 Instances of abusive, harassing, or otherwise unacceptable behavior
-may be reported privately to the project maintainers using either of
-the following channels:
-
-- **Preferred:** [GitHub private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new).
-  This channel is end-to-end private to the repo's security
-  responders. Please prefix the title with `[Conduct]` so it is
-  routed correctly. *(This repurposes the security-advisory channel
-  as a private inbox; if a dedicated email address is added later,
-  this section will be updated.)*
-- **Public-but-direct:** open a GitHub issue and `@`-mention a
-  maintainer **only** if the report does not contain personally
-  sensitive information about either party.
+may be reported privately to the project maintainers through
+[GitHub private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new).
+Prefix the report title with `[Conduct]` to distinguish it from
+security reports. Do not report conduct concerns in public issues.
 
 All reports will be reviewed and investigated promptly and fairly.
 The project maintainers are obligated to respect the privacy and
