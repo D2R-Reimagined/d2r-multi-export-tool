@@ -507,6 +507,17 @@ class PropertyRangeAuditTests(unittest.TestCase):
                     "Stat\tdescfunc\tdescstrpos\nfiremindam\t31\tdamageKey\n", encoding="utf-8")
                 self.assertEqual({status:1}, self.run_audit(output)["Counts"])
 
+    def test_minimum_function_without_range_description_expects_only_the_minimum(self):
+        for args, status in [([-35], "Verified"), ([-35,-40], "IncorrectValues")]:
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as root:
+                output = self.fixture(Path(root), low=-35, high=-40, actual=[dict(key="minKey",args=args)], code="minmax")
+                source = Path(root) / "source"
+                (source / "properties.txt").write_text(
+                    "code\tfunc1\tfunc2\tstat1\tstat2\nminmax\t15\t16\tpl_min\tpl_max\n", encoding="utf-8")
+                (source / "itemstatcost.txt").write_text(
+                    "Stat\tdescfunc\tdescstrpos\npl_min\t19\tminKey\npl_max\t19\tmaxKey\n", encoding="utf-8")
+                self.assertEqual({status:1}, self.run_audit(output)["Counts"])
+
     def test_independent_event_chance_and_level_are_not_a_random_range(self):
         for args, status in [([5,12,"42"], "Verified"), ([5,"42"], "IncorrectValues")]:
             with self.subTest(args=args), tempfile.TemporaryDirectory() as root:

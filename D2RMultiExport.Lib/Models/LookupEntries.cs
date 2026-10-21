@@ -23,6 +23,9 @@ public sealed class StatEntry
     public string? GroupDescriptionStringPositive { get; set; }
     public string? GroupDescriptionStringNegative { get; set; }
     public string? GroupDescriptionString2 { get; set; }
+    public string? GroupDescStrPosKey { get; set; }
+    public string? GroupDescStrNegKey { get; set; }
+    public string? GroupDescStr2Key { get; set; }
     public int? Op { get; set; }
     public int? OpParam { get; set; }
     public string? OpBase { get; set; }
@@ -53,7 +56,26 @@ public sealed class PropertyEntry
     public int? Set1 { get; init; }
     public int? Value1 { get; init; }
 
+    /// <summary>
+    /// The applied <c>func</c>/<c>stat</c>/<c>set</c>/<c>val</c> slots in column order. The
+    /// engine stops at the first empty function, so later columns are never applied. Slot 1
+    /// is also exposed through <see cref="Stat1"/>/<see cref="Function1"/>. Empty when the
+    /// entry was built without slot data, which is treated as a single-stat definition.
+    /// </summary>
+    public IReadOnlyList<PropertySlot> Slots { get; init; } = [];
+
     public override string ToString() => Code;
+}
+
+/// <summary>One applied function slot of a Properties.txt definition.</summary>
+public sealed class PropertySlot
+{
+    public required int Function { get; init; }
+    public string? Stat { get; init; }
+    public int? Set { get; init; }
+    public int? Value { get; init; }
+
+    public override string ToString() => $"{Function}:{Stat}";
 }
 
 /// <summary>

@@ -90,9 +90,15 @@ property semantics, audit coverage and fixtures.
 - Merged runeword contributions retain `qualifier` (lowercase): Phoenix mana
   leech is weapon-only and maximum fire resistance shield-only; Desire retains
   weapon/armor/shield scopes.
+- One source property can emit several lines: a multi-stat definition renders
+  one line per displayable stat unless its stats share a complete display group
+  (for example `stats%` → `ModAllStatsPercent`, `abs-all%` → four absorb lines).
+  The lines are ordered by display priority and carry the same scope metadata.
 - Property groups keep a parent with structural `code`, keyed `nameKey`,
   `pickMode` and `children[].chance`. Weights are relative for mode `"2"`,
   percentages otherwise; do not flatten these into independent properties.
+  As for `dmg-elem` and cold duration, a sub-property emitting several lines
+  yields sibling children carrying the same `chance`.
 - Asset maps layer CASC then mod entry by entry, preserving last-wins duplicate
   resolution. Existing normalized name matches precede compatibility aliases;
   aliases remove apostrophes and the separator before a trailing numeric suffix,

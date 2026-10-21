@@ -191,6 +191,15 @@ public static class PropertyKeyResolver
             return lines;
         }
 
+        // Synthetic stat rows (res-all, all-stats, dmg-fire, fireskill, ...) are the
+        // established composite renderings and keep precedence over the slot analysis.
+        if (!stat.IsSynthetic
+            && data.Properties.TryGetValue(property.PropertyCode, out var multiStatDefinition)
+            && multiStatDefinition.Slots.Count > 1)
+        {
+            return ResolveMultiStat(property, multiStatDefinition, stat, data, itemLevel);
+        }
+
         var line = ResolveStatLine(property, stat, data, itemLevel);
         if (line != null) lines.Add(line);
         if (data.Properties.TryGetValue(property.PropertyCode, out var damageDefinition)
@@ -200,6 +209,169 @@ public static class PropertyKeyResolver
             lines.Add(new KeyedLine { Key = "StrSkill13", Args = [coldFrames / 25d] });
         }
         return lines;
+    }
+
+    /// <summary>
+    /// Engine property functions (D2Common <c>ItemAssignProperty</c>) that apply the value
+    /// returned by slot 1 when it is non-zero instead of rolling their own: 3/4 (the
+    /// "same value as the previous call" variants of 1/2), 5-8 (damage and speed),
+    /// 9/10 (single skill / skill tab) and 24.
+    /// </summary>
+    private static readonly HashSet<int> FirstValueReuseFunctions = [3, 4, 5, 6, 7, 8, 9, 10, 24];
+
+    /// <summary>
+    /// Engine functions whose return value, handed to every later slot, is the value they
+    /// applied: rolls 1/2/21/22, the reuse functions, fixed minimum 15 / maximum 16 and
+    /// parameter-or-roll 17. After any other first function no later value is guaranteed.
+    /// </summary>
+    private static readonly HashSet<int> ValueReturningFunctions = [1, 2, 3, 4, 5, 6, 8, 9, 10, 15, 16, 17, 21, 22, 24];
+
+    /// <summary>
+    /// Renders a Properties.txt definition that applies several stats. Stats guaranteed the
+    /// same value (see <see cref="ValueSource"/>) that together form a complete ItemStatCost
+    /// <c>dgrp</c> render as that group's description; every other displayable stat keeps
+    /// its own line, even when its <c>dgrp</c> matches. Later stats without a description
+    /// template are engine helpers that the game does not display either.
+    /// </summary>
+    private static List<KeyedLine> ResolveMultiStat(ExportProperty property, PropertyEntry definition, StatEntry firstStat, GameData data, int itemLevel)
+    {
+        var slots = definition.Slots;
+        var slotStats = new StatEntry?[slots.Count];
+        var slotProperties = new ExportProperty?[slots.Count];
+        var sources = new string[slots.Count];
+        for (var i = 0; i < slots.Count; i++)
+        {
+            slotStats[i] = i == 0 ? firstStat
+                : slots[i].Stat is { } statName && data.Stats.TryGetValue(statName, out var slotStat) ? slotStat : null;
+            sources[i] = ValueSource(i, slots, property, data);
+            slotProperties[i] = SlotProperty(property, definition, i, sources[i]);
+        }
+
+        var rendered = new List<(int Priority, int Order, KeyedLine Line)>();
+        var grouped = new HashSet<int>();
+        foreach (var mirrored in Enumerable.Range(0, slots.Count)
+                     .Where(i => slotStats[i] != null && slotProperties[i] != null)
+                     .GroupBy(i => sources[i], StringComparer.Ordinal))
+        {
+            foreach (var displayGroup in mirrored.GroupBy(i => slotStats[i]!.GroupDescription))
+            {
+                if (displayGroup.Key is not > 0) continue;
+                var members = displayGroup.ToList();
+                var groupLine = BuildGroupLine(displayGroup.Key.Value, members, slotStats, slotProperties[members[0]]!, data, itemLevel);
+                if (groupLine == null) continue;
+                rendered.Add((members.Max(i => slotStats[i]!.DescriptionPriority ?? 0), members[0], groupLine));
+                grouped.UnionWith(members);
+            }
+        }
+
+        for (var i = 0; i < slots.Count; i++)
+        {
+            if (grouped.Contains(i) || slotStats[i] is not { } stat || slotProperties[i] is not { } slotProperty) continue;
+            if (i > 0 && string.IsNullOrEmpty(stat.DescStrPosKey) && string.IsNullOrEmpty(stat.DescStrNegKey)
+                && stat.Stat is not ("coldlength" or "poisonlength"))
+                continue;
+            if (ResolveStatLine(slotProperty, stat, data, itemLevel) is { } line)
+                rendered.Add((stat.DescriptionPriority ?? 0, i, line));
+        }
+
+        return [.. rendered.OrderByDescending(r => r.Priority).ThenBy(r => r.Order).Select(r => r.Line)];
+    }
+
+    /// <summary>
+    /// Identifies the value a slot applies. Slots sharing an identifier are guaranteed equal:
+    /// slot 1's value reused by a later reuse function, the row minimum (15), the row
+    /// maximum (16) or a non-zero parameter (17). Every independent roll is distinct, even
+    /// when its range equals another slot's. A zero slot-1 value is not passed on; reuse
+    /// slots then roll themselves, so mirroring needs a range that excludes zero.
+    /// </summary>
+    private static string ValueSource(int index, IReadOnlyList<PropertySlot> slots, ExportProperty p, GameData data)
+    {
+        var function = slots[index].Function;
+        if (function == 15) return "min";
+        if (function == 16) return "max";
+        if (function == 17 && TryParseInt(p.Parameter) is not (null or 0)) return "param";
+        if (index > 0 && FirstValueReuseFunctions.Contains(function) && FirstValueIsNonZero(slots[0], p, data))
+            return ValueSource(0, slots, p, data);
+        return $"roll{index}";
+    }
+
+    private static bool FirstValueIsNonZero(PropertySlot first, ExportProperty p, GameData data)
+    {
+        // The engine returns zero when the first stat has no ItemStatCost row.
+        if (!ValueReturningFunctions.Contains(first.Function) || first.Stat is null || !data.Stats.ContainsKey(first.Stat))
+            return false;
+        if (first.Function == 15) return p.Min is not (null or 0);
+        if (first.Function == 16) return p.Max is not (null or 0);
+        if (first.Function == 17 && TryParseInt(p.Parameter) is not (null or 0)) return true;
+        var low = p.Min ?? p.Max;
+        var high = p.Max ?? p.Min;
+        if (!low.HasValue || !high.HasValue) return false;
+        return Math.Min(low.Value, high.Value) > 0 || Math.Max(low.Value, high.Value) < 0;
+    }
+
+    /// <summary>
+    /// The values one slot applies, or <c>null</c> when a fixed value is zero (the engine
+    /// applies nothing). A later slot's own <c>val</c> replaces the slot-1 <c>val</c> that
+    /// <see cref="Import.PropertyMapper.Map"/> substitutes for an empty parameter.
+    /// </summary>
+    private static ExportProperty? SlotProperty(ExportProperty p, PropertyEntry definition, int index, string source)
+    {
+        var parameter = p.Parameter;
+        var slot = definition.Slots[index];
+        if (index > 0 && slot.Value is { } slotValue
+            && (string.IsNullOrEmpty(parameter) || parameter == "0"
+                || parameter == definition.Value1?.ToString(CultureInfo.InvariantCulture)))
+        {
+            parameter = slotValue.ToString(CultureInfo.InvariantCulture);
+        }
+
+        int? fixedValue = source switch
+        {
+            "min" => p.Min,
+            "max" => p.Max,
+            "param" => TryParseInt(p.Parameter),
+            _ => null
+        };
+        if (source is "min" or "max" or "param" && fixedValue is (null or 0)) return null;
+        return new ExportProperty
+        {
+            PropertyCode = p.PropertyCode,
+            Parameter = parameter,
+            Min = fixedValue ?? p.Min,
+            Max = fixedValue ?? p.Max,
+            Priority = p.Priority
+        };
+    }
+
+    /// <summary>
+    /// Renders mirrored stats as their ItemStatCost display group, which the game uses only
+    /// when every stat of that <c>dgrp</c> is present with the same value and the group
+    /// defines a description function and template.
+    /// </summary>
+    private static KeyedLine? BuildGroupLine(int group, List<int> members, StatEntry?[] slotStats, ExportProperty value, GameData data, int itemLevel)
+    {
+        var present = members.Select(i => slotStats[i]!.Stat).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var groupStats = data.Stats.Values.Where(s => !s.IsSynthetic && s.GroupDescription == group).ToList();
+        if (groupStats.Count == 0 || groupStats.Any(s => !present.Contains(s.Stat))) return null;
+
+        var first = slotStats[members[0]]!;
+        if (first.GroupDescriptionFunction is not { } function
+            || (string.IsNullOrEmpty(first.GroupDescStrPosKey) && string.IsNullOrEmpty(first.GroupDescStrNegKey)))
+            return null;
+
+        var groupStat = new StatEntry
+        {
+            Stat = first.Stat,
+            DescriptionPriority = members.Max(i => slotStats[i]!.DescriptionPriority),
+            DescriptionFunction = function,
+            DescriptionValue = first.GroupDescriptionValue,
+            DescStrPosKey = string.IsNullOrEmpty(first.GroupDescStrPosKey) ? first.GroupDescStrNegKey : first.GroupDescStrPosKey,
+            DescStrNegKey = first.GroupDescStrNegKey,
+            DescStr2Key = first.GroupDescStr2Key,
+            Op = first.Op,
+            OpParam = first.OpParam
+        };
+        return ResolveStatLine(value, groupStat, data, itemLevel);
     }
 
     private static StatEntry? ResolveStat(ExportProperty property, GameData data)

@@ -141,6 +141,9 @@ public sealed class DataLoader
                     GroupDescriptionStringPositive = _data.Translations.GetValue(entry.DgrpStrPos),
                     GroupDescriptionStringNegative = _data.Translations.GetValue(entry.DgrpStrNeg),
                     GroupDescriptionString2 = _data.Translations.GetValue(entry.DgrpStr2),
+                    GroupDescStrPosKey = entry.DgrpStrPos,
+                    GroupDescStrNegKey = entry.DgrpStrNeg,
+                    GroupDescStr2Key = entry.DgrpStr2,
                     Op = ParseInt(entry.Op),
                     OpParam = ParseInt(entry.OpParam),
                     OpBase = entry.OpBase,
@@ -176,6 +179,7 @@ public sealed class DataLoader
                     Function1 = entry.Func1,
                     Set1 = entry.Set1,
                     Value1 = ParseInt(entry.Val1),
+                    Slots = ReadPropertySlots(entry),
                 };
             }
         }
@@ -183,6 +187,35 @@ public sealed class DataLoader
         {
             _pipeline.AddError("Properties", "properties.txt", $"Failed to load: {ex.Message}", ex);
         }
+    }
+
+    // properties.txt repeats the func/stat/set/val group seven times; the typed row DTO
+    // flattens them into numbered properties. The engine applies slots in order and stops
+    // at the first empty function, so no later column is read after a gap.
+    private static List<PropertySlot> ReadPropertySlots(D2RReimaginedTools.Models.Property entry)
+    {
+        List<PropertySlot> slots = [];
+        foreach (var (function, stat, set, value) in new[]
+                 {
+                     (entry.Func1, entry.Stat1, entry.Set1, entry.Val1),
+                     (entry.Func2, entry.Stat2, entry.Set2, entry.Val2),
+                     (entry.Func3, entry.Stat3, entry.Set3, entry.Val3),
+                     (entry.Func4, entry.Stat4, entry.Set4, entry.Val4),
+                     (entry.Func5, entry.Stat5, entry.Set5, entry.Val5),
+                     (entry.Func6, entry.Stat6, entry.Set6, entry.Val6),
+                     (entry.Func7, entry.Stat7, entry.Set7, entry.Val7)
+                 })
+        {
+            if (function is not > 0) break;
+            slots.Add(new PropertySlot
+            {
+                Function = function.Value,
+                Stat = string.IsNullOrWhiteSpace(stat) ? null : stat.Trim(),
+                Set = set,
+                Value = ParseInt(value)
+            });
+        }
+        return slots;
     }
 
     private async Task LoadItemTypesAsync()

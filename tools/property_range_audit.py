@@ -436,6 +436,10 @@ class Audit:
             if funcs not in ([15,16], [15,16,17], [15,16,15,16,15,16,17]): return "Unsupported", values, key
             # Minimum/maximum damage are two slots, even when both equal 7.
             components = [low, high] if desc == 31 and low is not None and high is not None else values
+            if desc != 31 and low is not None:
+                # ItemModsSetMin applies only the row minimum to stat1; the maximum
+                # belongs to the function-16 stat's own line.
+                components = [low]
             if prop.get("stat1") == "coldmindam" and param:
                 o["AdditionalExpected"] = dict(key="StrSkill13", args=[int(param)/25])
             return "Components" if desc == 31 else "Roll", components, key

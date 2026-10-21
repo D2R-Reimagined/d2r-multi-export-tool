@@ -49,6 +49,15 @@ at export without item equipment cleanup. Keyed DTOs serialize through
   `strElementalDamageRange`. Requirement/equipment and fixed skill-bonus paths
   use the existing endpoint when the other is absent. Requirement reductions
   retain signed crossing-zero rolls and ordered reduction magnitudes.
+- A definition applying several stats renders every displayable stat. Stats
+  share one ItemStatCost `dgrp` description only when the engine guarantees the
+  same value and they form that complete group: slot 1's value reused by a later
+  function 3/4/5-10/24 (a zero-crossing slot-1 roll is not passed on), the row
+  minimum (15), maximum (16) or a non-zero parameter (17). Independent rolls stay
+  separate even with equal ranges and matching `dgrp`; equal minimum and maximum
+  endpoints do not merge functions 15/16. Later stats without a description
+  template are hidden engine helpers. Existing synthetic stat overrides
+  (`res-all`, `all-stats`, damage ranges, elemental skills) keep precedence.
 - Keep identifier selection bounds separate from bonus rolls in optional
   `KeyedLine.selection`, including cloned rune lines. `selection.stat` is
   structural. Automagic deduplication compares the complete serialized line,
