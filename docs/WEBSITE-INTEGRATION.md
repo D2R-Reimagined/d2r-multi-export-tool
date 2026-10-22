@@ -9,7 +9,7 @@ field is added or reshaped; breaking changes require a coordinated website chang
 ## Skill data contract
 
 [SKILL-CALCULATIONS.md](SKILL-CALCULATIONS.md) is authoritative for the line
-members (`values`, `values2d`, `valuesUlvl`, `pluralKey`, `scale`, `scaleCalc`),
+members (`values`, `values2d`, `valuesUlvl`, `valuesCalc`, `pluralKey`, `scale`, `scaleCalc`),
 their axes, BBE semantics and exporter limits. Skill DTO members are PascalCase;
 description-line members are explicitly camel-cased. `Descriptions` carries
 `MaxLevel` (effective ceiling), `HardPointCap` (source `maxlvl`) and
@@ -25,7 +25,14 @@ description-line members are explicitly camel-cased. `Descriptions` carries
   hard rank maps; the exporter does not invent a synergy allocation. In
   `scaleCalc`, bound source Params are already source values and quoted synergy
   references remain live.
-- Treat `scaleCalc` as exporter BBE grammar. An evaluator that supports only the
+- Optional `valuesCalc` (present only on lines whose numbers read another skill's
+  allocation, such as the Druid summons' `SynergyCap`) holds one source calc cell per
+  numeric argument, aligned with `values`. Evaluate each non-null entry in the
+  describing skill's own scope against the live effective and hard rank maps, exactly
+  as `Calculation.ElementalDamage`, and use the result for that argument. A `null`
+  entry, an absent member or an expression the evaluator cannot resolve keeps the
+  exported tables, which remain the no-other-points baseline.
+- Treat `scaleCalc` and `valuesCalc` as exporter BBE grammar. An evaluator that supports only the
   currently emitted subset must be re-checked when new `miss`, `sklvl`, `sksrc`,
   `cond`, `%`, `^` or live-state uses appear.
 

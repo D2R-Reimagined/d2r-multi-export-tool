@@ -17,7 +17,8 @@ namespace D2RMultiExport.Lib.Import;
 /// for the ~95% of lines that do not care, and only pay for a hard/bonus grid on the ones
 /// that do. <see cref="UsedCharacterLevel"/> does the same job for <c>ulvl</c>, which is a
 /// third quantity again — the caster's own character level, independent of either skill
-/// level.
+/// level. <see cref="UsedUnallocatedSkill"/> records that the evaluation reached another
+/// skill's level-dependent quantity, which the isolated preview pins at zero points.
 /// </summary>
 internal sealed class CalcLevels(int level, int baseLevel, int characterLevel = 1)
 {
@@ -36,6 +37,9 @@ internal sealed class CalcLevels(int level, int baseLevel, int characterLevel = 
     /// <summary>True once <see cref="ReadCharacterLevel"/> has been called on this instance.</summary>
     public bool UsedCharacterLevel { get; private set; }
 
+    /// <summary>True once <see cref="ReadUnallocatedSkill"/> has been called on this instance.</summary>
+    public bool UsedUnallocatedSkill { get; private set; }
+
     /// <summary>Reads <see cref="BaseLevel"/>, flagging the evaluation as hard/soft sensitive.</summary>
     public int ReadBaseLevel()
     {
@@ -49,6 +53,12 @@ internal sealed class CalcLevels(int level, int baseLevel, int characterLevel = 
         UsedCharacterLevel = true;
         return CharacterLevel;
     }
+
+    /// <summary>
+    /// Flags the evaluation as depending on another skill's live allocation, which the
+    /// isolated preview fixes at zero points, so its solved value is only a baseline.
+    /// </summary>
+    public void ReadUnallocatedSkill() => UsedUnallocatedSkill = true;
 }
 
 /// <summary>

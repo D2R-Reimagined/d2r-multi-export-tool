@@ -445,6 +445,21 @@ Failure modes:
   source Params. Range-only missile symbols (`m1rn`) do not identify damage;
   newly scaled aura/summon/attack lines can be legitimate corrections, not regressions.
 
+#### Arguments that read another skill's allocation (`valuesCalc`)
+
+Summon Spirit Wolf, Summon Fenris and Summon Grizzly each carry a `SynergyCap` synergy
+line with baseline `values` `[[0],[100]]` and
+`valuesCalc: ["min(clc6+(skill('Raven'.clc5)-blvl),pa10)", "pa10"]`
+(`SkillRegressionTests` covers the same rows deterministically):
+
+```powershell
+$all | Where-Object Code -like 'Summon *' | ForEach-Object { $_.Descriptions.Synergies } |
+  Where-Object key -eq 'SynergyCap' | Select-Object key, values, valuesCalc
+```
+
+A `SynergyCap` without `valuesCalc` means `CalcLevels.UsedUnallocatedSkill` stopped being
+recorded; changed `values` mean the baseline evaluation itself changed.
+
 #### Other failure modes to watch for
 
 - **Mana cost `2`** — the `usmc / 256` division was truncated to an integer somewhere; the

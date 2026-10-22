@@ -282,6 +282,10 @@ internal sealed class SkillCalcContext : ICalcScope
             return false;
         }
 
+        // Whatever this resolves to — the level-0 solve or the flat-zero fallback — is the
+        // preview's zero allocation standing in for a rank the planner knows live.
+        Described.Levels.ReadUnallocatedSkill();
+
         var guard = $"unallocated:{target}";
         if (!Visiting.Add(guard)) return false;
         try

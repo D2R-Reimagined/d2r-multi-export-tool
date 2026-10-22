@@ -127,6 +127,7 @@ public sealed class SkillDescriptionImporter(GameData data)
         // tells us whether the line reads `blvl` at all.
         var hardSoftSensitive = false;
         var characterLevelSensitive = false;
+        var allocationSensitive = false;
         var reads = new List<(ICalcScope Scope, string Symbol)>();
         for (var level = 1; level <= maxLevel; level++)
         {
@@ -145,9 +146,11 @@ public sealed class SkillDescriptionImporter(GameData data)
             for (var slot = 0; slot < slots; slot++) tables[slot].Add(values[slot]);
             hardSoftSensitive |= levels.UsedBaseLevel;
             characterLevelSensitive |= levels.UsedCharacterLevel;
+            allocationSensitive |= levels.UsedUnallocatedSkill;
         }
 
         built.Values = [.. tables.Select(Trim)];
+        if (allocationSensitive) built.ValuesCalc = SourceExpressions(layout.Layout, line, slots);
         ApplyDamageScale(skill, built, reads);
 
         if (hardSoftSensitive)
@@ -324,6 +327,32 @@ public sealed class SkillDescriptionImporter(GameData data)
                 return false;
         }
     }
+
+    /// <summary>
+    /// The source cell behind each numeric argument of a line whose numbers read another
+    /// skill's allocation, which the isolated preview pins at zero points — the Druid summons'
+    /// <c>min(clc6+(skill('Raven'.clc5)-blvl),pa10)</c> synergy cap solves to 0 at every level.
+    /// The website re-evaluates these against live ranks, in this skill's own scope, exactly as
+    /// it does <c>Calculation.ElementalDamage</c>.
+    ///
+    /// An argument the layout combines from two cells (a divisor or a sum) is not one integer
+    /// expression, so it stays null and keeps its solved table. Null when no argument has one.
+    /// </summary>
+    private static List<string?>? SourceExpressions(string layout, SkillDescLine line, int slots)
+    {
+        var single = string.IsNullOrWhiteSpace(line.CalcB);
+        string?[] calcs = layout switch
+        {
+            "singleValue" => [Source(line.CalcA)],
+            "twoValues" => single ? [Source(line.CalcA)] : [Source(line.CalcA), Source(line.CalcB)],
+            "valueWithDivisor" or "sumOfValues" => [single ? Source(line.CalcA) : null],
+            _ => []
+        };
+        return calcs.Length == slots && calcs.Any(static calc => calc is not null) ? [.. calcs] : null;
+    }
+
+    /// <summary>A calc cell as the evaluator reads it, minus the spreadsheet's quoting.</summary>
+    private static string? Source(string? cell) => cell?.Trim().Trim('"');
 
     private static int SlotCount(string layout, SkillDescLine line) => layout switch
     {

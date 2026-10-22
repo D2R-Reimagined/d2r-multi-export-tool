@@ -40,6 +40,9 @@ Each line keeps the `KeyedLine` contract (camel-cased `key`/`args`, resolved aga
 - `pluralKey` — the `desctextB` plural template for the description functions that ship a
   singular/plural pair. The client picks it whenever the rendered value is not exactly 1.
 - `scale` / `scaleCalc` — which `*SymPerCalc` damage percentage applies. See below.
+- `valuesCalc` — the source calc cell per numeric argument, emitted **only** for lines
+  whose numbers read another skill's allocation. See
+  [below](#arguments-that-read-another-skills-allocation-valuescalc).
 
 Layout lives in `Config/skill-desc-functions.json` (description function id → `layout` +
 `plural`/`nameArg` flags); the arithmetic lives in `Import/SkillCalculator.cs`. Reach for
@@ -210,7 +213,8 @@ level (`skill('Fire Ball'.blvl)`, i.e. synergy terms), gear-accumulated stats
 (`stat('extra_skelewarriors'.accr)`) and the mastery aggregates (`mael`, `madm`, `math`,
 `macr`, `manc`, `mapi`, `mair`) are all **0**. The synergy list is exported alongside
 precisely so the website can show which skills feed this one without the exporter inventing
-an allocation.
+an allocation, and a line whose numbers read another skill's rank also ships its source
+cells as `valuesCalc` (see below) so they can be re-evaluated against live ranks.
 
 **"One skill allocated" is not "every cross-skill term is zero."** A reference to another
 skill's *expression* column — `skill('Firestorm'.clc5)`, `petmax = skill('Demonic
@@ -239,6 +243,37 @@ A calc cell is evaluated as a unit, so one bad token takes the whole line down e
 rest of the cell is valid. Those belong back with the mod authors — the exporter is
 correctly refusing to invent a number, and `CalcTrace` names the offending token so the
 report can be forwarded as-is.
+
+### Arguments that read another skill's allocation (`valuesCalc`)
+
+The tables of such a line are the isolated preview's no-other-points baseline, not what a
+planner with live ranks shows. The Druid summons' `SynergyCap` is the canonical case:
+`min(clc6+(skill('Raven'.clc5)-blvl),pa10)` / `pa10` solves to `0` / `100` at every level,
+because `clc6` sums other skills' `blvl` and the summon's own Raven term cancels the
+`- blvl`. Such a line keeps all of its tables and additionally carries `valuesCalc`: one
+entry per numeric argument, aligned with `values`, holding the `skilldesc.txt` cell that
+argument is solved from (trimmed, spreadsheet quotes removed):
+
+```jsonc
+{ "key": "SynergyCap", "values": [[0],[100]], "values2d": [[[0]],[[100]]],
+  "valuesCalc": ["min(clc6+(skill('Raven'.clc5)-blvl),pa10)", "pa10"] }
+```
+
+- The trigger is the evaluator's own: `SkillCalcContext.TryResolveUnallocatedSkill`
+  records `CalcLevels.UsedUnallocatedSkill` whenever an evaluation reaches a non-Param
+  quantity of another skill (`skill('X'.blvl)`, `skill('X'.clc5)`, `skill('X'.ln12)`,
+  `skill('X'.edmn)`, also from a missile cell), whether it solves at level 0 or falls back
+  to the flat zero. The solved values are unchanged; no skill or template is named in code.
+- Not a trigger: the described skill's own level, `Param` reads on another row
+  (`skill('X'.par8)`), minion skills reached through `sklvl` (solved at the describing
+  skill's own levels), gear `stat(…accr)` terms and the mastery aggregates.
+- Each entry is evaluated in the **describing** skill's scope, with the same scope and
+  grammar as `Calculation.ElementalDamage`: bare `clcN`/`parN` aliases are the
+  describing row's own, and quoted references stay live.
+- An argument a layout combines from two cells — `valueWithDivisor` with a divisor
+  (fractional-second durations such as Frozen Armor's) or `sumOfValues` with a second
+  term — is not one integer BBE expression, so its entry is `null` and its table remains
+  the only value. The member is omitted when every entry would be `null`.
 
 
 ## Referenced percentage contexts

@@ -541,6 +541,21 @@ public sealed class SkillDescriptionLine
     public List<double[]>? Values { get; set; }
 
     /// <summary>
+    /// Present only on lines whose numbers read another skill's level-dependent quantity —
+    /// a synergy rank the isolated preview pins at zero points, so the solved tables are only
+    /// the no-other-points baseline (the Druid summons' <c>SynergyCap</c>,
+    /// <c>min(clc6+(skill('Raven'.clc5)-blvl),pa10)</c>, is 0 at every level). One source
+    /// <c>skilldesc.txt</c> calc cell per numeric argument, aligned with <see cref="Values"/>,
+    /// for the consumer to evaluate against live ranks in this skill's own scope, with the
+    /// same grammar as <c>Calculation.ElementalDamage</c>. An argument the layout combines
+    /// from two cells (a divisor or a sum) has no single integer expression and is null.
+    /// All value tables are still written and remain the fallback.
+    /// </summary>
+    [JsonPropertyName("valuesCalc")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string?>? ValuesCalc { get; set; }
+
+    /// <summary>
     /// Present only on the lines whose formula actually reads <c>blvl</c> — the hard-point
     /// level, which D2 treats as a different quantity from the effective level and which
     /// Reimagined uses as a designed mechanic (<c>Fire Mastery</c>'s

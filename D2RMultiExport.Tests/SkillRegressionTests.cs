@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+using System.Text.Json;
 using D2RMultiExport.Lib.Config;
 using D2RMultiExport.Lib.Import;
 using D2RMultiExport.Lib.Models;
@@ -241,4 +242,133 @@ public sealed class SkillRegressionTests
         if (success) Assert.Equal(expected, bound);
     }
 
+    /// <summary>Reimagined's <c>skilldesc.txt</c> cell behind every Druid summon's <c>SynergyCap</c> line.</summary>
+    private const string SynergyCapCalc = "min(clc6+(skill('Raven'.clc5)-blvl),pa10)";
+
+    /// <summary>Reimagined's <c>skills.txt</c> <c>calc6</c> synergy lists of the three capped summons.</summary>
+    private static readonly Dictionary<string, string> SummonSynergies = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Summon Spirit Wolf"] = "skill('Arctic Blast'.blvl)+skill('Twister'.blvl)+skill('Cyclone Armor'.blvl)+skill('Tornado'.blvl)+skill('Hurricane'.blvl)",
+        ["Summon Fenris"] = "skill('Firestorm'.blvl)+skill('Molten Boulder'.blvl)+skill('Eruption'.blvl)+skill('Volcano'.blvl)+skill('Armageddon'.blvl)+skill('Fire Claws'.blvl)",
+        ["Summon Grizzly"] = "skill('Wearbear'.blvl)+skill('Maul'.blvl)+skill('Shock Wave'.blvl)+skill('Fury'.blvl)+skill('Feral Rage'.blvl)+skill('Wearwolf'.blvl)"
+    };
+
+    /// <summary>Reimagined's <c>Raven</c> <c>calc5</c>: ten summon ranks, the capped summons' own among them.</summary>
+    private const string RavenCounter = "skill('Plague Poppy'.blvl)+skill('Oak Sage'.blvl)+skill('HoW'.blvl)"
+        + "+skill('Spirit of Barbs'.blvl)+skill('CoL'.blvl)+skill('Vines'.blvl)+skill('Summon Spirit Wolf'.blvl)"
+        + "+skill('Summon Fenris'.blvl)+skill('Summon Grizzly'.blvl)+skill('Raven'.blvl)";
+
+    /// <summary>The Druid summon rows and synergy lines as Reimagined ships them.</summary>
+    private static async Task<GameData> NewDruidSummonDataAsync()
+    {
+        var data = await NewDataAsync();
+        void AddRow(string name, Skills row, string? desc = null)
+        {
+            var id = data.Skills.Count + 1;
+            data.Skills[name] = new SkillEntry
+            {
+                Id = id, Skill = name, CharClass = "dru", SkillDesc = desc, MaxLevel = 25, SourceRow = row
+            };
+            data.SkillsById[id] = data.Skills[name];
+        }
+
+        AddRow("Raven", new Skills { Calc5 = RavenCounter, Param8 = "5" });
+        foreach (var (summon, synergies) in SummonSynergies)
+        {
+            AddRow(summon, new Skills { Calc6 = synergies, Param8 = "5", Param10 = "100" }, summon);
+            data.SkillDescs[summon] = new SkillDescEntry
+            {
+                SkillDesc = summon,
+                SynergyLines =
+                [
+                    new SkillDescLine { Function = 40, TextA = "Sksyn", TextB = summon },
+                    new SkillDescLine { Function = 74, TextA = "SkillSummonSyn", CalcA = "par8" },
+                    new SkillDescLine { Function = 74, TextA = "SkillRavenSyn", CalcA = "par8" },
+                    new SkillDescLine { Function = 75, TextA = "SynergyCap", CalcA = SynergyCapCalc, CalcB = "pa10" }
+                ]
+            };
+        }
+        foreach (var synergy in SummonSynergies.Values.Append(RavenCounter)
+                     .SelectMany(static calc => calc.Split('+'))
+                     .Select(static term => term["skill('".Length..term.IndexOf("'.", StringComparison.Ordinal)])
+                     .Where(name => !data.Skills.ContainsKey(name)).Distinct().ToList())
+        {
+            AddRow(synergy, new Skills());
+        }
+        return data;
+    }
+
+    [Theory]
+    [InlineData("Summon Spirit Wolf")]
+    [InlineData("Summon Fenris")]
+    [InlineData("Summon Grizzly")]
+    public async Task DruidSummonSynergyCapsShipTheirSourceExpressionsBesideUnchangedBaselineTables(string summon)
+    {
+        var data = await NewDruidSummonDataAsync();
+        var result = await new SkillDescriptionImporter(data).ImportAsync();
+        Assert.Empty(result.Errors);
+        var set = Assert.Single(result.Items, entry => entry.SkillId == data.Skills[summon].Id);
+        Assert.Equal(["Sksyn", "SkillSummonSyn", "SkillRavenSyn", "SynergyCap"], set.Synergies.Select(static line => line.Key));
+
+        // The isolated preview's baseline is unchanged: no synergy points, and the summon's
+        // own Raven counter term cancelled by `- blvl`.
+        var cap = set.Synergies[3];
+        Assert.Equal([[0.0], [100.0]], cap.Values!);
+        Assert.Equal([[[0.0]], [[100.0]]], cap.Values2D!);
+        Assert.Null(cap.ValuesUlvl);
+        Assert.Null(cap.Scale);
+        Assert.Null(cap.ScaleCalc);
+        Assert.Equal([SynergyCapCalc, "pa10"], cap.ValuesCalc!);
+
+        var json = JsonSerializer.SerializeToElement(cap);
+        Assert.Equal([SynergyCapCalc, "pa10"],
+            json.GetProperty("valuesCalc").EnumerateArray().Select(static calc => calc.GetString()));
+        Assert.Equal("[[0],[100]]", json.GetProperty("values").GetRawText());
+
+        // Lines that read only this row's Params, or no numbers at all, are already final.
+        foreach (var line in set.Synergies.Take(3))
+        {
+            Assert.Null(line.ValuesCalc);
+            Assert.False(JsonSerializer.SerializeToElement(line).TryGetProperty("valuesCalc", out _));
+        }
+        Assert.Equal([[5.0]], set.Synergies[1].Values!);
+        Assert.Equal([[5.0]], set.Synergies[2].Values!);
+    }
+
+    [Theory]
+    [InlineData(74, "ln12+skill('Chilling Armor'.blvl)*par7", null, true, 12)]
+    [InlineData(74, "\"ln12+skill('Chilling Armor'.blvl)*par7\"", null, true, 12)]
+    [InlineData(76, "skill('Chilling Armor'.ln12)", null, true, 9)]
+    [InlineData(36, "ln12+skill('Chilling Armor'.blvl)*par7", "2", false, 6)]
+    [InlineData(13, "ln12", "skill('Chilling Armor'.blvl)", false, 12)]
+    [InlineData(74, "ln12+skill('Chilling Armor'.par7)", null, false, 14)]
+    [InlineData(74, "min(1+(skill('Frozen Armor'.blvl)/par4), par3)", null, false, 1)]
+    [InlineData(74, "stat('passive_cold_mastery'.accr)+ln12", null, false, 12)]
+    public async Task OnlySingleCellArgumentsReadingAnotherSkillsAllocationShipSourceExpressions(
+        int function, string calcA, string? calcB, bool shipped, double baseline)
+    {
+        var data = await NewDataAsync();
+        var row = new Skills { Param1 = "12", Param2 = "3", Param3 = "4", Param4 = "5", Param7 = "2" };
+        data.Skills["Frozen Armor"] = new SkillEntry
+        {
+            Id = 1, Skill = "Frozen Armor", CharClass = "sor", SkillDesc = "Frozen Armor", MaxLevel = 25, SourceRow = row
+        };
+        data.Skills["Chilling Armor"] = new SkillEntry
+        {
+            Id = 2, Skill = "Chilling Armor", CharClass = "sor", MaxLevel = 25,
+            SourceRow = new Skills { Param1 = "10", Param2 = "1", Param7 = "2" }
+        };
+        data.SkillDescs["Frozen Armor"] = new SkillDescEntry
+        {
+            SkillDesc = "Frozen Armor",
+            DescriptionLines = [new SkillDescLine { Function = function, TextA = "line", TextB = "name", CalcA = calcA, CalcB = calcB }]
+        };
+
+        var result = await new SkillDescriptionImporter(data).ImportAsync();
+        Assert.Empty(result.Errors);
+        var line = Assert.Single(Assert.Single(result.Items).Stats);
+        Assert.Equal(baseline, line.Values![0][0]);
+        if (shipped) Assert.Equal([calcA.Trim('"')], line.ValuesCalc!);
+        else Assert.Null(line.ValuesCalc);
+    }
 }
