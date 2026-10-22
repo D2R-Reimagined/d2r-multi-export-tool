@@ -75,9 +75,18 @@ therefore narrow but non-empty:
    (e.g. a sprite asset name containing `..`; compared ordinally so
    case cannot be used to escape on a case-sensitive file system), and
    one whose existing components below `--out` include a symbolic link
-   or junction. The same check guards every deletion, and the tool only
-   ever deletes files a failed step attempted in the same run plus the
-   previous `manifest.json`. Abandoned-temp cleanup only examines the exact
+   or junction. The same check guards every deletion, and by default the tool
+   only ever deletes files a failed step attempted in the same run plus the
+   previous `manifest.json`. The opt-in destructive export (`--destructive`,
+   desktop checkbox) generates into a hidden working directory inside `--out`
+   and, only after a run without errors, renames every previous top-level entry
+   of `--out` into a hidden backup directory there, moves the new entries in and
+   deletes the backup; links and junctions are moved or removed, never followed.
+   It is refused for drive/file-system roots, Git repository roots, user and
+   system folders (or folders containing one), the exporter's folder, and folders
+   containing or inside the source/configuration directories. A failed rename is
+   rolled back; a process killed mid-replacement can leave the previous contents
+   in the hidden backup directory. Abandoned-temp cleanup only examines the exact
    same-output temp-name pattern in that file's directory; it never sweeps
    unrelated files. The
    `--out` directory itself may be a link (it is the user's choice).
@@ -129,10 +138,3 @@ The source payload bytes are hashed while copying and compared to a captured
 manifest, which is committed last. These checks do not claim an atomic snapshot
 of filesystem namespaces against an adversary changing directory links during
 execution. Manifests remain unsigned local export records.
-
-The optional website installation (`export --website`, desktop Website Repository)
-writes only below `<website>/static`: its own `.data.install-*`, `.data.backup-*` and
-`.data.failed-*` working directories and the swapped `static/data`. It refuses links
-in the destination and the prepared copy, and it deletes a previous `static/data` (as
-the backup) only after confirming that it holds nothing but files its manifest listed.
-The same namespace-race limits apply.

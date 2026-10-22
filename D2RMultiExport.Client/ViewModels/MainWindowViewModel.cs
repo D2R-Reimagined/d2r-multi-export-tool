@@ -31,18 +31,19 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _outputPath;
 
     /// <summary>
-    /// Optional website checkout. When set, a successful, complete export replaces its
-    /// <c>static/data</c> right after the run (<see cref="WebsiteDataInstaller"/>).
+    /// Replace all existing contents of <see cref="OutputPath"/> with only the new export
+    /// (<see cref="D2RMultiExportPipeline.DestructiveExport"/>). Off by default; remembered.
     /// </summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunPipelineCommand))]
-    private string _websiteRepositoryPath;
+    private bool _destructiveExport;
+
+    /// <summary>What the destructive setting will do, or why it is refused for the current output directory.</summary>
+    [ObservableProperty]
+    private string _destructiveStatus = "";
 
     [ObservableProperty]
-    private string _websiteStatus = "";
-
-    [ObservableProperty]
-    private bool _websiteValid = true;
+    private bool _destructiveValid = true;
 
     /// <summary>Live validation result for <see cref="ModDataPath"/> (shown under the field).</summary>
     [ObservableProperty]
@@ -130,14 +131,14 @@ public partial class MainWindowViewModel : ViewModelBase
         _modDataPath = _settings.ModDataPath;
         _cascDataPath = _settings.CascDataPath;
         _outputPath = _settings.OutputPath;
-        _websiteRepositoryPath = _settings.WebsiteRepositoryPath;
+        _destructiveExport = _settings.DestructiveExport;
         _prettyPrintJson = _settings.PrettyPrintJson;
         _continueOnException = _settings.ContinueOnException;
         _earlyStopSentinelEnabled = _settings.EarlyStopSentinelEnabled;
         _cubeRecipeUseDescription = _settings.CubeRecipeUseDescription;
         ValidateModData(_modDataPath);
         ValidateCascData(_cascDataPath);
-        ValidateWebsite();
+        ValidateDestructive();
 
         // ~500 ms cadence keeps the dot animation lively without being
         // distracting; the timer is only running while IsBusy is true.
@@ -145,44 +146,42 @@ public partial class MainWindowViewModel : ViewModelBase
         _dotsTimer.Stop();
     }
 
-    partial void OnModDataPathChanged(string value) => ValidateModData(value);
-
-    partial void OnCascDataPathChanged(string value) => ValidateCascData(value);
-
-    partial void OnWebsiteRepositoryPathChanged(string value) => ValidateWebsite();
-
-    partial void OnOutputPathChanged(string value) => ValidateWebsite();
-
-    private void ValidateWebsite()
+    partial void OnModDataPathChanged(string value)
     {
-        var website = WebsiteRepositoryPath;
-        if (string.IsNullOrWhiteSpace(website))
-        {
-            WebsiteValid = true;
-            WebsiteStatus = "Optional: select the website checkout to replace its static\\data after every successful, complete export.";
-            return;
-        }
-        var (valid, message) = WebsiteDataInstaller.ValidateWebsiteRoot(website);
-        if (valid && OverlapsOutput(website))
-        {
-            valid = false;
-            message = $"Choose an Output Files Directory outside '{WebsiteDataInstaller.DestinationFor(website)}': the website copy is installed from it.";
-        }
-        WebsiteValid = valid;
-        WebsiteStatus = message;
+        ValidateModData(value);
+        ValidateDestructive();
     }
 
-    private bool OverlapsOutput(string website)
+    partial void OnCascDataPathChanged(string value)
     {
-        if (string.IsNullOrWhiteSpace(OutputPath)) return false;
-        try
+        ValidateCascData(value);
+        ValidateDestructive();
+    }
+
+    partial void OnOutputPathChanged(string value) => ValidateDestructive();
+
+    partial void OnDestructiveExportChanged(bool value)
+    {
+        ValidateDestructive();
+        // Remembered immediately, so turning it off sticks even without another export.
+        SaveSettings();
+    }
+
+    private void ValidateDestructive()
+    {
+        if (!DestructiveExport)
         {
-            return WebsiteDataInstaller.OverlapsDestination(OutputPath, website);
+            DestructiveValid = true;
+            DestructiveStatus = "Off: files with matching paths are overwritten, new files are added, and everything else in the Output Files Directory is left untouched.";
+            return;
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return false;
-        }
+        var danger = string.IsNullOrWhiteSpace(OutputPath)
+            ? null
+            : DestructiveReplacement.FindDanger(OutputPath, [("the Mod Data Directory", ModDataPath), ("the CASC Data Directory", CascDataPath)]);
+        DestructiveValid = danger is null;
+        DestructiveStatus = danger is null
+            ? "On: after a run without errors, everything else in the Output Files Directory is deleted. A run with errors leaves it unchanged."
+            : $"Refused: {danger}";
     }
 
     private void ValidateModData(string value)
@@ -240,7 +239,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _settings.ModDataPath = ModDataPath;
         _settings.CascDataPath = CascDataPath;
         _settings.OutputPath = OutputPath;
-        _settings.WebsiteRepositoryPath = WebsiteRepositoryPath;
+        _settings.DestructiveExport = DestructiveExport;
         _settings.PrettyPrintJson = PrettyPrintJson;
         _settings.ContinueOnException = ContinueOnException;
         _settings.EarlyStopSentinelEnabled = EarlyStopSentinelEnabled;
@@ -289,20 +288,18 @@ public partial class MainWindowViewModel : ViewModelBase
         SaveSettings();
 
         ProgressValue = 0;
-        // Captured once: the fields stay editable while the run is in progress.
-        var outputPath = OutputPath;
-        var website = string.IsNullOrWhiteSpace(WebsiteRepositoryPath) ? null : WebsiteRepositoryPath;
         D2RMultiExportPipeline pipeline;
         try
         {
             // A new pipeline (and so a new SourceRoots) per run: the roots are re-validated
             // from the current fields every time and no source mapping survives a run.
-            pipeline = new D2RMultiExportPipeline(ModDataPath, string.IsNullOrWhiteSpace(CascDataPath) ? null : CascDataPath, outputPath)
+            pipeline = new D2RMultiExportPipeline(ModDataPath, string.IsNullOrWhiteSpace(CascDataPath) ? null : CascDataPath, OutputPath)
             {
                 PrettyPrintJson = PrettyPrintJson,
                 EarlyStopSentinelEnabled = EarlyStopSentinelEnabled,
                 CubeRecipeUseDescription = CubeRecipeUseDescription,
                 ContinueOnException = ContinueOnException,
+                DestructiveExport = DestructiveExport,
                 Progress = new Progress<string>(line =>
                 {
                     StatusText = line;
@@ -340,21 +337,15 @@ public partial class MainWindowViewModel : ViewModelBase
 
             if (pipeline.Result.HasErrors)
             {
-                StatusText = $"Export finished with {pipeline.Result.AllErrors.Count} issue(s) — see extras/import-report.txt";
-                if (website is not null)
-                {
-                    StatusText += ". Website data was not updated.";
-                    AppendLog("[WARN] Website: data was not updated because the export recorded errors.");
-                }
-            }
-            else if (website is null)
-            {
-                StatusText = "Export successful!";
+                StatusText = pipeline.DestructiveExport
+                    ? $"Export finished with {pipeline.Result.AllErrors.Count} issue(s) — see the log. The Output Files Directory was not replaced."
+                    : $"Export finished with {pipeline.Result.AllErrors.Count} issue(s) — see extras/import-report.txt";
             }
             else
             {
-                StatusText = "Export successful. Installing website data...";
-                StatusText = await InstallWebsiteDataAsync(outputPath, website);
+                StatusText = pipeline.DestructiveExport
+                    ? "Export successful! The Output Files Directory now holds only this export."
+                    : "Export successful!";
             }
             ProgressValue = 100;
         }
@@ -375,52 +366,12 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// Replaces the website's <c>static/data</c> with the export just written, logs every
-    /// change or the reason for a refusal, and returns the final status line.
-    /// </summary>
-    private async Task<string> InstallWebsiteDataAsync(string outputPath, string website)
-    {
-        AppendLog($"Website: installing the export into {WebsiteDataInstaller.DestinationFor(website)}...");
-        WebsiteInstallResult install;
-        try
-        {
-            install = await Task.Run(() => WebsiteDataInstaller.InstallAsync(outputPath, website));
-        }
-        catch (Exception ex)
-        {
-            AppendLog($"[ERROR] Website installation failed: {ex}");
-            return $"Export successful, but website installation failed: {ex.Message}";
-        }
-
-        foreach (var warning in install.Warnings)
-            AppendLog($"[WARN] Website: {warning}");
-        if (!install.Succeeded)
-        {
-            AppendLog($"[ERROR] Website installation refused: {install.Message}");
-            foreach (var problem in install.Problems)
-                AppendLog($"[ERROR]   - {problem}");
-            return $"Export successful, but website installation was refused: {install.Message}";
-        }
-        if (install.Status == WebsiteInstallStatus.Unchanged)
-        {
-            AppendLog($"Website: {install.Message}");
-            return $"Export successful! Website data is already up to date: {install.Destination}";
-        }
-        var plan = install.Plan!;
-        foreach (var path in plan.Added) AppendLog($"Website: added {path}");
-        foreach (var path in plan.Replaced) AppendLog($"Website: replaced {path}");
-        foreach (var path in plan.Removed) AppendLog($"Website: removed {path}");
-        AppendLog($"Website: {install.Message}");
-        return $"Export successful! Website data installed: {install.Destination} ({plan.Summary}).";
-    }
-
     private bool CanRunPipeline()
     {
         return !IsBusy
                && ModDataValid
                && CascDataValid
-               && WebsiteValid
+               && DestructiveValid
                && !string.IsNullOrWhiteSpace(OutputPath) && Directory.Exists(OutputPath);
     }
 
@@ -428,5 +379,5 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnCascDataValidChanged(bool value) => RunPipelineCommand.NotifyCanExecuteChanged();
 
-    partial void OnWebsiteValidChanged(bool value) => RunPipelineCommand.NotifyCanExecuteChanged();
+    partial void OnDestructiveValidChanged(bool value) => RunPipelineCommand.NotifyCanExecuteChanged();
 }

@@ -154,7 +154,7 @@ The console tool exposes an `export` command and a `publish` command.
 | `--casc-data` | `-c` | *(optional, recommended)* The extracted vanilla `data` directory (`data\`, `data\data\`, or the extraction root) |
 | `--out` | `--export`, `-o` | Output directory for the generated bundle |
 | `--config` | | *(optional)* Override the bundled `Config\` directory |
-| `--website` | `-w` | *(optional)* Website checkout whose `static\data` is replaced after a successful, complete export ([website update](#website-update)) |
+| `--destructive` | | Replace **all** existing contents of `--out` with only this export after a run without errors (default `false`; see [Export modes](#export-modes)) |
 | `--pretty` | | Pretty-print JSON (default `true`) |
 | `--early-stop` | | Stop importing `CubeMain.txt` at the first sentinel row (default `true`) |
 | `--cube-recipe-descriptions` | | Include the raw English `Description` column from `CubeMain.txt` on each cube recipe (default `false`) |
@@ -191,8 +191,36 @@ the expected relative location and what was found. `extras\source-report.txt` li
 which root supplied every input; `extras\asset-report.txt` explains every unresolved
 sprite.
 
-To publish, stage only the files the run vouched for (never copy `--out` wholesale —
-it may hold files a skipped exporter or another tool left there):
+### Export modes
+
+`--out` (the GUI's **Output Files Directory**) is the one and only destination. It
+can be any directory, including the website checkout's `static\data`: export, then
+review and commit the website changes. There is no separate install step.
+
+- **Default:** the run writes directly into `--out`. Files with matching paths are
+  overwritten, new files are created, and every other file is left untouched;
+  extra or obsolete files never block an export. `manifest.json` lists only the
+  files this run generated.
+- **Destructive** (`--destructive`, or the GUI's **Destructive export — replace all
+  existing destination contents** checkbox): the run is generated in full inside a
+  hidden `.d2r-export-new-*` working directory in `--out` first. Only a run without
+  errors then replaces the previous contents: every existing entry, including
+  obsolete and unrelated files, is moved into a hidden `.d2r-export-old-*` directory,
+  the new export is moved in, and the old copy is deleted. A run with errors, an
+  aborted run or a failed rename leaves (or restores) the previous contents, and the
+  run's reports are then only in the log or console output. Skipped optional outputs
+  are simply absent afterwards. Destructive exports are refused for a drive or
+  file-system root, a Git repository root (a folder containing `.git`), user and
+  system folders or any folder containing one, the exporter's own folder, and any
+  folder containing or inside the Mod Data, CASC Data or configuration directory.
+
+Neither mode creates, moves or deletes anything outside `--out`. A destructive run
+killed mid-replacement can leave the hidden working directories behind; the next
+destructive export removes them with the other previous contents.
+
+To stage a copy elsewhere instead, `publish` copies only the files the run vouched
+for (never copy a default-mode `--out` wholesale — it may hold files a skipped
+exporter or another tool left there):
 
 ```powershell
 dotnet run --project .\D2RMultiExport.Console -- publish --from .\test-output --staging <new-or-empty-dir>
@@ -200,32 +228,6 @@ dotnet run --project .\D2RMultiExport.Console -- publish --from .\test-output --
 
 `publish` refuses failed runs, incomplete runs (unless `--allow-incomplete`), files
 changed since the run, and a non-empty staging directory; it never modifies `--from`.
-
-### Website update
-
-With a website checkout configured (`--website`, or the GUI's **Website Repository**
-field), a normal export updates `<website>\static\data` itself; no separate publish,
-staging or install step is needed. Then review and commit the website changes.
-
-```powershell
-dotnet run --project .\D2RMultiExport.Console -- export `
-  --mod-data "..\d2r-reimagined-mod" --casc-data "<path-to-CascView-extraction>" `
-  --out ".\test-output" --website "..\d2r-reimagined-website"
-```
-
-The installation runs only after a run without errors (warnings are fine) and refuses,
-leaving `static\data` untouched, unless the manifest says `Succeeded` and `Complete` and
-every listed file matches it. It copies exactly the manifest's files, never the whole
-`--out` directory, which must be outside `static\data`. `static\data` may hold only files
-its current manifest lists: anything else is reported and blocks the update, and is
-never deleted. Generated files the new manifest no longer lists are removed, and an
-identical export changes nothing. Replacement uses a verified copy in
-`static\.data.install-*` and a backup in `static\.data.backup-*`, matching the website's
-own installer and `.gitignore`; a failed rename or verification restores the backup.
-If an interrupted run left only a backup, the next export restores it first; a backup
-beside existing data must be resolved by hand. Stop the website dev server if Windows
-reports the directory as locked. The CLI returns exit code 5 when the export succeeded
-but the installation was refused. Nothing is committed or pushed.
 
 On success the tool prints `Export completed successfully.` along with
 the number of `enUS` keys loaded and a count of any referenced-but-
@@ -240,10 +242,9 @@ dotnet run --project .\D2RMultiExport.Client
 
 The Avalonia window has folder pickers for the Mod Data, CASC Data and output
 directories (each validated as you type, with the reason when a selection is not a
-supported layout), an optional Website Repository directory (remembered; when set,
-every successful export updates its `static\data` as described in
-[Website update](#website-update), and the status line says whether the installation
-succeeded or was refused), a "Continue on exception" toggle, and a live log panel. Clicking
+supported layout), a remembered **Destructive export** checkbox (off by default; see
+[Export modes](#export-modes)), a "Continue on exception" toggle, a single
+**Import and Export** button and a live log panel. Clicking
 the log opens a non-modal viewer with the complete log of the current run —
 including the full import report once it ends — with search, Info/Warnings/Errors
 filters, free selection, Copy All and Save. It can stay open during an export.
@@ -271,8 +272,9 @@ Missing optional inputs can omit individual documents; consult `manifest.json`
 for current-run files and completeness.
 
 `publish` stages every manifest-listed payload (including reports) plus the
-captured manifest. The exporter leaves skipped/stale/unrelated files untouched;
-only the manifest identifies files produced by its output phase. Hashes verify
+captured manifest. In the default mode the exporter leaves skipped/stale/unrelated
+files untouched; only the manifest identifies files produced by its output phase.
+A destructive export leaves only the manifest and the files it lists. Hashes verify
 payload integrity, not source freshness or release authenticity. No browser
 manifest requests or cache checks are required.
 

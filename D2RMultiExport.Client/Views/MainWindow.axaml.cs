@@ -170,22 +170,4 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void BrowseWebsite_Click(object? sender, RoutedEventArgs e)
-    {
-        var vm = DataContext as MainWindowViewModel;
-        var result = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        {
-            Title = "Select the Website Repository (the checkout that contains static\\data)",
-            AllowMultiple = false,
-            SuggestedStartLocation = await ResolveStartFolderAsync(vm?.WebsiteRepositoryPath)
-        });
-
-        if (result.Count > 0 && vm is not null)
-        {
-            vm.WebsiteRepositoryPath = result[0].Path.LocalPath;
-            // Remembered immediately: the website is selected once, not before every run.
-            vm.SaveSettings();
-        }
-    }
-
 }

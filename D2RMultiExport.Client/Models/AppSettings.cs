@@ -16,11 +16,8 @@ public sealed class AppSettings
 
     public string OutputPath { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Optional website checkout. When set, every successful, complete export replaces its
-    /// <c>static/data</c> (see <c>D2RMultiExport.Lib.Exporters.WebsiteDataInstaller</c>).
-    /// </summary>
-    public string WebsiteRepositoryPath { get; set; } = string.Empty;
+    /// <summary>Replace all existing contents of <see cref="OutputPath"/> after a run without errors (off by default).</summary>
+    public bool DestructiveExport { get; set; } = false;
 
     public bool PrettyPrintJson { get; set; } = true;
     public bool ContinueOnException { get; set; } = false;

@@ -70,14 +70,13 @@
                 <Button Grid.Row="4" Grid.Column="2" Content="Browse..." Click="BrowseOutput_Click"
                         HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
 
-                <Label Grid.Row="5" Grid.Column="0" Classes="field" Content="Website Repository (optional)"
-                       ToolTip.Tip="The d2r-reimagined-website checkout (contains package.json and static). After every successful, complete export its static\data is verified and replaced with exactly this run's files. Nothing is committed or pushed. Leave empty to export only."/>
-                <TextBox Grid.Row="5" Grid.Column="1" x:Name="WebsiteBox" Text="{Binding WebsiteRepositoryPath}" Margin="0,3"/>
-                <Button Grid.Row="5" Grid.Column="2" Content="Browse..." Click="BrowseWebsite_Click"
-                        HorizontalAlignment="Stretch" Margin="6,3,0,3"/>
-                <TextBlock Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" x:Name="WebsiteStatusText"
-                           Classes="hint" Classes.invalid="{Binding !WebsiteValid}"
-                           Text="{Binding WebsiteStatus}"/>
+                <CheckBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" x:Name="DestructiveExportBox"
+                          IsChecked="{Binding DestructiveExport}"
+                          Content="Destructive export — replace all existing destination contents"
+                          ToolTip.Tip="After a run without errors, the Output Files Directory holds only this export: every other file in it is deleted. The export is generated in full first; a run with errors, or a replacement that fails, leaves the existing contents in place. Refused for drive roots, repository roots and similar locations."/>
+                <TextBlock Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" x:Name="DestructiveStatusText"
+                           Classes="hint" Classes.invalid="{Binding !DestructiveValid}"
+                           Text="{Binding DestructiveStatus}"/>
             </Grid>
         </Border>
 

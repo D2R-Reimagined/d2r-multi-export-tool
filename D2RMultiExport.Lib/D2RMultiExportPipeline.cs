@@ -74,6 +74,17 @@ public sealed class D2RMultiExportPipeline
     public bool ContinueOnException { get; set; }
 
     /// <summary>
+    /// When <c>true</c>, a run without errors replaces <em>all</em> existing contents of the
+    /// export directory, including files this tool never wrote. The run is generated into a
+    /// hidden working directory first, so a run that records errors, throws or cannot complete
+    /// the replacement leaves the previous contents in place (see
+    /// <see cref="DestructiveReplacement"/>). Refused for dangerous locations
+    /// (<see cref="FindDestructiveExportDanger"/>). When <c>false</c> (default) the run writes
+    /// directly into the export directory and leaves every file it does not write untouched.
+    /// </summary>
+    public bool DestructiveExport { get; set; }
+
+    /// <summary>
     /// Optional progress sink that receives one human-readable status line per
     /// phase boundary plus a per-error/warning line. The Avalonia GUI binds
     /// this to its log panel; the console front-end leaves it null and relies
@@ -302,9 +313,55 @@ public sealed class D2RMultiExportPipeline
     }
 
     /// <summary>
+    /// Why a destructive export into the export directory is refused, or <c>null</c> when it
+    /// is allowed (see <see cref="DestructiveReplacement.FindDanger"/>).
+    /// </summary>
+    public string? FindDestructiveExportDanger() => DestructiveReplacement.FindDanger(_exportPath,
+    [
+        ("the Mod Data Directory", Sources.ModDataRoot),
+        ("the CASC Data Directory", Sources.CascDataRoot),
+        ("the configuration directory", _configPath),
+    ]);
+
+    /// <summary>
     /// Runs the full pipeline: load config → load translations → load data → import models → export.
+    /// With <see cref="DestructiveExport"/>, the export directory is replaced only after the
+    /// run completed without errors.
     /// </summary>
     public async Task RunAsync()
+    {
+        if (!DestructiveExport)
+        {
+            await RunCoreAsync(_exportPath);
+            return;
+        }
+
+        if (FindDestructiveExportDanger() is { } danger)
+            throw new InvalidOperationException($"Destructive export refused: {danger} Nothing was changed.");
+        DestructiveReplacementResult replacement;
+        try
+        {
+            replacement = await DestructiveReplacement.RunAsync(_exportPath, async working =>
+            {
+                await RunCoreAsync(working);
+                return !Result.HasErrors;
+            });
+        }
+        catch (IOException ex)
+        {
+            Result.AddError("Export", "destructive-export", ex.Message, ex);
+            Report($"[ERROR] Export/destructive-export: {ex.Message}");
+            return;
+        }
+        if (replacement.Warning is { } warning)
+        {
+            Result.AddWarning("Export", "destructive-export", warning);
+            Report($"[WARN] destructive-export: {warning}");
+        }
+        Report($"Destructive export: {replacement.Message}");
+    }
+
+    private async Task RunCoreAsync(string exportPath)
     {
         ValidatePaths();
         _phaseIndex = 0;
@@ -494,8 +551,8 @@ public sealed class D2RMultiExportPipeline
 
         // 6. Export — the website consumes keyed/*.json + strings/{lang}.json × 13.
         //    manifest.json records output integrity for publish staging.
-        Directory.CreateDirectory(_exportPath);
-        var outputs = new ExportOutputs(_exportPath);
+        Directory.CreateDirectory(exportPath);
+        var outputs = new ExportOutputs(exportPath);
         _exportSteps.Clear();
         _failedExportSteps.Clear();
         // A manifest describes one complete run. Remove the previous one up front so a

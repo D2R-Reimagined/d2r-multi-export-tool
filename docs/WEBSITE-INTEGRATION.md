@@ -149,13 +149,22 @@ curve truncation), [HEALTH-CALCULATOR.md](HEALTH-CALCULATOR.md) and
 
 ## Manifest schema 2 and publishing
 
-The exporter overwrites only its generated files. Skipped/stale/unrelated output
-files remain on disk, and only current-run files appear in `Files[]`. A failed
+The output directory may be the website's `static/data` itself; there is no
+separate installation step. By default the exporter overwrites only its generated
+files. Skipped/stale/unrelated output files remain on disk, and only current-run
+files appear in `Files[]`. A failed
 step removes only its attempted paths (`Removed`); untouched declared outputs
 are `NotWritten`, not current. The previous manifest is removed **at the start
 of the output phase**, and the new one is written last. A fatal failure before
 that phase leaves the previous bundle/manifest untouched; timestamps/hashes are
 not proof that an attempted later run succeeded or used particular source commits.
+
+A destructive export (`--destructive` / desktop checkbox) generates the run in a
+hidden working directory inside the output directory and, only when it recorded no
+errors, replaces every previous entry with it, so the directory then holds exactly
+the manifest and its `Files[]`. Otherwise the previous contents, including their
+manifest, are kept or restored. Skipped optional outputs are then absent rather
+than stale ([README](../README.md#export-modes)).
 
 | Manifest field | Meaning |
 |---|---|
@@ -185,20 +194,8 @@ export; a failed stage has no completed manifest.
 It refuses nonempty staging and output/staging nesting in either direction;
 physical roots/parents are checked on Windows/Linux. `--allow-incomplete` is an
 explicit operational choice for skipped optional outputs, never permission to
-publish a failed run. Copy/deploy staging as a coherent bundle.
-
-`export --website <checkout>` (and the desktop Website Repository setting) installs
-the run directly into `<checkout>/static/data` after a run without errors.
-`WebsiteDataInstaller` stages through `PublishStager` into a sibling
-`static/.data.install-*` directory and applies the website installer's checks:
-schema 2, `Succeeded`, `Complete`, every step `Written`; plain portable `/` paths
-without duplicates, case collisions or file/directory clashes; and a prepared copy
-with exactly the listed files, sizes, hashes and the captured manifest bytes. The
-destination may contain only files its current manifest lists, so unknown files block
-the installation and are never deleted. An identical bundle changes nothing;
-otherwise `data` is swapped with the verified copy via `static/.data.backup-*`,
-verified again, and the backup deleted. Failed renames or verification restore the
-backup. The two renames are not one atomic transaction.
+publish a failed run. Copy/deploy staging as a coherent bundle; how the website
+replaces its owned static data is a separate deployment decision.
 
 Hashes detect changes, truncation and mixed payloads **when checked**, but do not
 authenticate an unsigned manifest, attest source/code versions, verify game
