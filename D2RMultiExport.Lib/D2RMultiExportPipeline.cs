@@ -550,7 +550,7 @@ public sealed class D2RMultiExportPipeline
             r => Data.SkillDescriptions = r.ToDictionary(static set => set.SkillId));
 
         // 6. Export — the website consumes keyed/*.json + strings/{lang}.json × 13.
-        //    manifest.json records output integrity for publish staging.
+        //    manifest.json records the run's output integrity.
         Directory.CreateDirectory(exportPath);
         var outputs = new ExportOutputs(exportPath);
         _exportSteps.Clear();

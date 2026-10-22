@@ -85,7 +85,7 @@ Before triggering a release, confirm:
 
 - [ ] A manual **Build Check** run (`build-check`) on the release commit passed.
 - [ ] Complete [Level C validation](TESTING.md#level-c--comprehensive-validation)
-      with `-CheckCliAndPublish` against the current mod/CASC roots, with no
+      with `-CheckCli` against the current mod/CASC roots, with no
       skipped required checks; record its session/results and review reports
       and affected JSON. Reuse that session's content bundle for further checks.
       Build Check has no private game data; the release packaging workflow does

@@ -21,8 +21,8 @@ trailing space padding. Both type parents and each base's type2 are included.
 Legacy rows without translations receive source-derived English name fallbacks
 through the existing synthetic merge. Mod/CASC text is never replaced by them.
 
-Publish the JSON with the normal language bundles through the staging command
-([WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-publishing)).
+The JSON is exported with the normal language bundles
+([WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-output-integrity)).
 The website builder expands type inheritance and emits supported v3 conditions.
 Named unique/set helpers select base + rarity and cannot identify a specific item.
 

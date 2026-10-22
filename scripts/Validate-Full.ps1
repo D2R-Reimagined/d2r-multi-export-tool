@@ -3,8 +3,8 @@
 .SYNOPSIS
     Level C validation: one retained library export, independent parity, desktop root transitions.
 .DESCRIPTION
-    Uses a new session directory; never cleans existing output. Add -CheckCliAndPublish
-    for releases or CLI/publishing changes to repeat through the CLI and stage that bundle.
+    Uses a new session directory; never cleans existing output. Add -CheckCli
+    for releases or CLI changes to repeat the export through the CLI.
     See docs/TESTING.md for selection rules and report review requirements.
 #>
 [CmdletBinding()]
@@ -14,7 +14,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Release',
     [string] $SessionPath = (Join-Path ([IO.Path]::GetTempPath()) ('d2r-validation-' + [guid]::NewGuid().ToString('N'))),
-    [switch] $CheckCliAndPublish
+    [switch] $CheckCli
 )
 
 $ErrorActionPreference = 'Stop'
@@ -91,7 +91,7 @@ try {
         if ($LASTEXITCODE -eq 0) { Assert-TestResults (Join-Path $SessionPath 'desktop.trx') }
     }
 
-    if ($CheckCliAndPublish) {
+    if ($CheckCli) {
         $sentinel = Join-Path $bundle 'validation-sentinel.txt'
         Set-Content -LiteralPath $sentinel -Value 'unrelated validation sentinel'
         Invoke-Check 'Independent CLI repeat, determinism and stale-file preservation' {
@@ -102,14 +102,6 @@ try {
             $secondFiles = @($secondManifest.Files | Sort-Object Path | Select-Object Path, Sha256, Bytes | ConvertTo-Json -Depth 5)
             if (Compare-Object $firstFiles $secondFiles) { throw 'Repeated export changed manifest payload entries.' }
             if ((Get-Content -LiteralPath $sentinel -Raw).Trim() -ne 'unrelated validation sentinel') { throw 'CLI modified the unrelated sentinel.' }
-        }
-        $stage = Join-Path $SessionPath 'staging'
-        Invoke-Check 'Publish copied-byte integrity' {
-            dotnet run --project .\D2RMultiExport.Console -c $Configuration --no-build -- publish --from $bundle --staging $stage
-            if ($LASTEXITCODE -ne 0) { throw "Publish failed (exit $LASTEXITCODE)." }
-            if (Test-Path -LiteralPath (Join-Path $stage 'validation-sentinel.txt')) { throw 'Publish staged the unrelated sentinel.' }
-            if ((Get-FileHash -LiteralPath (Join-Path $bundle 'manifest.json')).Hash -ne
-                (Get-FileHash -LiteralPath (Join-Path $stage 'manifest.json')).Hash) { throw 'Staged manifest differs.' }
         }
     }
 

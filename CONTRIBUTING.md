@@ -84,9 +84,9 @@ dotnet restore .\D2RMultiExport.sln
 dotnet build   .\D2RMultiExport.sln -c Release --no-restore
 ```
 
-Run the [CLI](README.md#run--cli) (`export`, `publish`) and the
+Run the [CLI](README.md#run--cli) (`export`) and the
 [desktop GUI](README.md#run--gui) as described in the README, which is
-authoritative for CLI options, source-root layouts and staging.
+authoritative for CLI options, source-root layouts and export modes.
 
 ---
 

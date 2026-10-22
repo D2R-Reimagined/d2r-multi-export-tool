@@ -11,10 +11,10 @@ The pipeline is **load → import → resolve → export → audit**, orchestrat
 | `D2RMultiExport.Lib/Config/` | Bundled JSON and typed `*Config.cs`; `CASC_DATA/` contains upstream reference tables. |
 | `D2RMultiExport.Lib/Import/` | Typed row importers, shared property mapping, equipment arithmetic and BBE calculation scopes. |
 | `D2RMultiExport.Lib/Translation/` | Property-key resolution, synthetic strings, equipment lines and multi-language bundles. Render English by resolving `KeyedLine` against `strings/enUS.json`; do not add a parallel English property renderer. |
-| `D2RMultiExport.Lib/Exporters/` | Keyed documents, language bundles, sprites, reports, publish staging and the opt-in destructive replacement of the output directory. `ExportOutputs` is the output gateway. |
+| `D2RMultiExport.Lib/Exporters/` | Keyed documents, language bundles, sprites, reports, the manifest and the opt-in destructive replacement of the output directory. `ExportOutputs` is the output gateway. |
 | `D2RMultiExport.Lib/Models/`, `ErrorHandling/` | Wire DTOs and contextual phase/row diagnostics. |
 | `D2RMultiExport.Lib/SourceRoots.cs` | Sole source-path authority for Mod Data and optional CASC Data. |
-| `D2RMultiExport.Console/`, `D2RMultiExport.Client/` | CLI (`export`, `publish`) and Avalonia MVVM desktop front ends. |
+| `D2RMultiExport.Console/`, `D2RMultiExport.Client/` | CLI (`export`) and Avalonia MVVM desktop front ends. |
 | `D2RMultiExport.Tests/`, `D2RMultiExport.Client.Tests/` | Library regressions and Avalonia headless interaction/optional real-data tests. |
 | `test-output/` | Ignored smoke-export scratch output, never a committed fixture. |
 
@@ -84,8 +84,7 @@ These exceptions cover fixed engine/file-format/key-shape behavior, not arbitrar
 - The output directory is the only destination; do not add a second install/copy target. The sole exception to the ownership rule is the explicit `DestructiveExport` option (`--destructive`, desktop checkbox, default off), implemented only by `DestructiveReplacement`: generate into its hidden working directory inside the output directory, replace the previous contents only after a run without errors, roll back a failed rename, never touch anything outside the output directory, never follow links, and keep its dangerous-location refusals (`FindDanger`).
 - Abandoned temp cleanup is limited to the same output's directory and exact `.<name>.<32 lowercase hex>.tmp` shape, not open files or links; report `AbandonedTempFilesRemoved`. No general cleanup.
 - Preserve opened-handle containment checks on Windows/Linux and path revalidation before rename. The final check-to-rename link race remains a documented limit ([SECURITY.md](SECURITY.md)); other platforms have path checks only. Do not claim an atomic filesystem snapshot.
-- Manifest schema **2** is written last and lists current-run files and every output/report step. `Succeeded` requires no recorded errors; `Complete` additionally requires all steps written with no declared output missing. Translation harvest/audits read current-run outputs only. Field definitions: [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md#manifest-schema-2-and-publishing).
-- Publish through `PublishStager`, never copy the export directory wholesale. Keep its preconditions (new/empty, non-nested staging; schema 2; successful run; complete unless explicitly allowed; matching copied hashes/lengths) and commit the captured manifest last; failed staging has no completed manifest. Never modify the source export to repair staging.
+- Manifest schema **2** is written last and lists current-run files and every output/report step. `Succeeded` requires no recorded errors; `Complete` additionally requires all steps written with no declared output missing. Translation harvest/audits read current-run outputs only. Field definitions: [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md#manifest-schema-2-and-output-integrity).
 - Every emitted `Sprite`/`Icon` must resolve to a file this run wrote; otherwise record `Completeness/asset-references`. Run skill icons before skill JSON and emit only successful icon references.
 
 ## 6. Data and website compatibility
@@ -100,12 +99,12 @@ These exceptions cover fixed engine/file-format/key-shape behavior, not arbitrar
 - Preserve grouped-property parent/child shape: structural `code`, keyed `nameKey` (`strPropertyGroupsProperty`), parent `pickMode`, children with `chance` (relative weights for mode `"2"`, percentages otherwise). Never flatten children or copy `pickMode` to each child.
 - Preserve skill axes (`lvl` effective, `blvl` hard points, `ulvl` character level), `values` alongside conditional `values2d`/`valuesUlvl`, meaningful hard row 0, trimmed constant tails and `LevelTableConverter`. Keep actual source percentage context for `scale`/`scaleCalc`; never borrow the describing row's Params or invent approximations. Contracts and limits: [SKILL-CALCULATIONS.md](docs/SKILL-CALCULATIONS.md).
 - Cube recipe `Id` is a published stable contract, including raw-cell normalization and collision suffix ordering. Do not change its algorithm/columns or allow a parser bump to rotate ids without a coordinated migration ([WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md#stable-cube-recipe-identity)).
-- Update [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md) in the same change whenever adding/reshaping a keyed field. Coordinate breaking changes; document exporter behavior and consumer requirements, not website implementation status. Manifest hashes are export/publishing integrity metadata, not a requirement for browser verification or additional requests.
+- Update [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md) in the same change whenever adding/reshaping a keyed field. Coordinate breaking changes; document exporter behavior and consumer requirements, not website implementation status. Manifest hashes are export integrity metadata, not a requirement for browser verification or additional requests.
 
 ## 7. Testing and validation
 
 - [TESTING.md](docs/TESTING.md) owns commands, test selection and report review. Level A: localized code uses an affected build and fast deterministic suites; documentation/comments use diff/link review only. Level B: importer/exporter corrections use applicable regression and final-JSON tests, plus the Python auditor tests for audit/shared property calculations.
-- Level C (the full-validation script, run once) is required for broad exporter changes, shared arithmetic/mapping/schema changes, parser upgrades, releases, explicitly requested complete verification, or inadequate targeted coverage; reuse its retained export for compatible content checks. CLI/publishing changes and releases add its CLI repeat/staging option. Add meaningful regressions for defects and failure paths.
+- Level C (the full-validation script, run once) is required for broad exporter changes, shared arithmetic/mapping/schema changes, parser upgrades, releases, explicitly requested complete verification, or inadequate targeted coverage; reuse its retained export for compatible content checks. CLI changes and releases add its CLI repeat option (`-CheckCli`). Add meaningful regressions for defects and failure paths.
 - Build once per configuration/change set and use matching `--no-build`; repeat only after new changes, failures or unresolved concerns. Inspect reports/affected JSON: no new errors, unexplained calculation drops or missing display keys; review new warnings.
 - Disclose excluded, skipped and unexecuted checks. Optional real-data tests skip without inputs; Level C must fail when required inputs/checks cannot execute. Never equate deterministic passes with required full-data validation. Keep scratch sessions separate and never clean unrelated output/source directories. Headless desktop tests are not manual GUI verification, source inspection is not browser rendering, and portable code is not verified Linux execution.
 
@@ -121,7 +120,7 @@ These exceptions cover fixed engine/file-format/key-shape behavior, not arbitrar
 - [CONTRIBUTING.md](CONTRIBUTING.md): onboarding, parser debugging and PR workflow. [RELEASING.md](docs/RELEASING.md): release and branding procedures.
 - [TESTING.md](docs/TESTING.md): validation levels, smoke commands, reports, fixtures and real-data/desktop tests.
 - [SKILL-CALCULATIONS.md](docs/SKILL-CALCULATIONS.md): skill wire axes, BBE scopes/vocabulary and bounded limitations.
-- [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md): consumer-facing wire contracts, stable recipe ids and the manifest/publishing contract.
+- [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md): consumer-facing wire contracts, stable recipe ids and the manifest contract.
 - [DROP-CALCULATOR.md](docs/DROP-CALCULATOR.md), [IAS-CALCULATOR.md](docs/IAS-CALCULATOR.md), [HEALTH-CALCULATOR.md](docs/HEALTH-CALCULATOR.md), [LOOT-FILTER.md](docs/LOOT-FILTER.md): specialized exporter contracts.
 - [SECURITY.md](SECURITY.md): threat model, private reporting and filesystem/integrity limits.
 - [PROPERTY-RANGES.md](docs/PROPERTY-RANGES.md): current property mapping, range preservation and independent audit limits.

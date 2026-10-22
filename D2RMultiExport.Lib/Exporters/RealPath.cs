@@ -53,24 +53,6 @@ internal static class RealPath
         return null;
     }
 
-    /// <summary>
-    /// Resolves an existing directory, or its closest existing parent plus the uncreated
-    /// suffix. Parent links are therefore accounted for before staging creates directories.
-    /// Returns null on platforms without handle-based directory resolution.
-    /// </summary>
-    public static string? OfDirectoryOrParent(string path)
-    {
-        var parent = path;
-        while (!Directory.Exists(parent))
-        {
-            var next = Path.GetDirectoryName(parent);
-            if (next is null || next == parent) return null;
-            parent = next;
-        }
-        var real = OfDirectory(parent);
-        return real is null ? null : Path.GetFullPath(Path.Combine(real, Path.GetRelativePath(parent, path)));
-    }
-
     /// <summary>True when <paramref name="path"/> is <paramref name="root"/> or below it.</summary>
     public static bool IsUnder(string path, string root)
     {

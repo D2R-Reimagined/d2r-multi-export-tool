@@ -1,10 +1,9 @@
 # Drop calculator export
 
-The console and GUI pipeline emits `keyed/drop-calculator.json`. Publish the
-bundle through the staging command
-([WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-publishing));
-do not copy the output directory wholesale. There is no version selector or
-separately maintained drop-rate catalog.
+The console and GUI pipeline emits `keyed/drop-calculator.json` into the output
+directory together with the rest of the bundle
+([WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-output-integrity)).
+There is no version selector or separately maintained drop-rate catalog.
 
 The bundle contains named item eligibility and rarity, rune item types,
 equipment quality levels, expansion item ratios, generated equipment treasure

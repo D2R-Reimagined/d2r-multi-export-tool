@@ -24,8 +24,8 @@ never in `Files[]`.
 
 Malformed required input or invalid bonus configuration fails this isolated
 step with contextual errors; later exporters, reports and schema-2 manifest
-still run. Publish only a validated staging bundle
-([WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-publishing)).
+still run; use only a run whose manifest reports success
+([WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-output-integrity)).
 
 ## Configuration (`export-config.json` → `monsterHealth`)
 

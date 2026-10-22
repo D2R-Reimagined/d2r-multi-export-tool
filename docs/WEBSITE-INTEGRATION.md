@@ -147,7 +147,7 @@ own contracts: [DROP-CALCULATOR.md](DROP-CALCULATOR.md) (including `Condition`,
 curve truncation), [HEALTH-CALCULATOR.md](HEALTH-CALCULATOR.md) and
 [LOOT-FILTER.md](LOOT-FILTER.md).
 
-## Manifest schema 2 and publishing
+## Manifest schema 2 and output integrity
 
 The output directory may be the website's `static/data` itself; there is no
 separate installation step. By default the exporter overwrites only its generated
@@ -180,27 +180,12 @@ use their relative path (for example, `extras/import-report.txt`) as both identi
 
 Schema 1's error-only `Complete` corresponds to schema 2's `Succeeded`; schema 2
 additionally distinguishes incomplete successful runs. No browser schema handling
-is required for this export/publishing mechanism.
-
-```powershell
-dotnet run --project .\D2RMultiExport.Console -- publish `
-  --from .\test-output --staging <new-or-empty-directory>
-```
-
-`PublishStager` copies exactly the manifest's `Files[]`, validates schema,
-success/completeness and every copied file's SHA-256/length against captured
-manifest bytes, then writes that manifest last. It never modifies the source
-export; a failed stage has no completed manifest.
-It refuses nonempty staging and output/staging nesting in either direction;
-physical roots/parents are checked on Windows/Linux. `--allow-incomplete` is an
-explicit operational choice for skipped optional outputs, never permission to
-publish a failed run. Copy/deploy staging as a coherent bundle; how the website
-replaces its owned static data is a separate deployment decision.
+is required for this export mechanism.
 
 Hashes detect changes, truncation and mixed payloads **when checked**, but do not
 authenticate an unsigned manifest, attest source/code versions, verify game
 formulas or establish current-run freshness from directory contents. Atomic
-file writes/staging do not make an adversarial filesystem namespace snapshot.
+file writes do not make an adversarial filesystem namespace snapshot.
 Preserve export-side hashing. Do not make browser verification, additional
 requests or cache-busting depend on the manifest without a separate justified
 website decision. See [SECURITY.md](../SECURITY.md).

@@ -46,7 +46,7 @@ calculations change. Select additional cohesive suites with this table:
 | Skill expressions/descriptions | `FullyQualifiedName~SkillRegressionTests|FullyQualifiedName~TranslationAuditRegressionTests` |
 | Sources, typed columns, optional inputs | `FullyQualifiedName~SourceRootsTests|FullyQualifiedName~ImportReflectionTests|FullyQualifiedName~InputHandlingTests` |
 | Named item artwork, contained artwork paths, sprite reuse/fallbacks | `FullyQualifiedName~ItemPresentationExporterTests|FullyQualifiedName~SourceRootsTests` |
-| Writes, manifests, publishing | `FullyQualifiedName~OutputIntegrityTests|FullyQualifiedName~WriteSafetyTests` |
+| Writes, manifests | `FullyQualifiedName~OutputIntegrityTests|FullyQualifiedName~WriteSafetyTests` |
 | Default/destructive export modes | `FullyQualifiedName~DestructiveExportTests` (desktop checkbox: `DestructiveExportSettingTests` in `D2RMultiExport.Client.Tests`) |
 | Translation/reference audits | `FullyQualifiedName~TranslationAuditRegressionTests|FullyQualifiedName~PropertyRangeTests` |
 
@@ -70,8 +70,8 @@ releases and explicitly requested complete verification. From repository root:
 
 ```powershell
 .\scripts\Validate-Full.ps1 -ModData '<path-to-mod>' -CascData '<path-to-casc-extraction>'
-# Releases and CLI/publishing changes additionally require the independent CLI repeat and staging:
-.\scripts\Validate-Full.ps1 -ModData '<path-to-mod>' -CascData '<path-to-casc-extraction>' -CheckCliAndPublish
+# Releases and CLI changes additionally require the independent CLI repeat:
+.\scripts\Validate-Full.ps1 -ModData '<path-to-mod>' -CascData '<path-to-casc-extraction>' -CheckCli
 ```
 
 Choose the appropriate command once. Defaults: Release, a new system-temp session
@@ -90,11 +90,9 @@ are rejected, never cleaned. The script:
 4. Runs all desktop tests. The real-data case uses the retained bundle as its
    direct-pipeline parity baseline, then performs its own three desktop exports:
    with CASC, without CASC, restored CASC. No root-transition assertion is removed.
-5. With `-CheckCliAndPublish`, repeats the export through the actual CLI in the
+5. With `-CheckCli`, repeats the export through the actual CLI in the
    same bundle directory, compares all manifest `Path`/`Sha256`/`Bytes` entries,
-   checks an unrelated sentinel survived, and publishes to a new sibling staging
-   directory. `PublishStager` verifies copied bytes and commits the manifest last;
-   the captured manifest must match and the sentinel must not be staged.
+   and checks an unrelated sentinel survived.
 
 A nonzero command exit, auditor exit 1 or 2, zero discovered tests, or any skipped
 required test fails the script. TRX files, audit JSON and per-check timings/status
@@ -114,7 +112,7 @@ name) fails it; that is a mod-side gap to report, not a reason to relax the
 assertion.
 
 CLI invocation, root transitions/restoration, repeated-export determinism,
-atomic/stale-output, publishing/copy integrity and intermediate importer state
+atomic/stale-output integrity and intermediate importer state
 remain independent checks. A final bundle cannot establish intermediate
 `GameData` state.
 
@@ -223,10 +221,9 @@ and grouped sprite omissions.
 By default the tool does not own the output folder: files it did not write in this
 run stay on disk, and only `manifest.json` identifies current files and run status.
 `--destructive` instead leaves only this run's files after a run without errors
-([README](../README.md#export-modes)). Never publish a default-mode output folder
-wholesale; stage it with `publish`. Manifest fields,
-staging checks and their limits are specified in
-[WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-publishing).
+([README](../README.md#export-modes)). Manifest fields and their limits are
+specified in
+[WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-output-integrity).
 Delete `test-output\` yourself when you want a clean tree.
 
 ### 2.1.1 Independent property range audit
@@ -530,18 +527,16 @@ Future runs of section 3 then prove the fix still holds.
 The Level A/B library suites cover calculation aliases, hard-point-zero and
 effective-level boundaries, parameter binding across skill contexts, merged
 property qualifiers, mixed-case source directories, unprobed display-key auditing
-and publish integrity/containment failures. Do not repeat them after a passing
+and write integrity/containment failures. Do not repeat them after a passing
 matching run unless code changes, a failure or an unresolved concern requires it.
-`WriteSafetyTests` replaces source payloads after preflight, checks same-size
-hash changes and changed lengths, replaces the source manifest, and tests links
-in both existing and uncreated staging paths. Failed staging must have no final
-manifest; source files are never cleaned up to repair a failed stage.
+`WriteSafetyTests` covers interrupted writes, abandoned-temp cleanup recorded in
+the manifest, and links planted after path validation.
 
 Set `D2R_MOD_DATA` and `D2R_CASC_DATA` to enable the real-mod checks in
 `PropertyConsistencyTests` and the desktop suite. The real-mod assertions
 include Holy Fire/Holy Freeze/FireGolem scaling, Titans Covenant at hard 0 /
 bonus 100, Phoenix scope qualifiers and the final display-key audit.
 
-Releases use Level C with `-CheckCliAndPublish` once (§1); do not add further
+Releases use Level C with `-CheckCli` once (§1); do not add further
 content-only exports. Headless tests are not manual GUI testing; portable targets
 do not establish verified Linux execution.

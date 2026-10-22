@@ -56,9 +56,9 @@ therefore narrow but non-empty:
    rewrite both the files and the manifest. Signing is deliberately not
    implemented: the exporter runs on a trusted build machine and the
    bundle is published through the repository's own access control. Revisit
-   this if that threat model changes. The manifest is an export/publishing
+   this if that threat model changes. The manifest is an export
    integrity mechanism, not mandatory browser verification or additional
-   website requests (see [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md#manifest-schema-2-and-publishing)).
+   website requests (see [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md#manifest-schema-2-and-output-integrity)).
 2. **Supply-chain integrity of the upstream parser.** Excel `.txt`
    parsing is delegated to the
    [`D2RReimaginedTools.FileExtensions`](https://www.nuget.org/packages/D2RReimaginedTools.FileExtensions)
@@ -120,8 +120,7 @@ the resulting payload; it does not authenticate that executable or ZIP:
 1. Run an export against your mod source and confirm
    `<out>/manifest.json` reports `"Succeeded": true` and `"Complete": true`
    (`Complete` is false when an optional exporter was skipped).
-2. Use `publish --from <out> --staging <new-or-empty-dir>` to verify copied
-   payload hashes/lengths against the captured schema-2 manifest.
+2. Verify payload hashes/lengths against the schema-2 manifest's `Files[]`.
 3. For reproducibility, compare payload entries with a trusted build using
    identical code, mod/CASC inputs and configuration. Investigate differences
    in those inputs before treating divergent hashes as evidence of tampering.
@@ -129,12 +128,6 @@ the resulting payload; it does not authenticate that executable or ZIP:
 Report a reproducible integrity discrepancy with a suspected security impact
 as described in [Reporting a security concern](#reporting-a-security-concern).
 
-
-Publish staging resolves physical directory roots on Windows and Linux,
-including links in existing parents of a new staging path. Failure to obtain
-those physical paths refuses staging on these platforms. Other platforms retain
-lexical containment checks; physical-root verification is not implemented there.
-The source payload bytes are hashed while copying and compared to a captured
-manifest, which is committed last. These checks do not claim an atomic snapshot
-of filesystem namespaces against an adversary changing directory links during
-execution. Manifests remain unsigned local export records.
+Manifests remain unsigned local export records. The write checks above do not
+claim an atomic snapshot of filesystem namespaces against an adversary changing
+directory links during execution.

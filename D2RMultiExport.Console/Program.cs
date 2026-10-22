@@ -131,50 +131,9 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
     }
 });
 
-// ── publish: stage only the files the last run vouched for ─────────────────────────
-var publishFromOption = new Option<string>("--from", "--out", "-o")
-{
-    Description = "The export output directory (contains manifest.json)",
-    Required = true
-};
-var publishToOption = new Option<string>("--staging", "-s")
-{
-    Description = "A new or empty directory to receive the publishable bundle (never inside --from)",
-    Required = true
-};
-var allowIncompleteOption = new Option<bool>("--allow-incomplete")
-{
-    Description = "Stage a run whose manifest says Complete: false (a skipped exporter). Failed runs are never staged.",
-    DefaultValueFactory = _ => false
-};
-var publishCommand = new Command("publish",
-    "Copy exactly the files listed in manifest.json (re-verified by SHA-256) into a staging directory. "
-    + "Refuses failed runs, incomplete runs unless --allow-incomplete, and files changed since the run. "
-    + "The output directory itself is never modified.")
-{
-    publishFromOption, publishToOption, allowIncompleteOption
-};
-publishCommand.SetAction(async (parseResult, cancellationToken) =>
-{
-    var result = await D2RMultiExport.Lib.Exporters.PublishStager.StageAsync(
-        parseResult.GetValue(publishFromOption)!,
-        parseResult.GetValue(publishToOption)!,
-        parseResult.GetValue(allowIncompleteOption));
-    foreach (var problem in result.Problems)
-        (result.Staged ? Console.Out : Console.Error).WriteLine(problem);
-    if (!result.Staged)
-    {
-        Console.Error.WriteLine("No completed bundle was staged.");
-        return 4;
-    }
-    Console.WriteLine($"Staged {result.Files.Count} file(s).");
-    return 0;
-});
-
 var rootCommand = new RootCommand("D2R Reimagined mod data exporter — generates the key-based, language-agnostic JSON bundle consumed by the D2R Reimagined website.")
 {
-    exportCommand,
-    publishCommand
+    exportCommand
 };
 
 return await rootCommand.Parse(args).InvokeAsync();

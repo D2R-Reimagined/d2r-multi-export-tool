@@ -58,7 +58,7 @@ importer code, so content tweaks don't require a code change.
 | Project | Description |
 |---|---|
 | `D2RMultiExport.Lib` | Core import / translation / export pipeline. Game-data parsing, property resolution, damage & defense math, synthetic-string registry, and JSON writers. |
-| `D2RMultiExport.Console` | Headless CLI front-end (`export`, `publish` commands). |
+| `D2RMultiExport.Console` | Headless CLI front-end (`export` command). |
 | `D2RMultiExport.Client` | Avalonia desktop GUI front-end for running exports interactively. |
 | `D2RMultiExport.Lib\Config` | Bundled config: `export-config.json`, `synthetic-strings.json`, `stat-overrides.json`, `class-ranges.json`, description layouts and canonical `CASC_DATA\runes.txt`, `skillcalc.txt`, `misscalc.txt`. |
 
@@ -146,7 +146,7 @@ game data; build/test locally before submission ([TESTING.md](docs/TESTING.md)).
 
 ## Run — CLI
 
-The console tool exposes an `export` command and a `publish` command.
+The console tool exposes a single `export` command.
 
 | Option | Aliases | Description |
 |---|---|---|
@@ -218,17 +218,6 @@ Neither mode creates, moves or deletes anything outside `--out`. A destructive r
 killed mid-replacement can leave the hidden working directories behind; the next
 destructive export removes them with the other previous contents.
 
-To stage a copy elsewhere instead, `publish` copies only the files the run vouched
-for (never copy a default-mode `--out` wholesale — it may hold files a skipped
-exporter or another tool left there):
-
-```powershell
-dotnet run --project .\D2RMultiExport.Console -- publish --from .\test-output --staging <new-or-empty-dir>
-```
-
-`publish` refuses failed runs, incomplete runs (unless `--allow-incomplete`), files
-changed since the run, and a non-empty staging directory; it never modifies `--from`.
-
 On success the tool prints `Export completed successfully.` along with
 the number of `enUS` keys loaded and a count of any referenced-but-
 missing translation keys (full list written to
@@ -271,14 +260,13 @@ filters, free selection, Copy All and Save. It can stay open during an export.
 Missing optional inputs can omit individual documents; consult `manifest.json`
 for current-run files and completeness.
 
-`publish` stages every manifest-listed payload (including reports) plus the
-captured manifest. In the default mode the exporter leaves skipped/stale/unrelated
-files untouched; only the manifest identifies files produced by its output phase.
+In the default mode the exporter leaves skipped/stale/unrelated files untouched;
+only the manifest identifies files produced by its output phase.
 A destructive export leaves only the manifest and the files it lists. Hashes verify
 payload integrity, not source freshness or release authenticity. No browser
 manifest requests or cache checks are required.
 
-Website-facing wire contracts, stable recipe ids and the manifest/publishing
+Website-facing wire contracts, stable recipe ids and the manifest
 contract are documented in [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md).
 
 ## License
