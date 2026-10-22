@@ -15,6 +15,13 @@ public sealed class AppSettings
     public string CascDataPath { get; set; } = string.Empty;
 
     public string OutputPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional website checkout. When set, every successful, complete export replaces its
+    /// <c>static/data</c> (see <c>D2RMultiExport.Lib.Exporters.WebsiteDataInstaller</c>).
+    /// </summary>
+    public string WebsiteRepositoryPath { get; set; } = string.Empty;
+
     public bool PrettyPrintJson { get; set; } = true;
     public bool ContinueOnException { get; set; } = false;
     public bool EarlyStopSentinelEnabled { get; set; } = true;

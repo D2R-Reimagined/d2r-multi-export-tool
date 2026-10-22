@@ -185,8 +185,20 @@ export; a failed stage has no completed manifest.
 It refuses nonempty staging and output/staging nesting in either direction;
 physical roots/parents are checked on Windows/Linux. `--allow-incomplete` is an
 explicit operational choice for skipped optional outputs, never permission to
-publish a failed run. Copy/deploy staging as a coherent bundle; how the website
-replaces its owned static data is a separate deployment decision.
+publish a failed run. Copy/deploy staging as a coherent bundle.
+
+`export --website <checkout>` (and the desktop Website Repository setting) installs
+the run directly into `<checkout>/static/data` after a run without errors.
+`WebsiteDataInstaller` stages through `PublishStager` into a sibling
+`static/.data.install-*` directory and applies the website installer's checks:
+schema 2, `Succeeded`, `Complete`, every step `Written`; plain portable `/` paths
+without duplicates, case collisions or file/directory clashes; and a prepared copy
+with exactly the listed files, sizes, hashes and the captured manifest bytes. The
+destination may contain only files its current manifest lists, so unknown files block
+the installation and are never deleted. An identical bundle changes nothing;
+otherwise `data` is swapped with the verified copy via `static/.data.backup-*`,
+verified again, and the backup deleted. Failed renames or verification restore the
+backup. The two renames are not one atomic transaction.
 
 Hashes detect changes, truncation and mixed payloads **when checked**, but do not
 authenticate an unsigned manifest, attest source/code versions, verify game

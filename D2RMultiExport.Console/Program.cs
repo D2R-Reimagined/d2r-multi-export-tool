@@ -1,6 +1,7 @@
 ﻿// SPDX-License-Identifier: GPL-3.0-or-later
 using System.CommandLine;
 using D2RMultiExport.Lib;
+using D2RMultiExport.Lib.Exporters;
 
 // ── Required path arguments ─────────────────────────────────────────────────────
 // Every input is derived from these two directories by D2RMultiExport.Lib.SourceRoots.
@@ -25,6 +26,12 @@ var exportOption = new Option<string>("--export", "--out", "-o")
 var configOption = new Option<string?>("--config")
 {
     Description = "Path to config directory (default: bundled Config/)"
+};
+
+var websiteOption = new Option<string?>("--website", "-w")
+{
+    Description = "Website checkout (contains package.json and static\\). After a successful, complete export its static\\data "
+        + "is validated and replaced with exactly this run's files. Nothing is committed or pushed."
 };
 
 // ── Output options ──────────────────────────────────────────────────────────────
@@ -53,7 +60,7 @@ var continueOnExceptionOption = new Option<bool>("--continue-on-exception")
 
 var exportCommand = new Command("export", "Import game data and export the key-based JSON bundle (keyed/*.json + strings/{lang}.json × 13)")
 {
-    modDataOption, cascDataOption, exportOption, configOption,
+    modDataOption, cascDataOption, exportOption, configOption, websiteOption,
     prettyOption,
     earlyStopOption, cubeRecipeDescOption, continueOnExceptionOption
 };
@@ -64,6 +71,18 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
     var cascData     = parseResult.GetValue(cascDataOption);
     var export       = parseResult.GetValue(exportOption)!;
     var config       = parseResult.GetValue(configOption);
+    var website      = parseResult.GetValue(websiteOption);
+    if (!string.IsNullOrWhiteSpace(website))
+    {
+        var (validWebsite, websiteMessage) = WebsiteDataInstaller.ValidateWebsiteRoot(website);
+        if (!validWebsite || WebsiteDataInstaller.OverlapsDestination(export, website))
+        {
+            Console.Error.WriteLine(validWebsite
+                ? $"--out must not be inside '{WebsiteDataInstaller.DestinationFor(website)}' (or contain it); the website copy is installed from --out."
+                : websiteMessage);
+            return 3;
+        }
+    }
 
     D2RMultiExportPipeline pipeline;
     try
@@ -90,6 +109,8 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
         if (pipeline.Result.HasErrors)
         {
             Console.WriteLine(pipeline.Result.GenerateReport());
+            if (!string.IsNullOrWhiteSpace(website))
+                Console.Error.WriteLine("Website data was not updated: the export recorded errors.");
             return 1;
         }
 
@@ -102,6 +123,19 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
         {
             Console.WriteLine($"  {pipeline.ReferencedMissingKeyCount} missing translation key(s) referenced in keyed/*.json — see extras\\missing-translations.txt");
         }
+        if (string.IsNullOrWhiteSpace(website)) return 0;
+
+        var install = await WebsiteDataInstaller.InstallAsync(export, website);
+        foreach (var warning in install.Warnings) Console.WriteLine($"Warning: {warning}");
+        if (!install.Succeeded)
+        {
+            Console.Error.WriteLine($"Website installation refused: {install.Message}");
+            foreach (var problem in install.Problems) Console.Error.WriteLine($"  - {problem}");
+            return 5;
+        }
+        Console.WriteLine(install.Status == WebsiteInstallStatus.Unchanged
+            ? $"Website data is already up to date: {install.Destination}"
+            : $"Website data installed: {install.Destination} ({install.Plan!.Summary})");
         return 0;
     }
     catch (Exception ex)

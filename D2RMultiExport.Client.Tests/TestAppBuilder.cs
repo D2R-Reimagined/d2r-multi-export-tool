@@ -4,6 +4,8 @@ using Avalonia.Headless;
 using D2RMultiExport.Client.Tests;
 
 [assembly: AvaloniaTestApplication(typeof(TestAppBuilder))]
+// AppSettings.SettingsFile is process-wide; classes must not swap it under each other's runs.
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
 
 namespace D2RMultiExport.Client.Tests;
 

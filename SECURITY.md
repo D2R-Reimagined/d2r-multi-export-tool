@@ -129,3 +129,10 @@ The source payload bytes are hashed while copying and compared to a captured
 manifest, which is committed last. These checks do not claim an atomic snapshot
 of filesystem namespaces against an adversary changing directory links during
 execution. Manifests remain unsigned local export records.
+
+The optional website installation (`export --website`, desktop Website Repository)
+writes only below `<website>/static`: its own `.data.install-*`, `.data.backup-*` and
+`.data.failed-*` working directories and the swapped `static/data`. It refuses links
+in the destination and the prepared copy, and it deletes a previous `static/data` (as
+the backup) only after confirming that it holds nothing but files its manifest listed.
+The same namespace-race limits apply.

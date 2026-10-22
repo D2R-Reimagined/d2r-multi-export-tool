@@ -154,6 +154,7 @@ The console tool exposes an `export` command and a `publish` command.
 | `--casc-data` | `-c` | *(optional, recommended)* The extracted vanilla `data` directory (`data\`, `data\data\`, or the extraction root) |
 | `--out` | `--export`, `-o` | Output directory for the generated bundle |
 | `--config` | | *(optional)* Override the bundled `Config\` directory |
+| `--website` | `-w` | *(optional)* Website checkout whose `static\data` is replaced after a successful, complete export ([website update](#website-update)) |
 | `--pretty` | | Pretty-print JSON (default `true`) |
 | `--early-stop` | | Stop importing `CubeMain.txt` at the first sentinel row (default `true`) |
 | `--cube-recipe-descriptions` | | Include the raw English `Description` column from `CubeMain.txt` on each cube recipe (default `false`) |
@@ -200,6 +201,32 @@ dotnet run --project .\D2RMultiExport.Console -- publish --from .\test-output --
 `publish` refuses failed runs, incomplete runs (unless `--allow-incomplete`), files
 changed since the run, and a non-empty staging directory; it never modifies `--from`.
 
+### Website update
+
+With a website checkout configured (`--website`, or the GUI's **Website Repository**
+field), a normal export updates `<website>\static\data` itself; no separate publish,
+staging or install step is needed. Then review and commit the website changes.
+
+```powershell
+dotnet run --project .\D2RMultiExport.Console -- export `
+  --mod-data "..\d2r-reimagined-mod" --casc-data "<path-to-CascView-extraction>" `
+  --out ".\test-output" --website "..\d2r-reimagined-website"
+```
+
+The installation runs only after a run without errors (warnings are fine) and refuses,
+leaving `static\data` untouched, unless the manifest says `Succeeded` and `Complete` and
+every listed file matches it. It copies exactly the manifest's files, never the whole
+`--out` directory, which must be outside `static\data`. `static\data` may hold only files
+its current manifest lists: anything else is reported and blocks the update, and is
+never deleted. Generated files the new manifest no longer lists are removed, and an
+identical export changes nothing. Replacement uses a verified copy in
+`static\.data.install-*` and a backup in `static\.data.backup-*`, matching the website's
+own installer and `.gitignore`; a failed rename or verification restores the backup.
+If an interrupted run left only a backup, the next export restores it first; a backup
+beside existing data must be resolved by hand. Stop the website dev server if Windows
+reports the directory as locked. The CLI returns exit code 5 when the export succeeded
+but the installation was refused. Nothing is committed or pushed.
+
 On success the tool prints `Export completed successfully.` along with
 the number of `enUS` keys loaded and a count of any referenced-but-
 missing translation keys (full list written to
@@ -213,7 +240,10 @@ dotnet run --project .\D2RMultiExport.Client
 
 The Avalonia window has folder pickers for the Mod Data, CASC Data and output
 directories (each validated as you type, with the reason when a selection is not a
-supported layout), a "Continue on exception" toggle, and a live log panel. Clicking
+supported layout), an optional Website Repository directory (remembered; when set,
+every successful export updates its `static\data` as described in
+[Website update](#website-update), and the status line says whether the installation
+succeeded or was refused), a "Continue on exception" toggle, and a live log panel. Clicking
 the log opens a non-modal viewer with the complete log of the current run —
 including the full import report once it ends — with search, Info/Warnings/Errors
 filters, free selection, Copy All and Save. It can stay open during an export.

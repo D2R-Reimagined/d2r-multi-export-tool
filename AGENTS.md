@@ -11,7 +11,7 @@ The pipeline is **load → import → resolve → export → audit**, orchestrat
 | `D2RMultiExport.Lib/Config/` | Bundled JSON and typed `*Config.cs`; `CASC_DATA/` contains upstream reference tables. |
 | `D2RMultiExport.Lib/Import/` | Typed row importers, shared property mapping, equipment arithmetic and BBE calculation scopes. |
 | `D2RMultiExport.Lib/Translation/` | Property-key resolution, synthetic strings, equipment lines and multi-language bundles. Render English by resolving `KeyedLine` against `strings/enUS.json`; do not add a parallel English property renderer. |
-| `D2RMultiExport.Lib/Exporters/` | Keyed documents, language bundles, sprites, reports and publish staging. `ExportOutputs` is the output gateway. |
+| `D2RMultiExport.Lib/Exporters/` | Keyed documents, language bundles, sprites, reports, publish staging and optional website `static/data` installation. `ExportOutputs` is the output gateway. |
 | `D2RMultiExport.Lib/Models/`, `ErrorHandling/` | Wire DTOs and contextual phase/row diagnostics. |
 | `D2RMultiExport.Lib/SourceRoots.cs` | Sole source-path authority for Mod Data and optional CASC Data. |
 | `D2RMultiExport.Console/`, `D2RMultiExport.Client/` | CLI (`export`, `publish`) and Avalonia MVVM desktop front ends. |

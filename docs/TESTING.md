@@ -47,6 +47,7 @@ calculations change. Select additional cohesive suites with this table:
 | Sources, typed columns, optional inputs | `FullyQualifiedName~SourceRootsTests|FullyQualifiedName~ImportReflectionTests|FullyQualifiedName~InputHandlingTests` |
 | Named item artwork, contained artwork paths, sprite reuse/fallbacks | `FullyQualifiedName~ItemPresentationExporterTests|FullyQualifiedName~SourceRootsTests` |
 | Writes, manifests, publishing | `FullyQualifiedName~OutputIntegrityTests|FullyQualifiedName~WriteSafetyTests` |
+| Website `static/data` installation | `FullyQualifiedName~WebsiteDataInstallerTests` (desktop: `WebsiteInstallInteractionTests` in `D2RMultiExport.Client.Tests`) |
 | Translation/reference audits | `FullyQualifiedName~TranslationAuditRegressionTests|FullyQualifiedName~PropertyRangeTests` |
 
 `PropertyRangeTests` exercises final JSON as well as importer behavior using the
@@ -221,7 +222,8 @@ and grouped sprite omissions.
 `test-output\` is in `.gitignore` — scratch output, never a committed fixture.
 The tool does not own the output folder: files it did not write in this run stay
 on disk, and only `manifest.json` identifies current files and run status. Never
-publish the output folder wholesale; stage it with `publish`. Manifest fields,
+publish the output folder wholesale; stage it with `publish`, or let `--website`
+install it into the website checkout. Manifest fields,
 staging checks and their limits are specified in
 [WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-publishing).
 Delete `test-output\` yourself when you want a clean tree.
