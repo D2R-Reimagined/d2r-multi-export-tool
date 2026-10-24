@@ -296,9 +296,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private Task RunPipeline() => RunAsync(dryRun: false);
 
     /// <summary>
-    /// Runs the full export into a discarded scratch directory; only an error log is kept in
-    /// <see cref="DryRunLogPath"/>, and only when the run recorded errors. The Output Files
-    /// Directory is never touched, so it need not be set.
+    /// Runs the full export into a discarded scratch directory; only the extras reports and, when
+    /// the run recorded errors, an error log are kept in <see cref="DryRunLogPath"/>. The Output
+    /// Files Directory is never touched, so it need not be set.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanDryRunPipeline))]
     private Task DryRunPipeline() => RunAsync(dryRun: true);
@@ -363,9 +363,13 @@ public partial class MainWindowViewModel : ViewModelBase
 
             if (dryRun)
             {
+                var findings = $"{pipeline.Result.WarningCount} warning(s), {pipeline.ReferencedMissingKeyCount} missing translation key(s)";
+                var reports = pipeline.DryRunReportPaths.Count > 0 && Path.GetDirectoryName(pipeline.DryRunErrorLogPath) is { } logDirectory
+                    ? $" Reports: {Path.Combine(logDirectory, "extras")}."
+                    : "";
                 StatusText = pipeline.Result.HasErrors
-                    ? $"Dry run finished with {pipeline.Result.ErrorCount} error(s) — see {pipeline.DryRunErrorLogPath}. The export was discarded."
-                    : "Dry run finished without errors. The export was discarded; no error log was written.";
+                    ? $"Dry run finished with {pipeline.Result.ErrorCount} error(s), {findings} — see {pipeline.DryRunErrorLogPath}. The export was discarded.{reports}"
+                    : $"Dry run finished without errors ({findings}). The export was discarded; no error log was written.{reports}";
             }
             else if (pipeline.Result.HasErrors)
             {

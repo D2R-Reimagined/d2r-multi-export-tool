@@ -35,13 +35,14 @@ var destructiveOption = new Option<bool>("--destructive")
 };
 var dryRunOption = new Option<bool>("--dry-run")
 {
-    Description = "Run the full export into a scratch directory and discard it; --out is never touched. Only an error log "
-        + "(dryrun-errors.txt in --dry-run-logs) is kept, and only when the run recorded errors.",
+    Description = "Run the full export into a scratch directory and discard it; --out is never touched. Only the extras reports "
+        + "(extras\\*.txt in --dry-run-logs, with every error, warning and missing translation) and, when the run recorded errors, "
+        + "an error log (dryrun-errors.txt) are kept.",
     DefaultValueFactory = _ => false
 };
 var dryRunLogsOption = new Option<string?>("--dry-run-logs")
 {
-    Description = "Directory for the dry-run error log (default: test-output\\dryrun of the repository containing the exporter, "
+    Description = "Directory for the dry-run error log and reports (default: test-output\\dryrun of the repository containing the exporter, "
         + "else below the exporter's folder)"
 };
 var prettyOption = new Option<bool>("--pretty")
@@ -125,9 +126,15 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
 
         if (pipeline.DryRun)
         {
+            // Unlike a real run, warnings are listed too: the dry run is how they are reviewed.
+            if (pipeline.Result.AllErrors.Count > 0)
+                Console.WriteLine(pipeline.Result.GenerateReport());
+            Console.WriteLine($"  {pipeline.Result.ErrorCount} error(s), {pipeline.Result.WarningCount} warning(s), "
+                + $"{pipeline.ReferencedMissingKeyCount} missing translation key(s).");
+            foreach (var report in pipeline.DryRunReportPaths)
+                Console.WriteLine($"  Report: '{report}'");
             if (pipeline.Result.HasErrors)
             {
-                Console.WriteLine(pipeline.Result.GenerateReport());
                 Console.Error.WriteLine($"Dry run finished with {pipeline.Result.ErrorCount} error(s); the export was discarded. Errors: '{pipeline.DryRunErrorLogPath}'.");
                 return 1;
             }

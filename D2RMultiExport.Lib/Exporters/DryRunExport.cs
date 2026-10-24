@@ -9,20 +9,24 @@ namespace D2RMultiExport.Lib.Exporters;
 /// <param name="ErrorLogWritten">True when the run recorded errors and <see cref="DryRunExport.ErrorLogFileName"/> was written.</param>
 /// <param name="Message">Human-readable outcome.</param>
 /// <param name="Warning">A non-fatal problem, for example a scratch directory that could not be deleted.</param>
-public sealed record DryRunResult(bool ErrorLogWritten, string Message, string? Warning);
+/// <param name="ReportsKept">Full paths of the diagnostic reports the run produced and the dry run kept.</param>
+public sealed record DryRunResult(bool ErrorLogWritten, string Message, string? Warning, IReadOnlyList<string> ReportsKept);
 
 /// <summary>
 /// The dry-run mode of the pipeline: the complete export runs into a hidden scratch directory
 /// (<c>.d2r-dryrun-*</c>) inside the dry-run log directory and is discarded afterwards, so the
-/// export directory is never touched. The only file kept is <see cref="ErrorLogFileName"/>, and
-/// only when the run recorded errors; the previous error log is removed at the start of every dry
-/// run, so the folder always reflects the latest run. Nothing else in the log directory is
-/// touched except scratch directories of the exact <c>.d2r-dryrun-&lt;16 lowercase hex&gt;</c>
-/// shape that a killed earlier dry run left behind. Links are removed, never followed.
+/// export directory is never touched. The files kept are the diagnostic reports a real run writes
+/// to <c>extras/</c> (import report with every error and warning, missing translations, CASC
+/// fallback, asset and source reports), copied to the same relative paths in the log directory,
+/// and <see cref="ErrorLogFileName"/>, only when the run recorded errors. The previous error log
+/// and the previous copies of those reports are removed at the start of every dry run, so the
+/// folder always reflects the latest run. Nothing else in the log directory is touched except
+/// scratch directories of the exact <c>.d2r-dryrun-&lt;16 lowercase hex&gt;</c> shape that a killed
+/// earlier dry run left behind. Links are removed, never followed.
 /// </summary>
 public static class DryRunExport
 {
-    /// <summary>The only file a dry run keeps: every error the run recorded.</summary>
+    /// <summary>The dry-run error log: every error the run recorded, with exception detail.</summary>
     public const string ErrorLogFileName = "dryrun-errors.txt";
 
     internal const string ScratchPrefix = ".d2r-dryrun-";
@@ -52,17 +56,22 @@ public static class DryRunExport
     /// <summary>
     /// Runs <paramref name="generate"/> against a new scratch directory inside
     /// <paramref name="logRoot"/> and deletes it afterwards, whether the run succeeded, recorded
-    /// errors or threw. <paramref name="renderErrorLog"/> receives the exception the run threw
-    /// (or <c>null</c>) and returns the error log, or <c>null</c> when there is nothing to log.
-    /// An exception thrown by <paramref name="generate"/> is rethrown after the log was written.
+    /// errors or threw. Each of <paramref name="reports"/> (paths relative to the export root)
+    /// that the run wrote is copied to the same relative path below <paramref name="logRoot"/>
+    /// first. <paramref name="renderErrorLog"/> receives the exception the run threw (or
+    /// <c>null</c>) and returns the error log, or <c>null</c> when there is nothing to log.
+    /// An exception thrown by <paramref name="generate"/> is rethrown after the logs were written.
     /// </summary>
-    internal static async Task<DryRunResult> RunAsync(string logRoot, Func<string, Task> generate, Func<Exception?, string?> renderErrorLog)
+    internal static async Task<DryRunResult> RunAsync(string logRoot, IReadOnlyList<string> reports, Func<string, Task> generate,
+        Func<Exception?, string?> renderErrorLog)
     {
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(logRoot));
         Directory.CreateDirectory(root);
         var logs = new ExportOutputs(root) { Producer = "dry-run" };
-        // Replace own files: a clean run must not leave an earlier run's error log behind.
+        // Replace own files: a clean run must not leave an earlier run's error log or reports behind.
         AtomicFile.DeleteIfExists(logs.GetFullPath(ErrorLogFileName));
+        foreach (var report in reports)
+            AtomicFile.DeleteIfExists(logs.GetFullPath(report));
         var warnings = new List<string>();
         RemoveAbandonedScratch(root, warnings);
 
@@ -77,6 +86,29 @@ public static class DryRunExport
         {
             failure = ex;
         }
+
+        var kept = new List<string>();
+        var generated = new ExportOutputs(scratch);
+        foreach (var report in reports)
+        {
+            try
+            {
+                // The scratch directory is new, so an existing report was written by this run.
+                var source = generated.GetFullPath(report);
+                if (!File.Exists(source)) continue;
+                await logs.WriteAsync(report, async target =>
+                {
+                    await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+                    await input.CopyToAsync(target);
+                });
+                kept.Add(logs.GetFullPath(report));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                warnings.Add($"The dry-run report '{report}' could not be kept: {ex.Message}");
+            }
+        }
+
         if (!TryDelete(scratch))
             warnings.Add($"The discarded dry-run output in '{scratch}' could not be deleted; delete it by hand.");
 
@@ -97,7 +129,9 @@ public static class DryRunExport
         var message = log is null
             ? $"No errors; the export was discarded and no error log was written to '{root}'."
             : $"The run recorded errors; the export was discarded and the errors were written to '{logs.GetFullPath(ErrorLogFileName)}'.";
-        return new DryRunResult(log is not null, message, warnings.Count > 0 ? string.Join(" ", warnings) : null);
+        if (kept.Count > 0)
+            message += $" Reports kept: {string.Join(", ", kept.Select(path => $"'{path}'"))}.";
+        return new DryRunResult(log is not null, message, warnings.Count > 0 ? string.Join(" ", warnings) : null, kept);
     }
 
     /// <summary>Scratch directories a killed earlier dry run left behind; only the exact generated shape.</summary>

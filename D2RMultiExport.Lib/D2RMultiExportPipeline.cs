@@ -87,20 +87,39 @@ public sealed class D2RMultiExportPipeline
     /// <summary>
     /// When <c>true</c>, the complete export runs into a hidden scratch directory inside
     /// <see cref="DryRunLogDirectory"/> and is discarded afterwards; the export directory is
-    /// never touched (and may be omitted) and <see cref="DestructiveExport"/> is ignored. Only
-    /// <see cref="DryRunExport.ErrorLogFileName"/> is kept, and only when the run recorded
-    /// errors (see <see cref="DryRunExport"/>).
+    /// never touched (and may be omitted) and <see cref="DestructiveExport"/> is ignored. The
+    /// <see cref="ExtrasReportPaths"/> reports are kept in <see cref="DryRunLogDirectory"/>, plus
+    /// <see cref="DryRunExport.ErrorLogFileName"/> when the run recorded errors (see
+    /// <see cref="DryRunExport"/>).
     /// </summary>
     public bool DryRun { get; set; }
 
     /// <summary>
-    /// Where a <see cref="DryRun"/> keeps its error log; <c>null</c> selects
+    /// Where a <see cref="DryRun"/> keeps its error log and reports; <c>null</c> selects
     /// <see cref="DryRunExport.DefaultLogDirectory"/> (<c>test-output/dryrun</c> of the repository).
     /// </summary>
     public string? DryRunLogDirectory { get; set; }
 
     /// <summary>Full path of the dry-run error log of the last dry run (written only when it recorded errors).</summary>
     public string? DryRunErrorLogPath { get; private set; }
+
+    /// <summary>Full paths of the <see cref="ExtrasReportPaths"/> reports the last dry run kept.</summary>
+    public IReadOnlyList<string> DryRunReportPaths { get; private set; } = [];
+
+    private const string MissingTranslationsReportPath = "extras/missing-translations.txt";
+    private const string CascFallbackReportPath = "extras/casc-fallback-report.txt";
+    private const string AssetReportPath = "extras/asset-report.txt";
+    private const string SourceReportPath = "extras/source-report.txt";
+    private const string ImportReportPath = "extras/import-report.txt";
+
+    /// <summary>
+    /// The diagnostic reports every run writes to <c>extras/</c>, in write order; a
+    /// <see cref="DryRun"/> keeps them at the same relative paths in its log directory.
+    /// </summary>
+    public static readonly IReadOnlyList<string> ExtrasReportPaths =
+    [
+        MissingTranslationsReportPath, CascFallbackReportPath, AssetReportPath, SourceReportPath, ImportReportPath
+    ];
 
     /// <summary>
     /// Optional progress sink that receives one human-readable status line per
@@ -389,7 +408,8 @@ public sealed class D2RMultiExportPipeline
 
     /// <summary>
     /// Runs the full pipeline into a discarded scratch directory (<see cref="DryRunExport"/>),
-    /// keeping only an error log when the run recorded errors.
+    /// keeping the <see cref="ExtrasReportPaths"/> reports and, when the run recorded errors,
+    /// an error log.
     /// </summary>
     private async Task RunDryRunAsync()
     {
@@ -397,13 +417,17 @@ public sealed class D2RMultiExportPipeline
             ? DryRunExport.DefaultLogDirectory()
             : DryRunLogDirectory);
         DryRunErrorLogPath = Path.Combine(logDirectory, DryRunExport.ErrorLogFileName);
-        Report($"Dry run: the export is discarded; errors are logged to '{DryRunErrorLogPath}'.");
-        var outcome = await DryRunExport.RunAsync(logDirectory, RunCoreAsync, RenderDryRunErrorLog);
+        DryRunReportPaths = [];
+        Report($"Dry run: the export is discarded; errors and the extras reports are logged to '{logDirectory}'.");
+        var outcome = await DryRunExport.RunAsync(logDirectory, ExtrasReportPaths, RunCoreAsync, RenderDryRunErrorLog);
+        DryRunReportPaths = outcome.ReportsKept;
         if (outcome.Warning is { } warning)
         {
             Result.AddWarning("Export", "dry-run", warning);
             Report($"[WARN] dry-run: {warning}");
         }
+        Report($"Dry run: {Result.ErrorCount} error(s), {Result.WarningCount} warning(s), "
+            + $"{ReferencedMissingKeyCount} missing translation key(s).");
         Report($"Dry run: {outcome.Message}");
     }
 
@@ -726,8 +750,8 @@ public sealed class D2RMultiExportPipeline
         var displayKeySources = await CollectKeyReferencesAsync(outputs, displayOnly: true);
         var missingKeys = FindMissingDisplayKeys(displayKeySources, multiLang);
         ReferencedMissingKeyCount = missingKeys.Count;
-        await RunReportStepAsync(outputs, "extras/missing-translations.txt",
-            () => WriteMissingKeysReportAsync(outputs, "extras/missing-translations.txt", missingKeys, displayKeySources));
+        await RunReportStepAsync(outputs, MissingTranslationsReportPath,
+            () => WriteMissingKeysReportAsync(outputs, MissingTranslationsReportPath, missingKeys, displayKeySources));
 
         // Dumps every key whose value(s) had to be sourced from CASC base strings
         // (i.e. referenced by the export but not supplied by the mod's own
@@ -735,19 +759,19 @@ public sealed class D2RMultiExportPipeline
         // residual set into Config/synthetic-strings.json instead of relying on
         // the bundled CASC fallback. The report is purely informational and does
         // not affect the keyed/strings outputs.
-        await RunReportStepAsync(outputs, "extras/casc-fallback-report.txt",
-            () => WriteCascFallbackReportAsync(outputs, "extras/casc-fallback-report.txt", multiLang));
+        await RunReportStepAsync(outputs, CascFallbackReportPath,
+            () => WriteCascFallbackReportAsync(outputs, CascFallbackReportPath, multiLang));
 
-        await RunReportStepAsync(outputs, "extras/asset-report.txt",
-            () => outputs.WriteTextAsync("extras/asset-report.txt", AssetDiagnostics.Render()));
+        await RunReportStepAsync(outputs, AssetReportPath,
+            () => outputs.WriteTextAsync(AssetReportPath, AssetDiagnostics.Render()));
 
-        await RunReportStepAsync(outputs, "extras/source-report.txt",
-            () => outputs.WriteTextAsync("extras/source-report.txt", RenderSourceReport()));
+        await RunReportStepAsync(outputs, SourceReportPath,
+            () => outputs.WriteTextAsync(SourceReportPath, RenderSourceReport()));
 
         // The import report is written last among the extras so it also records any
         // failure of the two audits above; nothing after it adds diagnostics.
-        await RunReportStepAsync(outputs, "extras/import-report.txt",
-            () => outputs.WriteTextAsync("extras/import-report.txt", Result.GenerateReport()));
+        await RunReportStepAsync(outputs, ImportReportPath,
+            () => outputs.WriteTextAsync(ImportReportPath, Result.GenerateReport()));
         outputs.Producer = "";
 
         // manifest.json is the run's seal: it is written last and lists only files this run

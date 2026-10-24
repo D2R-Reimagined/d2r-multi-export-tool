@@ -79,7 +79,7 @@
                            Text="{Binding DestructiveStatus}"/>
 
                 <Label Grid.Row="7" Grid.Column="0" Classes="field" Content="Dry-run Log Directory"
-                       ToolTip.Tip="Dry Run performs the full export into a scratch folder and discards it; the Output Files Directory is never touched. Only dryrun-errors.txt is kept here, and only when the run recorded errors. Empty: test-output\dryrun of the repository containing the exporter."/>
+                       ToolTip.Tip="Dry Run performs the full export into a scratch folder and discards it; the Output Files Directory is never touched. Only the extras reports (extras\*.txt: every error, warning and missing translation) and, when the run recorded errors, dryrun-errors.txt are kept here. Empty: test-output\dryrun of the repository containing the exporter."/>
                 <TextBox Grid.Row="7" Grid.Column="1" x:Name="DryRunLogBox" Text="{Binding DryRunLogPath}"
                          PlaceholderText="{Binding DefaultDryRunLogPath}" Margin="0,6,0,0"/>
                 <Button Grid.Row="7" Grid.Column="2" Content="Browse..." Click="BrowseDryRunLog_Click"
