@@ -359,7 +359,8 @@ public partial class MainWindowViewModel : ViewModelBase
             // Progress<T> posts asynchronously; let queued lines land before the report.
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
             AppendLog("");
-            foreach (var line in pipeline.Result.GenerateReport().Split('\n'))
+            // One log entry per diagnostic, so a warning's detail lines filter with it.
+            foreach (var line in pipeline.Result.GenerateReportEntries())
                 AppendLog(line);
             AppendLog(StatusText);
             IsBusy = false;

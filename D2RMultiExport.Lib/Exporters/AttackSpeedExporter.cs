@@ -19,7 +19,7 @@ public static class AttackSpeedExporter
     /// <summary>The mod's animation table, relative to the data root.</summary>
     internal const string AnimationTable = "global/animdata.d2";
 
-    public static async Task ExportAsync(ExportOutputs outputs, SourceRoots sources, GameData data, Action<string> warn)
+    public static async Task ExportAsync(ExportOutputs outputs, SourceRoots sources, GameData data, bool prettyPrint, Action<string> warn)
     {
         if (!ExcelInputs.RequireAll(sources, OutputPath, warn, InputFiles)) return;
 
@@ -138,12 +138,12 @@ public static class AttackSpeedExporter
         var output = new
         {
             SchemaVersion = 1,
-            Sources = inputPaths.Where(File.Exists).Select(path => new { Code = Path.GetFileName(path), Hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))) }),
+            Sources = inputPaths.Where(File.Exists).Select(path => new { Code = Path.GetFileName(path), Hash = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path))) }),
             Classes = config.ClassTokens.Select(pair => new { ClassCode = pair.Key, Token = pair.Value, NameKey = data.ResolveClassName(pair.Key) }),
             Weapons = weapons, Skills = skills, Buffs = buffs, Animations = animations,
             StartingFrames = config.StartingFrames, FormTokens = config.FormTokens
         };
-        await outputs.WriteJsonAsync(OutputPath, output, null);
+        await outputs.WriteJsonAsync(OutputPath, output, new JsonSerializerOptions { WriteIndented = prettyPrint });
     }
 
     private sealed record Animation(string Code, int Frames, int AnimationSpeed, int[] ActionFrames);

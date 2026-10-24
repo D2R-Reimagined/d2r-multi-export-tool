@@ -58,7 +58,8 @@ public sealed class CubeRecipeImporter
         // handed out where a row is *accepted*, not where it is built, so they depend on
         // recipe content rather than on which rows the filters above happened to drop.
         var idCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-        var idFirstIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+        // Every accepted recipe per base id, in acceptance order, for the collision report.
+        var idMembers = new Dictionary<string, List<RecipeIdentityMember>>(StringComparer.Ordinal);
         foreach (var entry in rawEntries)
         {
             index++;
@@ -144,8 +145,9 @@ public sealed class CubeRecipeImporter
                     var baseId = export.Id;
                     var seen = idCounts.GetValueOrDefault(baseId);
                     idCounts[baseId] = seen + 1;
-                    if (seen == 0) idFirstIndex[baseId] = index;
+                    if (seen == 0) idMembers[baseId] = [];
                     else export.Id = $"{baseId}-{seen + 1}";
+                    idMembers[baseId].Add(new RecipeIdentityMember(index, export.Id, entry));
                     result.AddItem(export);
                 }
             }
@@ -160,14 +162,54 @@ public sealed class CubeRecipeImporter
             }
         }
 
-        foreach (var (baseId, count) in idCounts.Where(pair => pair.Value > 1).OrderBy(pair => idFirstIndex[pair.Key]))
+        foreach (var members in idMembers.Values.Where(static members => members.Count > 1).OrderBy(static members => members[0].Index))
         {
-            result.AddWarning("CubeRecipe", baseId,
-                $"{count} exported recipes share this content hash (first at Index {idFirstIndex[baseId]}); " +
-                $"the later ones were suffixed -2 through -{count}.");
+            result.AddWarning("CubeRecipe", members[0].Id, DescribeIdCollision(members));
         }
 
         return result;
+    }
+
+    /// <summary>An accepted recipe sharing a base id, as reported by <see cref="DescribeIdCollision"/>.</summary>
+    private sealed record RecipeIdentityMember(int Index, string Id, D2RReimaginedTools.Models.CubeMain Entry);
+
+    /// <summary>
+    /// Lists every accepted recipe that shares one base id: its cubemain.txt Index, the id it
+    /// received (the first keeps the base id, later rows get -2, -3, … in acceptance order),
+    /// description, inputs and outputs, and whether their identity cells are identical or
+    /// only their hashes collide. Purely diagnostic: ids and recipes are unchanged.
+    /// </summary>
+    private static string DescribeIdCollision(List<RecipeIdentityMember> members)
+    {
+        var identities = members.Select(static member => string.Join('\u001F', RecipeIdentityCells(member.Entry))).Distinct(StringComparer.Ordinal).Count();
+        var lines = new List<string>
+        {
+            $"{members.Count} accepted recipes share this base ID; "
+            + (identities == 1
+                ? "their identity cells (class, op, param, value, input 1-7) are identical."
+                : $"their identity cells (class, op, param, value, input 1-7) differ ({identities} distinct sets), so only the hash collides.")
+        };
+        foreach (var member in members)
+        {
+            var cells = RecipeIdentityCells(member.Entry);
+            var conditions = new[] { ("class", cells[0]), ("op", cells[1]), ("param", cells[2]), ("value", cells[3]) }
+                .Where(static pair => pair.Item2.Length > 0)
+                .Select(static pair => $"{pair.Item1}={pair.Item2}")
+                .ToList();
+            var inputs = cells.Skip(4).Where(static cell => cell.Length > 0).ToList();
+            var outputs = new[] { ("output", member.Entry.Output), ("output b", member.Entry.OutputB), ("output c", member.Entry.OutputC) }
+                .Where(static pair => !string.IsNullOrWhiteSpace(pair.Item2))
+                .Select(static pair => $"{pair.Item1} {pair.Item2!.Trim()}")
+                .ToList();
+            var description = string.IsNullOrWhiteSpace(member.Entry.Description) ? "<blank>" : $"\"{member.Entry.Description.Trim()}\"";
+            lines.Add($"    Index {member.Index} -> {member.Id}{(member == members[0] ? " (unsuffixed)" : "")}: description {description}"
+                      + (conditions.Count > 0 ? $"; {string.Join(", ", conditions)}" : "")
+                      + $"; inputs {(inputs.Count > 0 ? string.Join(" + ", inputs) : "<none>")}"
+                      + $"; {(outputs.Count > 0 ? string.Join(", ", outputs) : "no output")}");
+        }
+        var suffixes = members.Count == 2 ? "the second received -2" : $"later rows received -2 through -{members.Count} in that order";
+        lines.Add($"    Action: all {members.Count} recipes were exported; the first accepted row keeps the base ID and {suffixes}.");
+        return string.Join('\n', lines);
     }
 
     /// <summary>
@@ -188,15 +230,7 @@ public sealed class CubeRecipeImporter
     /// </summary>
     internal static string ComputeRecipeId(D2RReimaginedTools.Models.CubeMain entry)
     {
-        var cells = new string[11];
-        cells[0] = entry.Class ?? "";
-        cells[1] = entry.Operation ?? "";
-        cells[2] = entry.Param ?? "";
-        cells[3] = entry.Value ?? "";
-        for (var i = 1; i <= 7; i++)
-            cells[3 + i] = ImportReflection.GetString(entry, $"Input{i}") ?? "";
-
-        var canonical = string.Join('\u001F', cells.Select(cell => cell.Trim()));
+        var canonical = string.Join('\u001F', RecipeIdentityCells(entry));
 
         var hash = 0xcbf29ce484222325UL;
         unchecked
@@ -209,6 +243,22 @@ public sealed class CubeRecipeImporter
         }
 
         return "cr-" + hash.ToString("x16");
+    }
+
+    /// <summary>
+    /// The trimmed identity cells <see cref="ComputeRecipeId"/> hashes, in contract order:
+    /// <c>class</c>, <c>op</c>, <c>param</c>, <c>value</c>, <c>input 1..7</c>.
+    /// </summary>
+    private static string[] RecipeIdentityCells(D2RReimaginedTools.Models.CubeMain entry)
+    {
+        var cells = new string[11];
+        cells[0] = entry.Class ?? "";
+        cells[1] = entry.Operation ?? "";
+        cells[2] = entry.Param ?? "";
+        cells[3] = entry.Value ?? "";
+        for (var i = 1; i <= 7; i++)
+            cells[3 + i] = ImportReflection.GetString(entry, $"Input{i}") ?? "";
+        return [.. cells.Select(cell => cell.Trim())];
     }
 
     private CubeIngredientExport ParseIngredient(string token)

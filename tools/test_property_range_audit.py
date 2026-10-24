@@ -529,6 +529,25 @@ class PropertyRangeAuditTests(unittest.TestCase):
                     "index\tlvl\tprop1\tpar1\tmin1\tmax1\nFixture\t40\tevent\t42\t5\t12\n", encoding="utf-8")
                 self.assertEqual({status:1}, self.run_audit(output)["Counts"])
 
+    def test_numeric_skill_parameters_name_engine_rows_not_informational_ids(self):
+        # Engine rows: Attack 0, the Expansion marker is dropped, the blank line is 1,
+        # azm_globe 2 and azm_bad 3 — whatever the blank or stale *Id cells say.
+        for parameter, name in [("0", "Attack"), ("2", "azm_globe"), ("3", "azm_bad")]:
+            with self.subTest(parameter=parameter), tempfile.TemporaryDirectory() as root:
+                output = self.fixture(Path(root), low=5, high=12, actual=[dict(key="eventKey", args=[5, 12, name])], code="event")
+                source = Path(root) / "source"
+                (source / "properties.txt").write_text("code\tfunc1\tstat1\nevent\t11\titem_skillonhit\n", encoding="utf-8")
+                (source / "itemstatcost.txt").write_text("Stat\tdescfunc\tdescstrpos\nitem_skillonhit\t15\teventKey\n", encoding="utf-8")
+                (source / "uniqueitems.txt").write_text(
+                    f"index\tlvl\tprop1\tpar1\tmin1\tmax1\nFixture\t40\tevent\t{parameter}\t5\t12\n", encoding="utf-8")
+                (source / "skills.txt").write_text(
+                    "skill\t*Id\nAttack\t0\nExpansion\t\n\nazm_globe\t\nazm_bad\t0\n", encoding="utf-8")
+                report_path = output / "extras/source-report.txt"
+                report_path.write_text(report_path.read_text(encoding="utf-8")
+                    + f"\n  [mod] global/excel/skills.txt  {source / 'skills.txt'}", encoding="utf-8")
+                self.manifest(output)
+                self.assertEqual({"Verified": 1}, self.run_audit(output)["Counts"])
+
     def test_missing_sources_and_unmatched_records_remain_explicit(self):
         with tempfile.TemporaryDirectory() as root:
             output = self.fixture(Path(root), actual=[])

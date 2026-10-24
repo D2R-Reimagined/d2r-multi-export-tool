@@ -261,6 +261,26 @@ public sealed class SourceRoots
     }
 
     /// <summary>
+    /// The translation files of one resolved <c>local/lng/strings</c> directory: its own
+    /// <c>*.json</c> files only, ordered by file name (case-insensitive, then ordinal) so that
+    /// a key defined in two files resolves to the later file on every file system.
+    /// Subdirectories are not part of the layout the game reads (CASC's <c>metadata/</c>
+    /// holds dev comments and audio/state tables, not translations), so a backup or tool
+    /// folder below the directory can never override a shipped string. Returns an empty
+    /// list for a missing directory.
+    /// </summary>
+    public static string[] StringFiles(string? directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return [];
+        return
+        [
+            .. Directory.GetFiles(directory, "*.json", SearchOption.TopDirectoryOnly)
+                .OrderBy(static path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(static path => Path.GetFileName(path), StringComparer.Ordinal)
+        ];
+    }
+
+    /// <summary>
     /// Resolves a reference table the tool also bundles: mod excel, then CASC excel, then the
     /// bundled copy.
     /// </summary>

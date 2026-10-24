@@ -15,14 +15,14 @@ sibling of the Excel directory.
 | `monlvl.txt` | per-level `HP`/`LHP` multipliers for the three difficulties |
 | `levels.txt` | area ids, `LevelName` keys, `MonLvlEx`/`N`/`H`, and spawn pools (`mon*`, `nmon*`, `umon*`) |
 | `monumod.txt` | the minion/champion/unique HP bonus constants |
-| `monprop.txt` | hashed only (listed in `Sources`) so the website can tell which copy it reads `MonProp` against |
+| `monprop.txt` | optional; hashed only (listed in `Sources`) so the website can tell which copy it reads `MonProp` against; when absent its hash is omitted with a warning |
 
 If any of the first four is absent the step is skipped, reported in
 `extras/import-report.txt` and listed `Skipped` in `manifest.json`; any
 previous `health-calculator.json` is left untouched and listed as `NotWritten`,
 never in `Files[]`.
 
-Malformed required input or invalid bonus configuration fails this isolated
+Malformed required input or invalid `monsterHealth` configuration fails this isolated
 step with contextual errors; later exporters, reports and schema-2 manifest
 still run; use only a run whose manifest reports success
 ([WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-output-integrity)).
@@ -49,11 +49,15 @@ still run; use only a run whose manifest reports success
 | `Levels[]` | `{ Level, HP[3], LHP[3] }` |
 | `Areas[]` | `{ Id, NameKey, Levels[3] }` |
 | `Bonuses` | `{ Minion[3], Champion[3], Unique[3] }` |
-| `Sources[]` | `{ Code, Hash }` — SHA-256 of each input table present |
+| `Sources[]` | `{ Code, Hash }` — SHA-256 of each input table present, as lowercase hexadecimal (the manifest's representation) |
+
+The document follows `--pretty` (indented by default, compact with
+`--pretty false`); the layout does not change any member or value.
 
 ## Regression check
 
-After the smoke export in [TESTING.md](TESTING.md):
+A manual check; the automated test suites do not run it. After the smoke export
+in [TESTING.md](TESTING.md):
 
 ```powershell
 $h = Get-Content .\test-output\keyed\health-calculator.json -Raw | ConvertFrom-Json

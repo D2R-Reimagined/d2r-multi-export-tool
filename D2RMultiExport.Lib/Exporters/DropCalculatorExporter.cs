@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using D2RMultiExport.Lib.Import;
 using D2RMultiExport.Lib.Models;
@@ -30,7 +31,7 @@ public static class DropCalculatorExporter
 
     private const string SuperUniqueKind = "superunique";
 
-    public static async Task ExportAsync(ExportOutputs outputs, SourceRoots inputs, GameData data, Action<string> warn)
+    public static async Task ExportAsync(ExportOutputs outputs, SourceRoots inputs, GameData data, bool prettyPrint, Action<string> warn)
     {
         if (!ExcelInputs.RequireAll(inputs, OutputPath, warn, InputFiles)) return;
 
@@ -199,7 +200,7 @@ public static class DropCalculatorExporter
             TreasureClasses = treasureClasses,
             Sources = sources.DistinctBy(s => new { s.NameKey, s.AreaKey, s.Difficulty, s.Kind, s.Level, s.TreasureClass })
         };
-        await outputs.WriteJsonAsync(OutputPath, bundle, null);
+        await outputs.WriteJsonAsync(OutputPath, bundle, new JsonSerializerOptions { WriteIndented = prettyPrint });
     }
 
     // ── Typed accessors for the numbered .txt columns (structure, not content) ──

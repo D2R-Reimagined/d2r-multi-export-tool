@@ -6,6 +6,9 @@
 
 Report suspected security problems through
 **[GitHub private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new)**.
+That form works only while private vulnerability reporting is enabled in the
+repository settings. If it is unavailable, open a public issue asking the
+maintainers to enable it, without any vulnerability details.
 See the threat model below for what is in scope, and include:
 
 - The affected component (`D2RMultiExport.Lib`,
@@ -39,10 +42,12 @@ therefore narrow but non-empty:
    writes `<out>/manifest.json` last (`ExportOutputs.WriteManifestAsync`):
    the SHA-256 and byte length of each file *that run* wrote, the
    status of each export step, `Succeeded: false` whenever the run
-   recorded an error and `Complete: false` whenever, in addition, a
-   step was skipped or left a declared output unwritten. Files left in
-   `--out` by an earlier run or another tool are never listed. The
-   previous manifest is deleted at the start of the output phase. A failure
+   recorded an error and `Complete: false` whenever the run did not
+   succeed or a step was not `Written` or left a declared output unwritten.
+   Files left in `--out` by an earlier run or another tool are never listed.
+   In the default mode the previous manifest is deleted at the start of the
+   output phase (a destructive export keeps the previous contents, including
+   their manifest, until the replacement). A failure
    before that phase leaves the previous bundle and manifest untouched; a
    failure during output before manifest completion leaves no new manifest.
    Hashes do not attest code/source versions or freshness. Anything that lets an attacker silently shift those

@@ -114,11 +114,17 @@ class Audit:
         self.groups = {r["code"].lower(): r for r in self.table("propertygroups") if r.get("code")}
         self.skills = {}
         descriptions = {r["skilldesc"]: r for r in self.table("skilldesc")}
+        # A numeric skill parameter is the engine record index: every line counts except an
+        # exact "Expansion" marker. The informational *Id column is never an identifier.
+        skill_id = 0
         for row in self.table("skills"):
+            if row.get("skill") == "Expansion":
+                continue
             if row.get("skill"):
                 self.skills[row["skill"].lower()] = row
-                self.skills[row.get("*id", "")] = row
+                self.skills[str(skill_id)] = row
                 row["namekey"] = descriptions.get(row.get("skilldesc"), {}).get("str name") or row["skill"]
+            skill_id += 1
         self.charstats = self.table("charstats")
         self.types = {r["code"].lower(): r for r in self.table("itemtypes") if r.get("code")}
         self.equipment = {r["code"].lower(): r for table in ["armor", "weapons"] for r in self.table(table) if r.get("code")}

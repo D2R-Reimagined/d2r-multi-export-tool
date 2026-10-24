@@ -10,6 +10,8 @@ equipment quality levels, expansion item ratios, generated equipment treasure
 classes, source treasure-class weights, and monster/area/difficulty variants.
 Names remain translation keys. Structural fields are excluded from the
 translation audit, while `NameKey` and `AreaKey` are audited normally.
+The document follows `--pretty` (indented by default, compact with
+`--pretty false`) without changing any member or value.
 
 `dropRuneTypes` configures the rune search and `dropMiscCodes` the miscellaneous
 item search. `dropMonsterLevelBonuses` holds the engine's spawn-kind level
@@ -19,12 +21,13 @@ treasure-class bands (3), and `dropItemRatioVersion` the `itemratio.txt`
 `Version` rows exported (1). `dropMonsterAreas` supplies fixed
 act-boss placements. `dropSuperUniqueAreas` maps fixed
 superunique placements to `levels.txt` IDs because generic monster pools do not
-identify fixed map placements. Levels and translated area names are always
-read from the current mod. Extend these mappings if a mod moves a fixed boss.
+identify fixed map placements. Area levels and name keys come from the resolved
+`levels.txt` (see [Inputs](#inputs-conditions-and-failure-handling)), never from
+a built-in area list. Extend these mappings if a mod moves a fixed boss.
 Unmapped superuniques are included only when they have a dedicated named
 monster class; they do not inherit a generic class's unrelated areas.
 
-Fixed vanilla placements were checked against Blizzard's Arreat Summit:
+Reference for the vanilla superunique placements (Blizzard's Arreat Summit):
 [Act I](https://classic.battle.net/diablo2exp/monsters/act1-superuniques.shtml),
 [Act II](https://classic.battle.net/diablo2exp/monsters/act2-superuniques.shtml),
 [Act III](https://classic.battle.net/diablo2exp/monsters/act3-superuniques.shtml),
@@ -44,7 +47,8 @@ package. If any input is absent the step is reported as skipped in
 `extras/import-report.txt` and `manifest.json`; an earlier
 `keyed/drop-calculator.json` is left untouched but is
 listed under the step's `NotWritten`, not in `Files[]`, so it is never presented
-as current. A duplicate `itemtypes.txt` `Code` keeps the first
+as current. A `dropGeneratedTreasureClassLevelStep` below 1 fails the step.
+A duplicate `itemtypes.txt` `Code` keeps the first
 row and is reported; a repeated treasure-class name is reported and every row
 is exported in file order; a unique/set row with no base item code is reported
 and omitted.
@@ -63,9 +67,10 @@ Each non-empty `Condition` on named `Items[]` and `TreasureClasses[]`
 additionally carries, without changing the raw text:
 `ConditionDifficulties` — the difficulty indexes (0 normal, 1 nightmare, 2 hell) on
 which a difficulty-only condition holds, solved with the same `CalcExpression`
-grammar per difficulty — or `ConditionRuntime: true` when it reads live game state
-(`stat(…)`, another `cond`, a skill), in which case the raw expression is the only
-truth. Both are omitted for an empty condition. For example, Desecrated treasure
+grammar per difficulty, together with `ConditionRuntime: false` — or only
+`ConditionRuntime: true` when the condition reads live game state (`stat(…)`,
+another `cond`, a skill) or cannot be resolved, in which case the raw expression
+is the only truth. Both are omitted for an empty condition. For example, Desecrated treasure
 classes resolve to `[2]` and herald conditions are `ConditionRuntime`. Raw values
 keep the source's surrounding double quotes (`"cond('Difficulty', hell)"`);
 consumers strip them before matching, and the resolver parses them identically.
@@ -89,4 +94,6 @@ Unsupported conditional eligibility or capacity effects remain unavailable,
 rather than being treated as zero. Scripted sources without an exported area
 use their source monster levels and are labeled fixed/summoned spawns.
 
-The calculator itself and its regression suite live in the website repository.
+The calculator itself, its exact scope and its regression suite live in the
+website repository; this section describes the intended use of the bundle and
+is not verified by this repository's tests.

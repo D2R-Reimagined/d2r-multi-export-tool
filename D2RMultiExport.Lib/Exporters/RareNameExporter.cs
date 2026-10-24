@@ -50,14 +50,18 @@ public static class RareNameExporter
             return null;
         }
 
+        // A saved ID is the engine record position (see Import.EngineRowIndex): only an
+        // Expansion marker line is dropped; a blank line or nameless row still occupies its
+        // slot (null), so it cannot shift the names after it.
         var result = new List<string?> { null };
         var lines = await File.ReadAllLinesAsync(path);
         foreach (var line in lines.Skip(1))
         {
-            if (string.IsNullOrWhiteSpace(line)) continue;
             var separator = line.IndexOf('\t');
-            var name = (separator < 0 ? line : line[..separator]).Trim();
-            if (name.Length > 0) result.Add(name);
+            var first = separator < 0 ? line : line[..separator];
+            if (Import.EngineRowIndex.IsDroppedByEngine(first)) continue;
+            var name = first.Trim();
+            result.Add(name.Length > 0 ? name : null);
         }
         return result;
     }

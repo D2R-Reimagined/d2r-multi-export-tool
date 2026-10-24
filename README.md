@@ -124,13 +124,12 @@ See [`docs/RELEASING.md`](docs/RELEASING.md) for the full procedure.
 
 ### Windows SmartScreen on first launch
 
-The published `.exe` files are not code-signed. Windows SmartScreen
-will therefore show a blue "Windows protected your PC" warning the
-first time each one runs after extraction. Click **More info** →
-**Run anyway** to dismiss it. The warning is expected for unsigned
-self-contained .NET single-file binaries downloaded from GitHub
-Releases; Windows reputation policy determines whether it appears. If that warning is unacceptable
-in your environment, build the tool yourself from source instead
+The published `.exe` files are not code-signed. Because they are unsigned
+and downloaded from GitHub Releases, Windows SmartScreen *may* show a blue
+"Windows protected your PC" warning the first time each one runs after
+extraction; whether it appears depends on Windows reputation policy. If it
+does, click **More info** → **Run anyway** to dismiss it. If that warning is
+unacceptable in your environment, build the tool yourself from source instead
 of downloading the prebuilt zip.
 
 ## Build
@@ -190,6 +189,36 @@ An unsupported directory is rejected up front (exit code 3) with the selected pa
 the expected relative location and what was found. `extras\source-report.txt` lists
 which root supplied every input; `extras\asset-report.txt` explains every unresolved
 sprite.
+
+### Migrating from the old CLI arguments
+
+The per-folder arguments of earlier versions have been removed; the CLI now rejects
+them as unrecognized options. Select the two data roots instead and let
+`SourceRoots` derive every input:
+
+| Old argument | Replacement |
+|---|---|
+| `--excel` / `-e` (`data\global\excel`) | `--mod-data`: the mod's `data\` folder (or the folder containing it); `global\excel` is derived from it |
+| `--mod-strings` / `--translations` / `-t` (`data\local\lng\strings`) | `--mod-data`: `local\lng\strings` is derived from the same root |
+| `--base-strings` / `-b` (CASC `local\lng\strings`) | `--casc-data`: the CASC `data\` root; base strings are derived from it |
+| `--base-assets` (extracted vanilla data root) | `--casc-data`: the same root also supplies vanilla sprites and tables |
+
+`--out` / `--export` / `-o`, `--config`, `--pretty`, `--early-stop`,
+`--cube-recipe-descriptions` and `--continue-on-exception` are unchanged;
+`--destructive` is new ([Export modes](#export-modes)).
+For example, a former
+`export --excel <mod>\data\global\excel --mod-strings <mod>\data\local\lng\strings --base-strings <casc>\data\data\local\lng\strings --base-assets <casc>\data\data --out <out>`
+invocation becomes:
+
+```powershell
+dotnet run --project .\D2RMultiExport.Console -- export `
+  --mod-data  "<mod>\data" `
+  --casc-data "<casc>\data\data" `
+  --out       "<out>"
+```
+
+The release build accepts the same options:
+`D2RMultiExport.Console.exe export --mod-data <mod> --casc-data <casc-extraction> --out <out>`.
 
 ### Export modes
 

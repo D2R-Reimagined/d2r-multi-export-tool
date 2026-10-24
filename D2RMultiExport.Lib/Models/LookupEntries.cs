@@ -109,6 +109,10 @@ public sealed class ItemTypeEntry
 /// </summary>
 public sealed class SkillEntry
 {
+    /// <summary>
+    /// The engine skill id: the row's record index in <c>skills.txt</c> (see
+    /// <see cref="Import.EngineRowIndex"/>), never the informational <c>*Id</c> column.
+    /// </summary>
     public required int Id { get; init; }
     public required string Skill { get; init; }
     public string? CharClass { get; init; }
@@ -231,6 +235,8 @@ public sealed class PropertyGroupSubEntry
 public sealed class PropertyGroupEntry
 {
     public required string Code { get; init; }
+
+    /// <summary>The engine record index in <c>propertygroups.txt</c>, not the informational <c>*Id</c>.</summary>
     public int Id { get; init; }
     public int? PickMode { get; init; }
     public List<PropertyGroupSubEntry> SubProperties { get; init; } = [];
@@ -242,7 +248,12 @@ public sealed class PropertyGroupEntry
 public sealed class MonStatEntry
 {
     public required string Id { get; init; }
-    public int HcIdx { get; init; }
+
+    /// <summary>
+    /// The monster class index a numeric parameter (e.g. <c>reanimate</c>) names: the row's
+    /// engine record index in <c>monstats.txt</c>, never the informational <c>*hcIdx</c> column.
+    /// </summary>
+    public int Index { get; init; }
     public string? NameStr { get; init; }
     public string? Name { get; set; }
 

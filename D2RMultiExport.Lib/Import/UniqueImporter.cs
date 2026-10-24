@@ -26,9 +26,12 @@ public sealed class UniqueImporter
         var config = _data.ExportConfig;
 
         IList<D2RReimaginedTools.Models.UniqueItem> rawEntries;
+        int?[] engineIndices;
         try
         {
-            rawEntries = await UniqueItemsParser.GetEntries(_sources.Excel("uniqueitems.txt"));
+            var path = _sources.Excel("uniqueitems.txt");
+            rawEntries = await UniqueItemsParser.GetEntries(path);
+            engineIndices = await EngineRowIndex.DeriveAsync(path, [.. rawEntries.Select(static entry => entry.Index)]);
         }
         catch (Exception ex)
         {
@@ -45,22 +48,25 @@ public sealed class UniqueImporter
                 rawIndexByName[idx] = i + 1; // 1-based including header
         }
 
-        // The binary unique ID is the zero-based UniqueItems.txt row position after
-        // the game's legacy Expansion marker is removed. Other section-header rows
-        // still consume IDs, so neither the physical row nor the informational *ID
-        // column is authoritative once the mod adds section headers.
+        // The binary unique ID is the engine record index (EngineRowIndex): the
+        // zero-based UniqueItems.txt row position after the game's legacy Expansion
+        // marker is removed. Other section-header rows (Rings, Armor, ...) still
+        // consume IDs, so neither the physical row nor the informational *ID column
+        // is authoritative once the mod adds section headers.
         var saveIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var saveIndex = 0;
-        foreach (var entry in rawEntries)
+        for (var i = 0; i < rawEntries.Count; i++)
         {
-            if (string.Equals(entry.Index, "Expansion", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!string.IsNullOrWhiteSpace(entry.Index) && !saveIndexByName.ContainsKey(entry.Index))
-                saveIndexByName[entry.Index] = saveIndex;
-            saveIndex++;
+            var idx = rawEntries[i].Index;
+            if (engineIndices[i] is { } saveIndex && !string.IsNullOrWhiteSpace(idx))
+                saveIndexByName.TryAdd(idx, saveIndex);
         }
 
+        // 1-based position among the parsed data rows (header excluded, blank lines not
+        // counted), reported with property-line diagnostics; not a physical line number.
+        var parsedRow = 0;
         foreach (var entry in rawEntries)
         {
+            parsedRow++;
             var name = entry.Index ?? "";
             try
             {
@@ -79,7 +85,7 @@ public sealed class UniqueImporter
                 var baseEq = EquipmentHelper.GetBaseEquipment(code, _data);
 
                 // Map properties
-                var properties = MapProperties(entry, name, result, entry.Level);
+                var properties = MapProperties(entry, name, result, entry.Level, parsedRow);
 
                 var equipment = EquipmentHelper.MapToExport(baseEq, name, properties, _data, config, entry.Level);
 
@@ -136,8 +142,9 @@ public sealed class UniqueImporter
             }
             finally
             {
+                // Omissions MapProperties did not attribute to a slot (e.g. a later re-map).
                 foreach (var omission in PropertyMapper.TakeOmittedLines(_data))
-                    result.AddWarning("Unique", name, omission);
+                    result.AddWarning("Unique", name, $"uniqueitems.txt parsed row {parsedRow}: {omission}");
             }
         }
 
@@ -148,7 +155,7 @@ public sealed class UniqueImporter
     }
 
 
-    private List<CubePropertyExport> MapProperties(D2RReimaginedTools.Models.UniqueItem entry, string itemName, ImportResult<UniqueExport> result, int itemLevel)
+    private List<CubePropertyExport> MapProperties(D2RReimaginedTools.Models.UniqueItem entry, string itemName, ImportResult<UniqueExport> result, int itemLevel, int parsedRow)
     {
         var properties = new List<CubePropertyExport>();
         if (entry.Properties == null) return [];
@@ -186,12 +193,39 @@ public sealed class UniqueImporter
             {
                 result.AddWarning("Unique", itemName, $"Failed to map property '{prop.Property}': {ex.Message}");
             }
+            finally
+            {
+                foreach (var omission in PropertyMapper.TakeOmissions(_data))
+                    result.AddWarning("Unique", itemName, DescribeSlotOmission(omission, prop, i + 1, parsedRow));
+            }
         }
 
         // Merge duplicate properties (e.g. two dmg-min entries → "Adds X-Y Weapon Damage")
         properties = PropertyCleanup.CleanupDuplicates(properties, _data, itemLevel);
 
         return properties;
+    }
+
+    /// <summary>
+    /// Reports an omitted property line against the <c>uniqueitems.txt</c>
+    /// <c>prop/par/min/max</c> slot that produced it, with the raw cells and, when mapping
+    /// changed them (expansion, property group, parameter fallback), the mapped values.
+    /// </summary>
+    private static string DescribeSlotOmission(OmittedPropertyLine omission, D2RReimaginedTools.Models.ItemProperty prop, int slot, int parsedRow)
+    {
+        var unchanged = string.Equals(omission.PropertyCode, prop.Property, StringComparison.OrdinalIgnoreCase)
+                        && (omission.Parameter ?? "") == (prop.Parameter ?? "")
+                        && omission.Min == prop.Min && omission.Max == prop.Max;
+        var reason = unchanged ? omission.Reason($"min{slot}", $"max{slot}") : omission.Reason();
+        return $"Property line omitted for prop{slot} '{prop.Property}':"
+               + $"\n    Source:   uniqueitems.txt parsed row {parsedRow}; par{slot}={OmittedPropertyLine.Cell(prop.Parameter)}, "
+               + $"min{slot}={OmittedPropertyLine.Cell(prop.Min)}, max{slot}={OmittedPropertyLine.Cell(prop.Max)}"
+               + (unchanged
+                   ? ""
+                   : $"\n    Mapped:   '{omission.PropertyCode}' param {OmittedPropertyLine.Cell(omission.Parameter)}, "
+                     + $"min {OmittedPropertyLine.Cell(omission.Min)}, max {OmittedPropertyLine.Cell(omission.Max)}")
+               + $"\n    Template: {omission.DescribeTemplate()} needs a value, but {reason}."
+               + "\n    Action: the line was omitted; no value was invented.";
     }
 
     // The propertygroups.txt expansion helper used to live here as

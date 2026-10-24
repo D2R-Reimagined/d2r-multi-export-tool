@@ -21,7 +21,7 @@ public static class MonsterHealthExporter
     /// </summary>
     private static readonly string[] HashedFiles = ["monstats.txt", "monlvl.txt", "levels.txt", "monumod.txt", "monprop.txt"];
 
-    public static async Task ExportAsync(ExportOutputs outputs, SourceRoots sources, GameData data, Action<string> warn)
+    public static async Task ExportAsync(ExportOutputs outputs, SourceRoots sources, GameData data, bool prettyPrint, Action<string> warn)
     {
         if (!ExcelInputs.RequireAll(sources, OutputPath, warn, InputFiles)) return;
 
@@ -77,7 +77,7 @@ public static class MonsterHealthExporter
                 continue;
             }
             await using var source = File.OpenRead(path);
-            hashes.Add(new { Code = file, Hash = Convert.ToHexString(await SHA256.HashDataAsync(source)) });
+            hashes.Add(new { Code = file, Hash = Convert.ToHexStringLower(await SHA256.HashDataAsync(source)) });
         }
 
         var bundle = new
@@ -104,6 +104,7 @@ public static class MonsterHealthExporter
         };
         await outputs.WriteJsonAsync(OutputPath, bundle, new JsonSerializerOptions
         {
+            WriteIndented = prettyPrint,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
         });
     }

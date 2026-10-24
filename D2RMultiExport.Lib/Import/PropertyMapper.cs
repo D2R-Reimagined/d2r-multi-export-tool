@@ -256,9 +256,16 @@ public static class PropertyMapper
     /// Removes and returns the omissions recorded since the last call, so the caller can
     /// report them against the source row it just mapped.
     /// </summary>
-    public static List<string> TakeOmittedLines(GameData data)
+    public static List<string> TakeOmittedLines(GameData data) =>
+        [.. TakeOmissions(data).Select(static omission => omission.ToString())];
+
+    /// <summary>
+    /// <see cref="TakeOmittedLines"/> as structured records, for an importer that reports
+    /// each omission against the source slot it just mapped.
+    /// </summary>
+    public static List<OmittedPropertyLine> TakeOmissions(GameData data)
     {
-        List<string> taken = [.. data.OmittedPropertyLines];
+        List<OmittedPropertyLine> taken = [.. data.OmittedPropertyLines];
         data.OmittedPropertyLines.Clear();
         return taken;
     }
@@ -270,9 +277,8 @@ public static class PropertyMapper
             ? lookup(line.Key)
             : data.Translations.TryGetValue(line.Key, out var text) ? text : null;
         if (template is null || !SubstitutionToken.Matches(template).Any(static m => m.Value != "%%")) return false;
-        data.OmittedPropertyLines.Add(
-            $"Property '{property.PropertyCode}' (param '{property.Parameter}', min '{property.Min}', max '{property.Max}') "
-            + $"has no value for template '{line.Key}' (\"{template}\"); the line was omitted.");
+        data.OmittedPropertyLines.Add(new OmittedPropertyLine(
+            property.PropertyCode ?? "", property.Parameter, property.Min, property.Max, line.Key, template));
         return true;
     }
 }

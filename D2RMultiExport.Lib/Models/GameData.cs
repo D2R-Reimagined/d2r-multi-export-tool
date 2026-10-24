@@ -61,7 +61,7 @@ public sealed class GameData
     public List<CubeRecipeExport> CubeRecipes { get; set; } = [];
 
     /// <summary>
-    /// Per-level skill description lines, keyed by <c>skills.txt</c> <c>*Id</c>. Populated
+    /// Per-level skill description lines, keyed by <see cref="SkillEntry.Id"/>. Populated
     /// by <see cref="Import.SkillDescriptionImporter"/> and attached to each skill by
     /// <c>SkillTreeExporter</c>.
     /// </summary>
@@ -86,7 +86,7 @@ public sealed class GameData
     /// needs a value the source row does not supply. Importers take them into their row's
     /// warnings; the pipeline reports any remainder under the step that mapped them.
     /// </summary>
-    public List<string> OmittedPropertyLines { get; } = [];
+    public List<OmittedPropertyLine> OmittedPropertyLines { get; } = [];
 
     /// <summary>
     /// Resolves a 3-letter class code (e.g. "sor") or full class name to the display class name.
@@ -107,9 +107,10 @@ public sealed class GameData
     /// <c>Parameter</c> field) to a <see cref="SkillEntry"/>. Skill parameters
     /// can come through as either a string skill identifier (the
     /// <c>skills.txt</c> <c>Skill</c> column, e.g. <c>"Fire Bolt"</c>) or as a
-    /// numeric row index / id (e.g. cube recipes pull <c>Mod{i}Param</c> raw
+    /// numeric engine skill id (e.g. cube recipes pull <c>Mod{i}Param</c> raw
     /// from <c>cubemain.txt</c>, which often references the skill by its
-    /// <c>*Id</c>). Numeric values take precedence and are looked up via
+    /// <c>skills.txt</c> record index, <see cref="SkillEntry.Id"/>). Numeric values
+    /// take precedence and are looked up via
     /// <see cref="SkillsById"/>; otherwise we fall back to the name-keyed
     /// <see cref="Skills"/> dictionary. Returns <c>null</c> when the parameter
     /// is empty or cannot be resolved.

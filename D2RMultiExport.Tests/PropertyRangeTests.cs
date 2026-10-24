@@ -475,7 +475,8 @@ public sealed class PropertyRangeTests
         // A parameter is not a function-1 value; the website would print the raw "%+d".
         Assert.Empty(PropertyMapper.Map("value", "25", null, null, data, 1).Lines);
         var omission = Assert.Single(PropertyMapper.TakeOmittedLines(data));
-        Assert.Contains("Property 'value' (param '25', min '', max '')", omission);
+        Assert.Contains("Property line omitted for 'value':", omission);
+        Assert.Contains("param '25', min <blank>, max <blank>", omission);
         Assert.Contains("'valueKey'", omission);
         Assert.Empty(data.OmittedPropertyLines);
 

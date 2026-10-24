@@ -37,7 +37,8 @@ dotnet test .\D2RMultiExport.Tests --no-build --filter 'Category!=RealData&(Full
 python -B -m unittest discover -s tools -p test_property_range_audit.py -v
 ```
 
-Python requires 3.12+ and the standard library only. Auditor-only changes do not
+The auditor uses only the Python standard library; Build Check runs it on Python
+3.12. Auditor-only changes do not
 require a C# build. Run Python tests when audit semantics or shared property
 calculations change. Select additional cohesive suites with this table:
 
@@ -65,8 +66,9 @@ Desktop source-root/pipeline wiring changes require the real-data desktop case.
 
 ### Level C — comprehensive validation
 
-Required for broad exporter changes, shared arithmetic/schema changes, major
-releases and explicitly requested complete verification. From repository root:
+Required for broad exporter changes, shared arithmetic/mapping/schema changes,
+parser upgrades, releases, explicitly requested complete verification and gaps in
+targeted coverage. From repository root:
 
 ```powershell
 .\scripts\Validate-Full.ps1 -ModData '<path-to-mod>' -CascData '<path-to-casc-extraction>'
@@ -207,11 +209,23 @@ mod authors, not by inventing translations. `casc-fallback-report.txt` records
 promoted vanilla keys separately.
 
 `DataLoader` reports a repeated primary key (`itemstatcost.txt`
-`Stat`, `itemtypes.txt` `Code`, `skills.txt` `skill`/`*Id`, `monstats.txt`
-`Id`/`hcIdx`, `charstats.txt` `class`, `missiles.txt` `Missile`) instead of
-overwriting it silently. The `monstats.txt` `Expansion` section-header row is
-skipped so it does not collide with `skeleton1` at `hcIdx 0`. A new duplicate
-warning is a mod data error.
+`Stat`, `itemtypes.txt` `Code`, `skills.txt` `skill`, `monstats.txt`
+`Id`, `charstats.txt` `class`, `missiles.txt` `Missile`) instead of
+overwriting it silently. A new duplicate warning is a mod data error.
+
+Skill ids, monster indices and property-group ids are engine row indices
+(`EngineRowIndex`): the row position after the `Expansion` marker is dropped, so
+they cannot collide. The informational `*Id`/`*hcIdx` columns are never read as
+identifiers; one warning per table summarizes non-blank cells that disagree with
+the row position (blank cells are not reported). Such a warning is stale mod
+metadata, not an exporter defect, and does not change any exported id. In an
+editor's 1-based line numbering (header on line 1), a `monstats.txt` row is index
+line − 2 above the `Expansion` line and line − 3 below it.
+
+The game numbers distinct `monstats.txt` `Id` names separately from rows; a
+repeated `Id` (case-insensitive) or a second blank `Id`/blank line makes the two
+diverge, which `DataLoader` reports once. Name references then reach other rows
+in game; numeric indices are unaffected. This warning is a mod data error.
 
 Item sprite files include named variants, so their count is not the number of
 base-item rows. Without `--casc-data` the import report adds "no CASC" warnings
@@ -481,8 +495,9 @@ missing row in `data\local\lng\strings`, to be fixed there and not here.
 
 ### 3.3 Unique save IDs and named sprite assets
 
-`UniqueExport.FileIndex` must use the parsed UniqueItems.txt row position after excluding
-the legacy `Expansion` marker. Other section-header rows still consume binary IDs, while the
+`UniqueExport.FileIndex` must use the engine row index (`EngineRowIndex`): the
+UniqueItems.txt row position after excluding the legacy `Expansion` marker. Other
+section-header rows (`Armor`, `Rings`, …) and blank lines still consume binary IDs, while the
 informational `*ID` column skips them and therefore drifts from the save format. Unique
 artwork must be selected by normalized unique name from `hd/items/uniques.json`, not by
 array position. Alias, contained-path and fallback rules are specified in
@@ -548,7 +563,13 @@ matching run unless code changes, a failure or an unresolved concern requires it
 the manifest, and links planted after path validation.
 
 Set `D2R_MOD_DATA` and `D2R_CASC_DATA` to enable the real-mod checks in
-`PropertyConsistencyTests` and the desktop suite. The real-mod assertions
+`PropertyConsistencyTests`, `EngineRowIndexTests` and the desktop suite.
+`EngineRowIndexTests` only loads the real tables (no export) and checks vanilla-fixed
+skill/monster indices, the mod's numeric `reanimate` targets and the §3.3/§3.4 save
+IDs. It also compares against the game's compiled tables, so the CASC extraction must
+include `global/excel/*.bin`: every `.bin` record count must equal the derived row
+count, and each `monstats.bin` record's `Id` text must match the loaded
+`MonStatsByIndex` entry at that index. The other real-mod assertions
 include Holy Fire/Holy Freeze/FireGolem scaling, Titans Covenant at hard 0 /
 bonus 100, Phoenix scope qualifiers and the final display-key audit.
 

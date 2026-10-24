@@ -86,7 +86,9 @@ public sealed class SetImporter
         var setItemMap = new Dictionary<string, List<SetItemExport>>(StringComparer.OrdinalIgnoreCase);
 
         // Load raw entries for vanilla detection
-        var rawEntries = await SetItemParser.GetEntries(_sources.Excel("setitems.txt"));
+        var path = _sources.Excel("setitems.txt");
+        var rawEntries = await SetItemParser.GetEntries(path);
+        var engineIndices = await EngineRowIndex.DeriveAsync(path, [.. rawEntries.Select(static entry => entry.Index)]);
         var rawIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < rawEntries.Count; i++)
         {
@@ -95,18 +97,17 @@ public sealed class SetImporter
                 rawIndexByName[idx] = i + 1;
         }
 
-        // Set quality uses the same binary table convention as uniques: the
-        // zero-based SetItems.txt row position after the legacy Expansion marker
-        // is removed. Derive it from row structure rather than the informational
-        // *ID column so later mod section headers cannot desync saved identities.
+        // Set quality uses the same binary table convention as uniques: the engine
+        // record index (EngineRowIndex), i.e. the zero-based SetItems.txt row position
+        // after the legacy Expansion marker is removed. Derive it from row structure
+        // rather than the informational *ID column so later mod section headers
+        // cannot desync saved identities.
         var saveIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var saveIndex = 0;
-        foreach (var entry in rawEntries)
+        for (var i = 0; i < rawEntries.Count; i++)
         {
-            if (string.Equals(entry.Index, "Expansion", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!string.IsNullOrWhiteSpace(entry.Index) && !saveIndexByName.ContainsKey(entry.Index))
-                saveIndexByName[entry.Index] = saveIndex;
-            saveIndex++;
+            var idx = rawEntries[i].Index;
+            if (engineIndices[i] is { } saveIndex && !string.IsNullOrWhiteSpace(idx))
+                saveIndexByName.TryAdd(idx, saveIndex);
         }
 
         foreach (var entry in _data.SetItemEntries.Values)

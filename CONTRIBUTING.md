@@ -18,7 +18,7 @@ deeper docs only when you actually need them.
 D2R Reimagined mod source tree (`data\global\excel\*.txt` plus
 `data\local\lng\strings\*.json`) and produces the key-based, language-
 agnostic JSON bundle consumed by the companion
-[D2R Reimagined website](https://github.com/D2R-Reimagined).
+[D2R Reimagined website](https://github.com/D2R-Reimagined/d2r-reimagined-website).
 
 It writes keyed content documents (`keyed/*.json`, with every player-facing
 string as a translation key or `KeyedLine { key, args }`), per-locale string
@@ -152,7 +152,8 @@ bundles include it.
    | build | ci | chore | revert`. Use `!` (e.g. `feat!:`) or a
    `BREAKING CHANGE:` body paragraph for breaking changes. The
    **Validate Commits** workflow (`pr-semantic-commits.yml`, status
-   context `validate-commits`) enforces this on every PR; squash-
+   context `validate-commits`) enforces this on pull requests targeting
+   `main` (or `master`); squash-
    merging with the PR title as the commit subject is the intended
    workflow.
 3. **Validate locally before pushing** at the appropriate level in

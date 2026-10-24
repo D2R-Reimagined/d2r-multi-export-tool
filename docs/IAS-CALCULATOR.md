@@ -22,7 +22,7 @@ first row and is reported.
 
 | Key | Meaning |
 |---|---|
-| `curveLevels` | skill levels each curve is solved for (100). |
+| `curveLevels` | skill levels each curve is solved for (100); a value below 1 fails the step. |
 | `classTokens`, `formTokens` | class/shape-shift animation tokens; also filter which `animdata.d2` records are exported |
 | `animationModes` | `skills.txt` `anim` values that make a skill a speed-relevant attack |
 | `excludedSkills`, `commonSkills` | skills dropped / non-class skills kept |
@@ -32,10 +32,12 @@ first row and is reported.
 
 ## Output
 
-`SchemaVersion`, `Sources[] { Code, Hash }`, `Classes[] { ClassCode, Token, NameKey }`,
+`SchemaVersion`, `Sources[] { Code, Hash }` (SHA-256 of each input present, including
+`animdata.d2`, as lowercase hexadecimal like the manifest), `Classes[] { ClassCode, Token, NameKey }`,
 `Weapons[]`, `Skills[]`, `Buffs[] { Code, NameKey, Values }`,
 `Animations[] { Code, Frames, AnimationSpeed, ActionFrames }`, `StartingFrames`,
-`FormTokens`.
+`FormTokens`. The document follows `--pretty` (indented by default, compact with
+`--pretty false`) without changing any member or value.
 
 A curve (`Values`, `Rollback`, `Hits`, `SelfSpeed`) is `null` when the rule does
 not apply. A curve whose expression is present but cannot be solved is also
@@ -48,6 +50,7 @@ then passive N.
 
 ## Regression check
 
+This is a manual check against an export; the automated test suites do not run it.
 The diminishing-returns family (`dm12`, `dm34`, …) must use the engine's
 truncated percentage (`export-config.json` → `calcFormulaOverrides`; see
 [SKILL-CALCULATIONS.md](SKILL-CALCULATIONS.md#the-calc-symbol-vocabulary-is-data-not-code)).

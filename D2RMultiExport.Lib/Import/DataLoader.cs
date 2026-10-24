@@ -17,9 +17,6 @@ public sealed class DataLoader
     private readonly GameData _data;
     private readonly PipelineResult _pipeline;
 
-    /// <summary>The <c>.txt</c> section-header row separating classic and expansion rows.</summary>
-    private const string ExpansionSectionMarker = "Expansion";
-
     public DataLoader(SourceRoots sources, GameData data, PipelineResult pipeline)
     {
         _sources = sources;
@@ -102,10 +99,14 @@ public sealed class DataLoader
             }
 
             var entries = await MissilesParser.GetEntries(path);
+            var rows = new RowTracker<string, D2RReimaginedTools.Models.Missiles>("Missiles", _data.Missiles.Comparer,
+                static missile => $"Missile='{missile.MissileName}'", identityIncludesKey: true);
+            var row = 0;
             foreach (var entry in entries)
             {
+                row++;
                 if (string.IsNullOrEmpty(entry.MissileName)) continue;
-                Put(_data.Missiles, entry.MissileName, entry, "missiles.txt", "Missile");
+                Put(_data.Missiles, entry.MissileName, entry, "missiles.txt", "Missile", rows, row);
             }
         }
         catch (Exception ex)
@@ -119,8 +120,12 @@ public sealed class DataLoader
         try
         {
             var entries = await ItemStatCostParser.GetEntries(_sources.Excel("itemstatcost.txt"));
+            var rows = new RowTracker<string, StatEntry>("Stats", _data.Stats.Comparer,
+                static stat => $"Stat='{stat.Stat}'", identityIncludesKey: true);
+            var row = 0;
             foreach (var entry in entries)
             {
+                row++;
                 if (string.IsNullOrEmpty(entry.Stat)) continue;
 
                 var stat = new StatEntry
@@ -154,7 +159,7 @@ public sealed class DataLoader
                     SaveAdd = ParseInt(entry.SaveAdd),
                     SaveParam = ParseInt(entry.SaveParamBits),
                 };
-                Put(_data.Stats, entry.Stat, stat, "itemstatcost.txt", "Stat");
+                Put(_data.Stats, entry.Stat, stat, "itemstatcost.txt", "Stat", rows, row);
             }
         }
         catch (Exception ex)
@@ -223,8 +228,12 @@ public sealed class DataLoader
         try
         {
             var entries = await ItemTypeParser.GetEntries(_sources.Excel("itemtypes.txt"));
+            var rows = new RowTracker<string, ItemTypeEntry>("ItemTypes", _data.ItemTypes.Comparer,
+                static itemType => $"Code='{itemType.Code}'", identityIncludesKey: true);
+            var row = 0;
             foreach (var entry in entries)
             {
+                row++;
                 if (string.IsNullOrEmpty(entry.Code)) continue;
 
                 var code = entry.Code.Trim();
@@ -257,7 +266,7 @@ public sealed class DataLoader
                     MaxSockets3 = entry.MaxSockets3,
                     Name = normalizedName
                 };
-                Put(_data.ItemTypes, code, itemType, "itemtypes.txt", "Code");
+                Put(_data.ItemTypes, code, itemType, "itemtypes.txt", "Code", rows, row);
 
                 // Track by both original and normalized names
                 _data.ItemTypesByName[originalName] = itemType;
@@ -369,12 +378,22 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await SkillsParser.GetEntries(_sources.Excel("skills.txt"));
+            var path = _sources.Excel("skills.txt");
+            var entries = await SkillsParser.GetEntries(path);
+            // The skill id is the engine record index, never the informational *Id column:
+            // appended rows routinely leave *Id blank, and every blank cell used to read as
+            // 0 and replace Attack. A row without a skill name still consumes its index.
+            var ids = await EngineRowIndex.DeriveAsync(path, [.. entries.Select(static entry => entry.Skill)]);
+            var rowsBySkill = new RowTracker<string, SkillEntry>("Skills", _data.Skills.Comparer,
+                static skill => $"skill='{skill.Skill}'", identityIncludesKey: true);
+            List<(string Row, string? Informational, int Engine)> informational = [];
+            var row = 0;
             foreach (var entry in entries)
             {
+                row++;
+                if (ids[row - 1] is not { } id) continue;
+                informational.Add(($"skill '{entry.Skill}'", entry.Id, id));
                 if (string.IsNullOrEmpty(entry.Skill)) continue;
-
-                var id = ParseInt(entry.Id) ?? 0;
 
                 // Resolve the translation-lookup key by following:
                 //   skills.txt `skilldesc` -> skilldesc.txt row -> `str name` column.
@@ -424,9 +443,10 @@ public sealed class DataLoader
                     NameKey = !string.IsNullOrEmpty(nameKey) ? nameKey : null,
                     SourceRow = entry
                 };
-                Put(_data.Skills, entry.Skill, skill, "skills.txt", "skill");
-                Put(_data.SkillsById, id, skill, "skills.txt", "*Id");
+                Put(_data.Skills, entry.Skill, skill, "skills.txt", "skill", rowsBySkill, row);
+                _data.SkillsById[id] = skill;
             }
+            ReportInformationalIndexDrift("skills.txt", "*Id", informational);
         }
         catch (Exception ex)
         {
@@ -439,8 +459,12 @@ public sealed class DataLoader
         try
         {
             var entries = await CharStatsParser.GetEntries(_sources.Excel("charstats.txt"));
+            var rows = new RowTracker<string, CharStatEntry>("CharStats", _data.CharStats.Comparer,
+                static charStat => $"class='{charStat.Class}'", identityIncludesKey: true);
+            var row = 0;
             foreach (var entry in entries)
             {
+                row++;
                 if (string.IsNullOrEmpty(entry.Class)) continue;
 
                 var charStat = new CharStatEntry
@@ -452,7 +476,7 @@ public sealed class DataLoader
                     StrSkillTab3 = entry.StrSkillTab3,
                     StrClassOnly = entry.StrClassOnly,
                 };
-                Put(_data.CharStats, entry.Class, charStat, "charstats.txt", "class");
+                Put(_data.CharStats, entry.Class, charStat, "charstats.txt", "class", rows, row);
                 // Also index by first 3 characters (lowercase) for MagicAffix ClassSpecific resolution
                 if (entry.Class.Length >= 3)
                     _data.CharStatsByCode[entry.Class.Substring(0, 3)] = charStat;
@@ -468,24 +492,49 @@ public sealed class DataLoader
     {
         try
         {
-            var entries = await MonStatsParser.GetEntries(_sources.Excel("monstats.txt"));
+            var path = _sources.Excel("monstats.txt");
+            var entries = await MonStatsParser.GetEntries(path);
+            // The monster class index (what a numeric reanimate parameter names) is the
+            // engine record index: the shipped monstats.bin holds one record per line after
+            // the header except the Expansion section header. The informational *hcIdx
+            // column is never read. Physical line N (1-based, header on line 1) is index
+            // N - 2 above the Expansion line and N - 3 below it.
+            List<string?> ids = [.. entries.Select(static entry => entry.Id)];
+            var indices = await EngineRowIndex.DeriveAsync(path, ids);
+            var rowsById = new RowTracker<string, MonStatEntry>("MonStats", _data.MonStats.Comparer,
+                static monster => $"Id='{monster.Id}', engine index {monster.Index}"
+                    + (string.IsNullOrEmpty(monster.NameStr) ? "" : $", NameStr='{monster.NameStr}'")
+                    + (string.IsNullOrEmpty(monster.Name) || monster.Name == monster.NameStr ? "" : $" (\"{monster.Name}\")"),
+                identityIncludesKey: true);
+            List<(string Row, string? Informational, int Engine)> informational = [];
+            var row = 0;
             foreach (var entry in entries)
             {
+                row++;
+                if (indices[row - 1] is not { } index) continue;
+                // The typed *hcIdx reads a blank cell as 0, so 0 is treated as unmaintained.
+                informational.Add(($"Id '{entry.Id}'", entry.HcIdx == 0 ? null : entry.HcIdx.ToString(), index));
                 if (string.IsNullOrEmpty(entry.Id)) continue;
-                // The section-header row (structure, not content — UniqueImporter/SetImporter
-                // skip the same marker) has a blank *hcIdx that parses as 0, so indexing it
-                // silently replaced skeleton1 in MonStatsByIndex[0].
-                if (entry.Id.Equals(ExpansionSectionMarker, StringComparison.OrdinalIgnoreCase)) continue;
 
                 var monEntry = new MonStatEntry
                 {
                     Id = entry.Id,
-                    HcIdx = entry.HcIdx,
+                    Index = index,
                     NameStr = entry.NameStr,
                     Name = _data.Translations.GetValue(entry.NameStr)
                 };
-                Put(_data.MonStats, entry.Id, monEntry, "monstats.txt", "Id");
-                Put(_data.MonStatsByIndex, entry.HcIdx, monEntry, "monstats.txt", "hcIdx");
+                Put(_data.MonStats, entry.Id, monEntry, "monstats.txt", "Id", rowsById, row);
+                _data.MonStatsByIndex[index] = monEntry;
+            }
+            ReportInformationalIndexDrift("monstats.txt", "*hcIdx", informational);
+            if (EngineRowIndex.FindNameNumberDivergence(ids, indices) is { } divergence)
+            {
+                _pipeline.AddWarning("DataLoader", "monstats.txt",
+                    $"Id '{divergence.Name}' at engine index {divergence.Index} repeats the Id numbered "
+                    + $"{divergence.NameNumber} (case-insensitive; blank Ids and blank lines share one name). "
+                    + "The game numbers distinct Ids, not rows, so from here on its name references (BaseId, "
+                    + "NextInClass, spawn, minion, by-name reanimate) no longer reach the row carrying the name. "
+                    + "Numeric indices are unaffected; this export resolves a name to the row that carries it.");
             }
         }
         catch (Exception ex)
@@ -502,8 +551,14 @@ public sealed class DataLoader
             if (!File.Exists(filePath)) return;
 
             var entries = await PropertyGroupParser.GetEntries(filePath);
-            foreach (var entry in entries)
+            // The group id is the engine record index, not the informational *Id column.
+            var ids = await EngineRowIndex.DeriveAsync(filePath, [.. entries.Select(static entry => entry.Code)]);
+            List<(string Row, string? Informational, int Engine)> informational = [];
+            for (var row = 0; row < entries.Count; row++)
             {
+                var entry = entries[row];
+                if (ids[row] is not { } id) continue;
+                informational.Add(($"code '{entry.Code}'", entry.Id?.ToString(), id));
                 if (string.IsNullOrEmpty(entry.Code)) continue;
 
                 var subProps = new List<PropertyGroupSubEntry>();
@@ -538,13 +593,14 @@ public sealed class DataLoader
                 var pgEntry = new PropertyGroupEntry
                 {
                     Code = entry.Code,
-                    Id = entry.Id ?? 0,
+                    Id = id,
                     PickMode = entry.PickMode,
                     SubProperties = subProps,
                 };
                 _data.PropertyGroups[entry.Code] = pgEntry;
                 _data.PropertyGroupsById[pgEntry.Id] = pgEntry;
             }
+            ReportInformationalIndexDrift("propertygroups.txt", "*Id", informational);
         }
         catch (Exception ex)
         {
@@ -904,15 +960,68 @@ public sealed class DataLoader
 
     /// <summary>
     /// Stores <paramref name="value"/> under its primary key. A repeated key keeps the
-    /// historical last-row-wins result (so exports are unchanged) but is now reported with
-    /// the file, column and key instead of being overwritten silently.
+    /// historical last-row-wins result (so exports are unchanged) but is reported with the
+    /// file, column and key, plus the identity and parsed row of both the overwritten and
+    /// the replacing row (see <see cref="RowTracker{TKey,TValue}"/>).
     /// </summary>
-    private void Put<TKey, TValue>(Dictionary<TKey, TValue> lookup, TKey key, TValue value, string file, string column)
+    private void Put<TKey, TValue>(Dictionary<TKey, TValue> lookup, TKey key, TValue value, string file, string column,
+        RowTracker<TKey, TValue> rows, int parsedRow)
         where TKey : notnull
     {
-        if (lookup.ContainsKey(key))
-            _pipeline.AddWarning("DataLoader", file, $"Duplicate {column} '{key}'; the later row replaces the earlier one.");
+        if (lookup.TryGetValue(key, out var original))
+            _pipeline.AddWarning("DataLoader", file, rows.DescribeDuplicate(column, key, original, value, parsedRow));
         lookup[key] = value;
+        rows.Record(key, parsedRow);
+    }
+
+    /// <summary>
+    /// Reports, once per table, informational <c>*</c> index cells that disagree with the engine
+    /// record index the loader used instead (see <see cref="EngineRowIndex"/>). Blank or
+    /// non-numeric cells are unmaintained metadata and are not reported.
+    /// </summary>
+    private void ReportInformationalIndexDrift(string file, string column,
+        IReadOnlyList<(string Row, string? Informational, int Engine)> rows)
+    {
+        var drift = rows.Where(static row => ParseInt(row.Informational) is { } value && value != row.Engine).ToList();
+        if (drift.Count == 0) return;
+        var examples = string.Join("; ", drift.Take(3).Select(row =>
+            $"{row.Row}: {column}='{row.Informational!.Trim()}', engine index {row.Engine}"));
+        _pipeline.AddWarning("DataLoader", file,
+            $"{drift.Count} row(s) carry an informational {column} that differs from the engine row index "
+            + $"({examples}{(drift.Count > 3 ? "; …" : "")}). {column} is ignored; identifiers come from the row position.");
+    }
+
+    /// <summary>
+    /// Duplicate-key diagnostics for one <see cref="Put{TKey,TValue}"/> lookup: remembers the
+    /// parsed row that supplied each stored key and renders a duplicate as the original and
+    /// replacement rows. A parsed row is the 1-based position among the data rows the parser
+    /// returned (header excluded, blank lines not counted), not a physical line number.
+    /// <paramref name="describe"/> names a row (including its key cell when
+    /// <paramref name="identityIncludesKey"/>).
+    /// </summary>
+    private sealed class RowTracker<TKey, TValue>(
+        string lookupName,
+        IEqualityComparer<TKey> comparer,
+        Func<TValue, string> describe,
+        bool identityIncludesKey = false)
+        where TKey : notnull
+    {
+        private readonly Dictionary<TKey, int> _rows = new(comparer);
+
+        public void Record(TKey key, int parsedRow) => _rows[key] = parsedRow;
+
+        public string DescribeDuplicate(string column, TKey key, TValue original, TValue replacement, int parsedRow)
+        {
+            var originalRow = _rows.TryGetValue(key, out var stored) ? stored.ToString() : "unknown";
+            var keyText = key.ToString() ?? "";
+            return $"Duplicate {column} '{keyText}':"
+                + $"\n    Original:    {Describe(original, column, keyText)}, parsed row {originalRow}"
+                + $"\n    Replacement: {Describe(replacement, column, keyText)}, parsed row {parsedRow}"
+                + $"\n    Action: the replacement overwrote the original entry in {lookupName}.";
+        }
+
+        private string Describe(TValue value, string column, string keyText) =>
+            identityIncludesKey ? describe(value) : $"{describe(value)}, {column}='{keyText}'";
     }
 
     private static int? ParseInt(string? value)

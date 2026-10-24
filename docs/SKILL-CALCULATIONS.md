@@ -44,6 +44,11 @@ Each line keeps the `KeyedLine` contract (camel-cased `key`/`args`, resolved aga
   whose numbers read another skill's allocation. See
   [below](#arguments-that-read-another-skills-allocation-valuescalc).
 
+Each skill also carries an optional `Calculation` object with its non-zero `Params`
+(`Param1..20`, keyed by number), non-empty `Calcs` (`calc1..10`) and the raw
+`PhysicalDamage` / `ElementalDamage` / `ElementalLength` expressions (`DmgSymPerCalc` /
+`EDmgSymPerCalc` / `ELenSymPerCalc`); it is omitted when all of them are empty.
+
 Layout lives in `Config/skill-desc-functions.json` (description function id → `layout` +
 `plural`/`nameArg` flags); the arithmetic lives in `Import/SkillCalculator.cs`. Reach for
 the config first — a new description function is data, not code.
@@ -125,9 +130,9 @@ in [Referenced percentage contexts](#referenced-percentage-contexts).
 
 ### The grammar is BBE, and it is documented
 
-Calc cells are the game's own **BBE** language ("Binary Bytecode Evaluator", nobody is
-sure). The authority is the Data Guide's `dataguide/docs/bbe-calc.html`, shipped in the
-CASC dump — read it before inferring anything about a function or operator.
+Calc cells are written in the game's own **BBE** expression language. The authority is the
+Data Guide's `dataguide/docs/bbe-calc.html`, shipped in the CASC dump — read it before
+inferring anything about a function or operator.
 `Import/CalcExpression.cs` implements it: `+ - * / % ^`, the ternary `?:` and the six
 comparisons (with `0` false and non-zero true), `min`/`max`/`rand`, and the quoted
 references `skill` / `sklvl` / `sksrc` / `miss` / `stat` / `cond`. A bare identifier belongs
@@ -165,8 +170,9 @@ code, and `Import/CalcCodeTable.cs` reads them instead of transcribing them. A r
 **Do not transcribe the first two shapes into C#.** The spellings are not guessable —
 `clc0` is `calc10` (not `calc0`), `ps10`–`ps14` break the `pstN` pattern, and
 `ln91`/`ln21`/`ln43`/`ln65`/`ln87`/`ln92` address Param9–Param20 rather than the digits in
-their names. Both files are bundled under `Config/CASC_DATA/`; the mod's own copy under
-`<excel>/` wins when present, so a mod that extends the vocabulary needs no code change.
+their names. Both files are bundled under `Config/CASC_DATA/`; a copy in the mod's (or else
+the CASC) `global/excel/` wins when present, so a mod that extends the vocabulary needs no
+code change.
 
 `Import/CalcExpression.cs` owns the shared grammar and the `ICalcScope` abstraction;
 `SkillCalcContext` (skills.txt) and `MissileCalcContext` (missiles.txt) supply only the

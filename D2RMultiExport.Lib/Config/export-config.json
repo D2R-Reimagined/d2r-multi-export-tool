@@ -192,7 +192,7 @@
             }
         }
     },
-    "$dropRuneTypesNote": "itemtypes.txt codes (matched through Equiv1/Equiv2) whose misc.txt bases are exported as rune drop targets.",
+    "$dropRuneTypesNote": "itemtypes.txt codes selecting the drop calculator's rune items (the rune search): every misc.txt base whose Type is a listed code, directly or through its Equiv1/Equiv2 chain, is exported with Kind 'rune'.",
     "dropRuneTypes": ["rune"],
     "$dropMonsterLevelBonusesNote": "Engine bonus added to a monster's level when it spawns as this kind; the drop treasure-class level is the base level plus this bonus. Kinds absent here (normal, quest, boss) get 0. The superunique bonus is not applied to boss classes.",
     "dropMonsterLevelBonuses": { "champion": 2, "unique": 3, "superunique": 3 },
@@ -392,7 +392,6 @@
             131
         ]
     },
-    "$dropRuneTypesNote": "Item types included in the drop calculator rune search.",
     "$comment": "Configuration for d2r-multi-export export pipeline. Edit these instead of modifying code.",
 
     "ignoredUniqueItems": [

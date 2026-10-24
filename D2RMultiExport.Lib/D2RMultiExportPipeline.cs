@@ -399,7 +399,7 @@ public sealed class D2RMultiExportPipeline
         var translations = new TranslationService();
         await RunPhaseAsync("Translations", "mod-strings", async () =>
         {
-            var jsonFiles = Directory.GetFiles(Sources.ModStringsDirectory, "*.json", SearchOption.AllDirectories);
+            var jsonFiles = SourceRoots.StringFiles(Sources.ModStringsDirectory);
             if (jsonFiles.Length > 0)
             {
                 await translations.LoadD2RTranslationsAsync(jsonFiles);
@@ -572,11 +572,11 @@ public sealed class D2RMultiExportPipeline
         await RunExportStepAsync(outputs, "loot-filter.json", [LootFilterExporter.OutputPath],
             warn => LootFilterExporter.ExportAsync(outputs, Sources, multiLang, PrettyPrintJson, warn));
         await RunExportStepAsync(outputs, "drop-calculator.json", [DropCalculatorExporter.OutputPath],
-            warn => DropCalculatorExporter.ExportAsync(outputs, Sources, Data, warn));
+            warn => DropCalculatorExporter.ExportAsync(outputs, Sources, Data, PrettyPrintJson, warn));
         await RunExportStepAsync(outputs, "ias-calculator.json", [AttackSpeedExporter.OutputPath],
-            warn => AttackSpeedExporter.ExportAsync(outputs, Sources, Data, warn));
+            warn => AttackSpeedExporter.ExportAsync(outputs, Sources, Data, PrettyPrintJson, warn));
         await RunExportStepAsync(outputs, "health-calculator.json", [MonsterHealthExporter.OutputPath],
-            warn => MonsterHealthExporter.ExportAsync(outputs, Sources, Data, warn));
+            warn => MonsterHealthExporter.ExportAsync(outputs, Sources, Data, PrettyPrintJson, warn));
         await RunExportStepAsync(outputs, ItemPresentationExporter.Producer, [ItemPresentationExporter.OutputPath],
             warn => ItemPresentationExporter.ExportAsync(outputs, Sources, Data, PrettyPrintJson, AssetDiagnostics, warn, Report));
         await RunExportStepAsync(outputs, "item-stat-presentation.json", [ItemStatPresentationExporter.OutputPath],

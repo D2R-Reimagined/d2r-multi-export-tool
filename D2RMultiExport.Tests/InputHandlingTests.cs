@@ -133,4 +133,24 @@ public sealed class InputHandlingTests
         // Case-insensitive lookups survive JSON deserialization (they did not before BuildLookups rebuilt them).
         Assert.True(config.DropMonsterAreas.ContainsKey(config.DropMonsterAreas.Keys.First().ToUpperInvariant()));
     }
+
+    [Fact]
+    public void BundledConfigFilesHaveNoDuplicateKeys()
+    {
+        // A repeated key (setting or $note) parses silently with the last value winning, so
+        // the earlier copy is dead text that can drift from the actual behavior.
+        var options = new System.Text.Json.JsonDocumentOptions
+        {
+            AllowDuplicateProperties = false,
+            AllowTrailingCommas = true,
+            CommentHandling = System.Text.Json.JsonCommentHandling.Skip
+        };
+        var files = Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "Config"), "*.json");
+        Assert.Contains(files, f => Path.GetFileName(f) == "export-config.json");
+        foreach (var file in files)
+        {
+            var exception = Record.Exception(() => System.Text.Json.JsonDocument.Parse(File.ReadAllText(file), options).Dispose());
+            Assert.True(exception is null, $"{Path.GetFileName(file)}: {exception?.Message}");
+        }
+    }
 }

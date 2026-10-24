@@ -145,6 +145,26 @@ inputs/op create a new identity. A parser change stripping/requoting raw cells
 can rotate ids; treat that as a coordinated breaking migration (the website
 owns the alias remapping of saved links).
 
+## Engine row identifiers
+
+Every exported numeric table identifier is the game's record index: the zero-based
+row position in the source `.txt`, where only a line whose first cell is exactly
+`Expansion` is dropped. Section headings (`Armor`, `Rings`, …), nameless rows and
+blank lines still consume an index. Informational `*` columns (`*Id`, `*ID`,
+`*hcIdx`) are never used; they drift whenever a mod appends or inserts rows. The
+game's compiled `.bin` tables follow the same numbering.
+
+| Wire value | Table |
+|---|---|
+| `keyed/skills.json` `Id`, `PrerequisiteIds` | `skills.txt` |
+| `keyed/item-stat-presentation.json` `Skills` keys | `skills.txt` |
+| `keyed/item-presentation.json` `UniqueSprites[].FileIndex` / `SetSprites[].FileIndex` | `uniqueitems.txt` / `setitems.txt` |
+| `keyed/rare-names.json` `Names` positions | `raresuffix.txt` then `rareprefix.txt` (nameless rows are `null`) |
+
+Numeric source parameters resolve the same way (a skill parameter against
+`skills.txt`, a `reanimate` monster parameter against `monstats.txt`). Columns
+the game itself parses, such as `levels.txt` `Id`, are exported as written.
+
 ## Calculator bundles
 
 The drop, IAS, monster-health and loot-filter documents are specified in their

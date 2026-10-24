@@ -28,11 +28,18 @@ representing the project in public spaces.
 
 ## Reporting
 
-Instances of abusive, harassing, or otherwise unacceptable behavior
-may be reported privately to the project maintainers through
-[GitHub private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new).
-Prefix the report title with `[Conduct]` to distinguish it from
-security reports. Do not report conduct concerns in public issues.
+Instances of abusive, harassing, or otherwise unacceptable behavior in
+an issue, pull request or comment of this repository may be reported
+privately to the repository maintainers with GitHub's
+[**Report content** → **Report to repository admins**](https://docs.github.com/en/communities/maintaining-your-safety-on-github/reporting-abuse-or-spam)
+option. GitHub may limit that option to collaborators and prior
+contributors, depending on the repository's reporting settings. The same
+menu's **Report abuse to GitHub Support** sends content that violates
+GitHub's Community Guidelines to GitHub instead of the maintainers.
+
+The project does not currently provide a private email address or other
+confidential channel for concerns that cannot be reported as repository
+content. Do not report conduct concerns or their details in public issues.
 
 All reports will be reviewed and investigated promptly and fairly.
 The project maintainers are obligated to respect the privacy and
