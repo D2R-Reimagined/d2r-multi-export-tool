@@ -381,7 +381,7 @@ public static class KeyedJsonExporter
             Type = rune.Type
         }).ToList(),
         Types = r.Types,
-        Lines = FlattenPropertiesByPriority(r.Properties)
+        Lines = FlattenProperties(r.Properties)
     };
 
     private static KeyedCubeRecipe MapCubeRecipe(CubeRecipeExport c) => new()
