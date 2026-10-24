@@ -19,7 +19,7 @@ public sealed class AppSettings
     /// <summary>Replace all existing contents of <see cref="OutputPath"/> after a run without errors (off by default).</summary>
     public bool DestructiveExport { get; set; } = false;
 
-    /// <summary>Where a dry run keeps its error log and reports; empty selects the default (<c>test-output/dryrun</c> of the repository).</summary>
+    /// <summary>Where a dry run keeps its error and warning log; empty selects the default (<c>test-output/dryrun</c> of the repository).</summary>
     public string DryRunLogPath { get; set; } = string.Empty;
 
     public bool PrettyPrintJson { get; set; } = true;

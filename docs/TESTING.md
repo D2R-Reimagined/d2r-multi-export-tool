@@ -242,10 +242,10 @@ By default the tool does not own the output folder: files it did not write in th
 run stay on disk, and only `manifest.json` identifies current files and run status.
 `--destructive` instead leaves only this run's files after a run without errors
 ([README](../README.md#export-modes)). `--dry-run` runs the full export without
-keeping it: only the run's reports in `test-output\dryrun\extras\` (import report
-with every error and warning, missing translations, CASC fallback, asset and
-source reports) and, when the run recorded errors, `test-output\dryrun\dryrun-errors.txt`
-remain. Review them exactly like the `extras\` reports of a normal export.
+keeping it, `extras\` reports included: only `test-output\dryrun\dryrun-log.txt`,
+with every recorded error and warning, remains when the run recorded any. Review
+it like the import report of a normal export; the missing-translation, CASC
+fallback, asset and source reports need a normal export into a scratch `--out`.
 Manifest fields and their limits are
 specified in
 [WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-output-integrity).

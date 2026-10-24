@@ -7,8 +7,9 @@ namespace D2RMultiExport.Tests;
 
 /// <summary>
 /// The dry-run mode: the full export runs into a scratch directory that is always discarded,
-/// the export directory is never touched, and only the extras reports and an error log are kept —
-/// the error log only when the run recorded errors — replacing the previous dry run's files.
+/// including its extras reports, the export directory is never touched, and only a log of the
+/// recorded errors and warnings is kept — only when there is one — replacing the previous
+/// dry run's files.
 /// </summary>
 public sealed class DryRunExportTests : IDisposable
 {
@@ -27,11 +28,15 @@ public sealed class DryRunExportTests : IDisposable
         try { Directory.Delete(_root, recursive: true); } catch (IOException) { }
     }
 
-    private string ErrorLog => Path.Combine(_logs, DryRunExport.ErrorLogFileName);
+    private string Log => Path.Combine(_logs, DryRunExport.LogFileName);
+
+    private string LegacyErrorLog => Path.Combine(_logs, DryRunExport.LegacyErrorLogFileName);
 
     private string ImportReport => Path.Combine(_logs, "extras", "import-report.txt");
 
     private static readonly string[] Reports = ["extras/import-report.txt", "extras/missing-translations.txt"];
+
+    private string[] LogEntries() => [.. Directory.EnumerateFileSystemEntries(_logs).Select(static entry => Path.GetFileName(entry)).Order()];
 
     private void AssertNoScratchDirectories() =>
         Assert.DoesNotContain(Directory.EnumerateFileSystemEntries(_logs), entry => Path.GetFileName(entry).StartsWith(DryRunExport.ScratchPrefix, StringComparison.Ordinal));
@@ -44,11 +49,12 @@ public sealed class DryRunExportTests : IDisposable
     }
 
     [Fact]
-    public async Task CleanRunDiscardsTheExportKeepsTheReportsAndRemovesThePreviousLogs()
+    public async Task CleanRunDiscardsTheExportAndItsReportsAndRemovesThePreviousLogs()
     {
         Directory.CreateDirectory(Path.Combine(_logs, "extras"));
-        File.WriteAllText(ErrorLog, "errors of an earlier dry run");
-        File.WriteAllText(Path.Combine(_logs, "extras", "missing-translations.txt"), "report of an earlier dry run");
+        File.WriteAllText(Log, "log of an earlier dry run");
+        File.WriteAllText(LegacyErrorLog, "errors of an earlier version's dry run");
+        File.WriteAllText(Path.Combine(_logs, "extras", "missing-translations.txt"), "report of an earlier version's dry run");
         File.WriteAllText(Path.Combine(_logs, "extras", "notes.txt"), "unrelated");
         File.WriteAllText(Path.Combine(_logs, "notes.txt"), "unrelated");
         string? scratch = null;
@@ -61,47 +67,50 @@ public sealed class DryRunExportTests : IDisposable
             Assert.True(File.Exists(Path.Combine(working, "keyed", "uniques.json")));
         }, _ => null);
 
-        Assert.False(result.ErrorLogWritten);
+        Assert.False(result.LogWritten);
         Assert.Null(result.Warning);
         Assert.False(Directory.Exists(scratch));
-        Assert.False(File.Exists(ErrorLog));
-        // The run wrote only the import report; the earlier missing-translations copy is gone.
-        Assert.Equal([ImportReport], result.ReportsKept);
-        Assert.Equal("report", File.ReadAllText(ImportReport));
+        Assert.False(File.Exists(Log));
+        Assert.False(File.Exists(LegacyErrorLog));
+        // The run's import report is discarded with the export; the earlier copy is gone too.
+        Assert.False(File.Exists(ImportReport));
         Assert.False(File.Exists(Path.Combine(_logs, "extras", "missing-translations.txt")));
+        // Unrelated files stay, so the folder holding one is kept.
         Assert.Equal("unrelated", File.ReadAllText(Path.Combine(_logs, "notes.txt")));
         Assert.Equal("unrelated", File.ReadAllText(Path.Combine(_logs, "extras", "notes.txt")));
-        Assert.Equal(["extras", "notes.txt"], Directory.EnumerateFileSystemEntries(_logs).Select(Path.GetFileName).Order());
-        Assert.Contains(ImportReport, result.Message);
+        Assert.Equal(["extras", "notes.txt"], LogEntries());
+        Assert.Contains("no log was written", result.Message);
     }
 
     [Fact]
-    public async Task RunWithErrorsKeepsTheErrorLogAndTheReports()
+    public async Task RunWithFindingsKeepsOnlyTheLog()
     {
         var result = await DryRunExport.RunAsync(_logs, Reports, WriteExportAsync, failure =>
         {
             Assert.Null(failure);
-            return "=== Dry Run Errors: 1 error(s) ===\n";
+            return "=== Dry Run Log: 0 error(s), 1 warning(s) ===\n";
         });
 
-        Assert.True(result.ErrorLogWritten);
-        Assert.Equal("=== Dry Run Errors: 1 error(s) ===\n", File.ReadAllText(ErrorLog));
-        Assert.Equal("report", File.ReadAllText(ImportReport));
-        Assert.Equal([DryRunExport.ErrorLogFileName, "extras"], Directory.EnumerateFileSystemEntries(_logs).Select(Path.GetFileName).Order());
+        Assert.True(result.LogWritten);
+        Assert.Equal("=== Dry Run Log: 0 error(s), 1 warning(s) ===\n", File.ReadAllText(Log));
+        Assert.Equal([DryRunExport.LogFileName], LogEntries());
+        Assert.Contains(Log, result.Message);
     }
 
     [Fact]
-    public async Task RunWithoutReportsKeepsOnlyTheErrorLog()
+    public async Task ReportCopiesOfEarlierVersionsAreRemovedWithTheirEmptyFolder()
     {
-        var result = await DryRunExport.RunAsync(_logs, [], WriteExportAsync, _ => "errors\n");
+        Directory.CreateDirectory(Path.Combine(_logs, "extras"));
+        File.WriteAllText(ImportReport, "report of an earlier version's dry run");
+        File.WriteAllText(Path.Combine(_logs, "extras", "missing-translations.txt"), "report of an earlier version's dry run");
 
-        Assert.True(result.ErrorLogWritten);
-        Assert.Empty(result.ReportsKept);
-        Assert.Equal([DryRunExport.ErrorLogFileName], Directory.EnumerateFileSystemEntries(_logs).Select(Path.GetFileName));
+        await DryRunExport.RunAsync(_logs, Reports, WriteExportAsync, _ => "errors\n");
+
+        Assert.Equal([DryRunExport.LogFileName], LogEntries());
     }
 
     [Fact]
-    public async Task ThrowingRunWritesTheErrorLogDiscardsTheExportAndRethrows()
+    public async Task ThrowingRunWritesTheLogDiscardsTheExportAndRethrows()
     {
         DryRunResult? finished = null;
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => DryRunExport.RunAsync(_logs, Reports, async working =>
@@ -111,49 +120,12 @@ public sealed class DryRunExportTests : IDisposable
         }, failure => $"fatal: {failure?.Message}", outcome => finished = outcome));
 
         Assert.Equal("exporter blew up", error.Message);
-        Assert.Equal("fatal: exporter blew up", File.ReadAllText(ErrorLog));
-        // Reports the run produced before it threw are kept, and the caller still learns which.
-        Assert.Equal("report", File.ReadAllText(ImportReport));
+        Assert.Equal("fatal: exporter blew up", File.ReadAllText(Log));
+        // Reports the run produced before it threw are discarded with the export.
+        Assert.Equal([DryRunExport.LogFileName], LogEntries());
         Assert.NotNull(finished);
-        Assert.Equal([ImportReport], finished.ReportsKept);
+        Assert.True(finished.LogWritten);
         Assert.Contains("aborted", finished.Message);
-        AssertNoScratchDirectories();
-    }
-
-    [Fact]
-    public async Task RunThatAbortsBeforeTheReportsKeepsNoneAndRemovesTheStaleCopies()
-    {
-        Directory.CreateDirectory(Path.Combine(_logs, "extras"));
-        File.WriteAllText(ImportReport, "report of an earlier dry run");
-        DryRunResult? finished = null;
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => DryRunExport.RunAsync(_logs, Reports,
-            _ => throw new InvalidOperationException("phase failed"), _ => "errors\n", outcome => finished = outcome));
-
-        Assert.NotNull(finished);
-        Assert.Empty(finished.ReportsKept);
-        Assert.Contains("No reports were kept.", finished.Message);
-        Assert.False(File.Exists(ImportReport));
-    }
-
-    [Fact]
-    public async Task ReportThatCannotBeKeptIsAWarning()
-    {
-        // A directory where the copy must go: the copy fails, the other report is still kept.
-        Directory.CreateDirectory(ImportReport);
-
-        var result = await DryRunExport.RunAsync(_logs, Reports, async working =>
-        {
-            await WriteExportAsync(working);
-            Directory.CreateDirectory(Path.Combine(working, "extras"));
-            await File.WriteAllTextAsync(Path.Combine(working, "extras", "missing-translations.txt"), "missing");
-        }, _ => null);
-
-        Assert.Equal([Path.Combine(_logs, "extras", "missing-translations.txt")], result.ReportsKept);
-        Assert.NotNull(result.Warning);
-        Assert.Contains("'extras/import-report.txt' could not be kept", result.Warning);
-        Assert.True(Directory.Exists(ImportReport));
-        AssertNoScratchDirectories();
     }
 
     [Fact]
@@ -204,7 +176,7 @@ public sealed class DryRunExportTests : IDisposable
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task DryPipelineRunWithErrorsLeavesOnlyTheErrorLogAndReports(bool continueOnException)
+    public async Task DryPipelineRunWithErrorsLeavesOnlyTheLogOfErrorsAndWarnings(bool continueOnException)
     {
         var pipeline = CreatePipeline(null, continueOnException);
 
@@ -218,42 +190,31 @@ public sealed class DryRunExportTests : IDisposable
         }
 
         Assert.True(pipeline.Result.HasErrors);
-        Assert.Equal(ErrorLog, pipeline.DryRunErrorLogPath);
-        var log = File.ReadAllText(ErrorLog);
-        Assert.StartsWith("=== Dry Run Errors: ", log, StringComparison.Ordinal);
-        Assert.Contains("[ERROR]", log);
-        Assert.DoesNotContain("[WARN]", log);
-        if (continueOnException)
-        {
-            // The run reached the extras phase: every report a real run writes is kept.
-            Assert.Equal(D2RMultiExportPipeline.ExtrasReportPaths.Select(path => Path.Combine(_logs, path.Replace('/', Path.DirectorySeparatorChar))),
-                pipeline.DryRunReportPaths);
-            Assert.All(pipeline.DryRunReportPaths, path => Assert.True(File.Exists(path), path));
-            Assert.StartsWith("=== Import Report: ", File.ReadAllText(ImportReport), StringComparison.Ordinal);
-            Assert.Equal([DryRunExport.ErrorLogFileName, "extras"], Directory.EnumerateFileSystemEntries(_logs).Select(Path.GetFileName).Order());
-        }
-        else
-        {
-            // The first failed phase aborted the run before any report was written.
-            Assert.Empty(pipeline.DryRunReportPaths);
-            Assert.Equal([DryRunExport.ErrorLogFileName], Directory.EnumerateFileSystemEntries(_logs).Select(Path.GetFileName));
-        }
+        Assert.Equal(Log, pipeline.DryRunLogFilePath);
+        var log = File.ReadAllText(Log);
+        Assert.StartsWith($"=== Dry Run Log: {pipeline.Result.ErrorCount} error(s), {pipeline.Result.WarningCount} warning(s) ===",
+            log, StringComparison.Ordinal);
+        Assert.Contains("=== Errors ===", log);
+        Assert.All(pipeline.Result.AllErrors, e => Assert.Contains(e.ToString(), log));
+        if (pipeline.Result.WarningCount > 0)
+            Assert.True(log.IndexOf("=== Warnings ===", StringComparison.Ordinal) > log.IndexOf("=== Errors ===", StringComparison.Ordinal));
+        // Whether or not the run reached the extras phase, no report is kept.
+        Assert.Equal([DryRunExport.LogFileName], LogEntries());
     }
 
     [Fact]
-    public async Task DryPipelineRunCountsAReportThatCannotBeKeptAsAWarning()
+    public async Task DryPipelineRunListsWarningsInTheLog()
     {
-        Directory.CreateDirectory(ImportReport);
+        // Without CASC data the empty mod records "no CASC" warnings next to its errors.
         var pipeline = CreatePipeline(null, continueOnException: true);
 
         await pipeline.RunAsync();
 
-        Assert.DoesNotContain(ImportReport, pipeline.DryRunReportPaths);
-        Assert.NotEmpty(pipeline.DryRunReportPaths);
-        var warning = Assert.Single(pipeline.Result.AllErrors, e => e.Category == "Export" && e.ItemIdentifier == "dry-run");
-        Assert.Equal(ImportErrorSeverity.Warning, warning.Severity);
-        Assert.Contains("'extras/import-report.txt' could not be kept", warning.Message);
-        Assert.Contains("could not be kept", pipeline.Result.GenerateReport());
+        Assert.True(pipeline.Result.WarningCount > 0);
+        var log = File.ReadAllText(Log);
+        Assert.Contains("=== Warnings ===", log);
+        Assert.All(pipeline.Result.AllErrors.Where(static e => e.Severity == ImportErrorSeverity.Warning),
+            warning => Assert.Contains($"  {warning}", log));
     }
 
     [Fact]

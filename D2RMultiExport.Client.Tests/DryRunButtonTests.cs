@@ -73,7 +73,7 @@ public sealed class DryRunButtonTests : IDisposable
     }
 
     [AvaloniaFact]
-    public async Task DryRunAbortedBeforeTheReportsShowsThatNoneWereKept()
+    public async Task DryRunAbortedShowsItsLogAndKeepsNoReports()
     {
         var (window, vm) = ShowMain();
         var logs = Path.Combine(_root, "logs");
@@ -82,16 +82,19 @@ public sealed class DryRunButtonTests : IDisposable
         File.WriteAllText(staleReport, "report of an earlier dry run");
         vm.ModDataPath = _mod;
         vm.DryRunLogPath = logs;
-        // The empty mod fails its first phase, which aborts the run before the extras.
+        // The empty mod fails its first phase, which aborts the run.
         vm.ContinueOnException = false;
 
         await vm.DryRunPipelineCommand.ExecuteAsync(null);
         Dispatcher.UIThread.RunJobs();
 
+        var log = Path.Combine(logs, DryRunExport.LogFileName);
         Assert.StartsWith("Dry run aborted: ", vm.StatusText, StringComparison.Ordinal);
-        Assert.EndsWith(" No reports were kept.", vm.StatusText, StringComparison.Ordinal);
-        Assert.DoesNotContain("Reports:", vm.StatusText);
-        Assert.False(File.Exists(staleReport));
+        Assert.EndsWith($" Log: {log}.", vm.StatusText, StringComparison.Ordinal);
+        Assert.True(File.Exists(log));
+        // The report copy an earlier version kept is removed with its now empty folder.
+        Assert.False(Directory.Exists(Path.Combine(logs, "extras")));
+        Assert.Equal([DryRunExport.LogFileName], Directory.EnumerateFileSystemEntries(logs).Select(Path.GetFileName));
         window.Close();
     }
 }

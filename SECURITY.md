@@ -94,12 +94,11 @@ therefore narrow but non-empty:
    in the hidden backup directory. The dry run (`--dry-run`, desktop button)
    never touches `--out`: it generates into a hidden `.d2r-dryrun-<16 hex>`
    scratch directory inside the dry-run log directory, deletes it afterwards
-   (links removed, never followed) and keeps only copies of the run's `extras/`
-   reports and `dryrun-errors.txt`, written through `ExportOutputs` (report
-   sources are resolved inside the scratch directory with the same link checks);
-   it deletes nothing else there except its previous error log, its previous
-   copies of those exact report paths and abandoned scratch directories of that
-   exact name shape.
+   (links removed, never followed) and keeps only `dryrun-log.txt`, written
+   through `ExportOutputs`; it deletes nothing else there except its previous
+   log, the `dryrun-errors.txt` and `extras/` report copies earlier versions kept
+   (those exact paths, and a report folder once it is empty and not a link) and
+   abandoned scratch directories of that exact name shape.
    Abandoned-temp cleanup only examines the exact
    same-output temp-name pattern in that file's directory; it never sweeps
    unrelated files. The

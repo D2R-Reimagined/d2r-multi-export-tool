@@ -35,14 +35,13 @@ var destructiveOption = new Option<bool>("--destructive")
 };
 var dryRunOption = new Option<bool>("--dry-run")
 {
-    Description = "Run the full export into a scratch directory and discard it; --out is never touched. Only the extras reports "
-        + "(extras\\*.txt in --dry-run-logs, with every error, warning and missing translation) and, when the run recorded errors, "
-        + "an error log (dryrun-errors.txt) are kept.",
+    Description = "Run the full export into a scratch directory and discard it, including its extras reports; --out is never touched. "
+        + "Only a log of every error and warning (dryrun-log.txt in --dry-run-logs) is kept, when the run recorded any.",
     DefaultValueFactory = _ => false
 };
 var dryRunLogsOption = new Option<string?>("--dry-run-logs")
 {
-    Description = "Directory for the dry-run error log and reports (default: test-output\\dryrun of the repository containing the exporter, "
+    Description = "Directory for the dry-run log (default: test-output\\dryrun of the repository containing the exporter, "
         + "else below the exporter's folder)"
 };
 var prettyOption = new Option<bool>("--pretty")
@@ -131,16 +130,14 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
                 Console.WriteLine(pipeline.Result.GenerateReport());
             Console.WriteLine($"  {pipeline.Result.ErrorCount} error(s), {pipeline.Result.WarningCount} warning(s), "
                 + $"{pipeline.ReferencedMissingKeyCount} missing translation key(s).");
-            foreach (var report in pipeline.DryRunReportPaths)
-                Console.WriteLine($"  Report: '{report}'");
-            if (pipeline.DryRunReportPaths.Count == 0)
-                Console.WriteLine("  No reports were kept.");
             if (pipeline.Result.HasErrors)
             {
-                Console.Error.WriteLine($"Dry run finished with {pipeline.Result.ErrorCount} error(s); the export was discarded. Errors: '{pipeline.DryRunErrorLogPath}'.");
+                Console.Error.WriteLine($"Dry run finished with {pipeline.Result.ErrorCount} error(s); the export was discarded. Log: '{pipeline.DryRunLogFilePath}'.");
                 return 1;
             }
-            Console.WriteLine("Dry run completed without errors; the export was discarded and no error log was written.");
+            Console.WriteLine(pipeline.DryRunLogFilePath is { } warningLog && File.Exists(warningLog)
+                ? $"Dry run completed without errors; the export was discarded. Warnings: '{warningLog}'."
+                : "Dry run completed without errors or warnings; the export was discarded and no log was written.");
             return 0;
         }
 
@@ -174,14 +171,10 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
         Console.Error.WriteLine(ex.ToString());
         if (pipeline.DryRun)
         {
-            // Includes the dry run's own warnings, for example a report that could not be kept.
+            // Includes the dry run's own warnings, for example a scratch directory that could not be deleted.
             Console.WriteLine(pipeline.Result.GenerateReport());
-            foreach (var report in pipeline.DryRunReportPaths)
-                Console.WriteLine($"  Report: '{report}'");
-            if (pipeline.DryRunReportPaths.Count == 0)
-                Console.WriteLine("  No reports were kept.");
-            if (pipeline.DryRunErrorLogPath is { } log && File.Exists(log))
-                Console.Error.WriteLine($"Dry run aborted; the export was discarded. Errors: '{log}'.");
+            if (pipeline.DryRunLogFilePath is { } log && File.Exists(log))
+                Console.Error.WriteLine($"Dry run aborted; the export was discarded. Log: '{log}'.");
         }
         return 2;
     }

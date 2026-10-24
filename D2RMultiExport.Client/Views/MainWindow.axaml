@@ -79,7 +79,7 @@
                            Text="{Binding DestructiveStatus}"/>
 
                 <Label Grid.Row="7" Grid.Column="0" Classes="field" Content="Dry-run Log Directory"
-                       ToolTip.Tip="Dry Run performs the full export into a scratch folder and discards it; the Output Files Directory is never touched. Only the extras reports (extras\*.txt: every error, warning and missing translation) and, when the run recorded errors, dryrun-errors.txt are kept here. Empty: test-output\dryrun of the repository containing the exporter."/>
+                       ToolTip.Tip="Dry Run performs the full export into a scratch folder and discards it, including its extras reports; the Output Files Directory is never touched. Only dryrun-log.txt, with every error and warning, is kept here, when the run recorded any. Empty: test-output\dryrun of the repository containing the exporter."/>
                 <TextBox Grid.Row="7" Grid.Column="1" x:Name="DryRunLogBox" Text="{Binding DryRunLogPath}"
                          PlaceholderText="{Binding DefaultDryRunLogPath}" Margin="0,6,0,0"/>
                 <Button Grid.Row="7" Grid.Column="2" Content="Browse..." Click="BrowseDryRunLog_Click"
@@ -116,7 +116,7 @@
             <Button Grid.Column="1" x:Name="DryRunButton" Content="Dry Run"
                     Command="{Binding DryRunPipelineCommand}"
                     Padding="20,6" Margin="8,0,0,0"
-                    ToolTip.Tip="Run the full export and discard the output; only an error log is kept in the Dry-run Log Directory."/>
+                    ToolTip.Tip="Run the full export and discard the output; only a log of errors and warnings is kept in the Dry-run Log Directory."/>
             <!-- Real percentage progress bar driven by PipelineProgress milestones.
                  ShowProgressText overlays the live "NN%" label so the user gets
                  numeric feedback in addition to the bar fill. The bound

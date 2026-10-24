@@ -87,24 +87,21 @@ public sealed class D2RMultiExportPipeline
     /// <summary>
     /// When <c>true</c>, the complete export runs into a hidden scratch directory inside
     /// <see cref="DryRunLogDirectory"/> and is discarded afterwards; the export directory is
-    /// never touched (and may be omitted) and <see cref="DestructiveExport"/> is ignored. The
-    /// <see cref="ExtrasReportPaths"/> reports are kept in <see cref="DryRunLogDirectory"/>, plus
-    /// <see cref="DryRunExport.ErrorLogFileName"/> when the run recorded errors (see
-    /// <see cref="DryRunExport"/>).
+    /// never touched (and may be omitted) and <see cref="DestructiveExport"/> is ignored. Only
+    /// <see cref="DryRunExport.LogFileName"/>, with every recorded error and warning, is kept in
+    /// <see cref="DryRunLogDirectory"/>, and only when there is one; the <c>extras/</c> reports
+    /// are discarded with the rest of the export (see <see cref="DryRunExport"/>).
     /// </summary>
     public bool DryRun { get; set; }
 
     /// <summary>
-    /// Where a <see cref="DryRun"/> keeps its error log and reports; <c>null</c> selects
+    /// Where a <see cref="DryRun"/> keeps its log; <c>null</c> selects
     /// <see cref="DryRunExport.DefaultLogDirectory"/> (<c>test-output/dryrun</c> of the repository).
     /// </summary>
     public string? DryRunLogDirectory { get; set; }
 
-    /// <summary>Full path of the dry-run error log of the last dry run (written only when it recorded errors).</summary>
-    public string? DryRunErrorLogPath { get; private set; }
-
-    /// <summary>Full paths of the <see cref="ExtrasReportPaths"/> reports the last dry run kept.</summary>
-    public IReadOnlyList<string> DryRunReportPaths { get; private set; } = [];
+    /// <summary>Full path of the log of the last dry run (written only when it recorded errors or warnings).</summary>
+    public string? DryRunLogFilePath { get; private set; }
 
     private const string MissingTranslationsReportPath = "extras/missing-translations.txt";
     private const string CascFallbackReportPath = "extras/casc-fallback-report.txt";
@@ -113,8 +110,9 @@ public sealed class D2RMultiExportPipeline
     private const string ImportReportPath = "extras/import-report.txt";
 
     /// <summary>
-    /// The diagnostic reports every run writes to <c>extras/</c>, in write order; a
-    /// <see cref="DryRun"/> keeps them at the same relative paths in its log directory.
+    /// The diagnostic reports every run writes to <c>extras/</c>, in write order. A
+    /// <see cref="DryRun"/> discards them; it only removes the copies earlier versions kept at
+    /// the same relative paths in its log directory.
     /// </summary>
     public static readonly IReadOnlyList<string> ExtrasReportPaths =
     [
@@ -408,29 +406,26 @@ public sealed class D2RMultiExportPipeline
 
     /// <summary>
     /// Runs the full pipeline into a discarded scratch directory (<see cref="DryRunExport"/>),
-    /// keeping the <see cref="ExtrasReportPaths"/> reports and, when the run recorded errors,
-    /// an error log.
+    /// keeping only a log of the recorded errors and warnings.
     /// </summary>
     private async Task RunDryRunAsync()
     {
         var logDirectory = Path.GetFullPath(string.IsNullOrWhiteSpace(DryRunLogDirectory)
             ? DryRunExport.DefaultLogDirectory()
             : DryRunLogDirectory);
-        DryRunErrorLogPath = Path.Combine(logDirectory, DryRunExport.ErrorLogFileName);
-        DryRunReportPaths = [];
-        Report($"Dry run: the export is discarded; errors and the extras reports are logged to '{logDirectory}'.");
-        await DryRunExport.RunAsync(logDirectory, ExtrasReportPaths, RunCoreAsync, RenderDryRunErrorLog, RecordDryRunOutcome);
+        DryRunLogFilePath = Path.Combine(logDirectory, DryRunExport.LogFileName);
+        Report($"Dry run: the export is discarded; errors and warnings are logged to '{logDirectory}'.");
+        await DryRunExport.RunAsync(logDirectory, ExtrasReportPaths, RunCoreAsync, RenderDryRunLog, RecordDryRunOutcome);
         Report($"Dry run: {Result.ErrorCount} error(s), {Result.WarningCount} warning(s), "
             + $"{ReferencedMissingKeyCount} missing translation key(s).");
     }
 
     /// <summary>
-    /// Records a dry run's kept reports and warnings (for example a report that could not be
-    /// copied); also called when the run threw, so an aborted run reports exactly what it kept.
+    /// Records a dry run's own warnings (for example a scratch directory that could not be
+    /// deleted); also called when the run threw.
     /// </summary>
     private void RecordDryRunOutcome(DryRunResult outcome)
     {
-        DryRunReportPaths = outcome.ReportsKept;
         if (outcome.Warning is { } warning)
         {
             Result.AddWarning("Export", "dry-run", warning);
@@ -440,24 +435,30 @@ public sealed class D2RMultiExportPipeline
     }
 
     /// <summary>
-    /// The dry-run error log: every recorded error (warnings excluded), with its exception
-    /// detail, plus an exception that ended the run without having been recorded. <c>null</c>
-    /// when there is nothing to log.
+    /// The dry-run log: every recorded error, with its exception detail, plus an exception that
+    /// ended the run without having been recorded, followed by every recorded warning.
+    /// <c>null</c> when there is nothing to log.
     /// </summary>
-    private string? RenderDryRunErrorLog(Exception? failure)
+    private string? RenderDryRunLog(Exception? failure)
     {
         var errors = Result.AllErrors.Where(static e => e.Severity == ImportErrorSeverity.Error).ToList();
+        var warnings = Result.AllErrors.Where(static e => e.Severity == ImportErrorSeverity.Warning).ToList();
         // A phase failure that aborted the run was recorded before it was rethrown.
         var unrecorded = failure is not null && !errors.Any(e => ReferenceEquals(e.Exception, failure)) ? failure : null;
-        if (errors.Count == 0 && unrecorded is null) return null;
+        if (errors.Count == 0 && warnings.Count == 0 && unrecorded is null) return null;
 
         var total = errors.Count + (unrecorded is null ? 0 : 1);
         var lines = new List<string>
         {
-            $"=== Dry Run Errors: {total} error(s) ===",
-            $"Generated {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}. The export was discarded; warnings are not listed.",
+            $"=== Dry Run Log: {total} error(s), {warnings.Count} warning(s) ===",
+            $"Generated {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}. The export was discarded.",
         };
         lines.AddRange(Sources.Describe());
+        if (total > 0)
+        {
+            lines.Add("");
+            lines.Add("=== Errors ===");
+        }
         foreach (var group in errors.GroupBy(static e => e.Category))
         {
             lines.Add("");
@@ -474,6 +475,18 @@ public sealed class D2RMultiExportPipeline
             lines.Add("--- Fatal ---");
             lines.Add($"  [ERROR] [Fatal] pipeline: {unrecorded.Message}");
             lines.Add(Indent(unrecorded.ToString()));
+        }
+        if (warnings.Count > 0)
+        {
+            lines.Add("");
+            lines.Add("=== Warnings ===");
+        }
+        foreach (var group in warnings.GroupBy(static e => e.Category))
+        {
+            lines.Add("");
+            lines.Add($"--- {group.Key} ---");
+            foreach (var warning in group)
+                lines.Add($"  {warning}");
         }
         return string.Join("\n", lines) + "\n";
 

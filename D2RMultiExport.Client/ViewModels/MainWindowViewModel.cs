@@ -296,9 +296,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private Task RunPipeline() => RunAsync(dryRun: false);
 
     /// <summary>
-    /// Runs the full export into a discarded scratch directory; only the extras reports and, when
-    /// the run recorded errors, an error log are kept in <see cref="DryRunLogPath"/>. The Output
-    /// Files Directory is never touched, so it need not be set.
+    /// Runs the full export into a discarded scratch directory; only a log of the recorded errors
+    /// and warnings is kept in <see cref="DryRunLogPath"/>, when there is one. The Output Files
+    /// Directory is never touched, so it need not be set.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanDryRunPipeline))]
     private Task DryRunPipeline() => RunAsync(dryRun: true);
@@ -364,10 +364,10 @@ public partial class MainWindowViewModel : ViewModelBase
             if (dryRun)
             {
                 var findings = $"{pipeline.Result.WarningCount} warning(s), {pipeline.ReferencedMissingKeyCount} missing translation key(s)";
-                var reports = DescribeDryRunReports(pipeline);
+                var log = DescribeDryRunLog(pipeline);
                 StatusText = pipeline.Result.HasErrors
-                    ? $"Dry run finished with {pipeline.Result.ErrorCount} error(s), {findings} — see {pipeline.DryRunErrorLogPath}. The export was discarded.{reports}"
-                    : $"Dry run finished without errors ({findings}). The export was discarded; no error log was written.{reports}";
+                    ? $"Dry run finished with {pipeline.Result.ErrorCount} error(s), {findings}. The export was discarded.{log}"
+                    : $"Dry run finished without errors ({findings}). The export was discarded.{log}";
             }
             else if (pipeline.Result.HasErrors)
             {
@@ -387,9 +387,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             StatusText = !dryRun
                 ? $"Aborted: {ex.Message}"
-                : pipeline.DryRunErrorLogPath is { } log && File.Exists(log)
-                    ? $"Dry run aborted: {ex.Message} — see {log}. The export was discarded.{DescribeDryRunReports(pipeline)}"
-                    : $"Dry run aborted: {ex.Message}{DescribeDryRunReports(pipeline)}";
+                : $"Dry run aborted: {ex.Message} — the export was discarded.{DescribeDryRunLog(pipeline)}";
             AppendLog($"[FATAL] {ex}");
         }
         finally
@@ -405,11 +403,11 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Where the last dry run kept its reports, or that it kept none (for example after an early abort).</summary>
-    private static string DescribeDryRunReports(D2RMultiExportPipeline pipeline) =>
-        pipeline.DryRunReportPaths.Count > 0 && Path.GetDirectoryName(pipeline.DryRunReportPaths[0]) is { } reportDirectory
-            ? $" Reports: {reportDirectory}."
-            : " No reports were kept.";
+    /// <summary>Where the last dry run wrote its error and warning log, or that it wrote none.</summary>
+    private static string DescribeDryRunLog(D2RMultiExportPipeline pipeline) =>
+        pipeline.DryRunLogFilePath is { } log && File.Exists(log)
+            ? $" Log: {log}."
+            : " No log was written.";
 
     private bool CanRunPipeline()
     {

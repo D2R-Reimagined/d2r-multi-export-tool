@@ -154,8 +154,8 @@ The console tool exposes a single `export` command.
 | `--out` | `--export`, `-o` | Output directory for the generated bundle (not needed with `--dry-run`) |
 | `--config` | | *(optional)* Override the bundled `Config\` directory |
 | `--destructive` | | Replace **all** existing contents of `--out` with only this export after a run without errors (default `false`; see [Export modes](#export-modes)) |
-| `--dry-run` | | Run the full export into a scratch directory and discard it; only the `extras\` reports and an error log are kept (default `false`; see [Export modes](#export-modes)). Cannot be combined with `--destructive` |
-| `--dry-run-logs` | | *(optional)* Directory for the dry-run error log and reports (default `test-output\dryrun` of the repository containing the exporter) |
+| `--dry-run` | | Run the full export into a scratch directory and discard it, `extras\` reports included; only a log of every error and warning is kept (default `false`; see [Export modes](#export-modes)). Cannot be combined with `--destructive` |
+| `--dry-run-logs` | | *(optional)* Directory for the dry-run log (default `test-output\dryrun` of the repository containing the exporter) |
 | `--pretty` | | Pretty-print JSON (default `true`) |
 | `--early-stop` | | Stop importing `CubeMain.txt` at the first sentinel row (default `true`) |
 | `--cube-recipe-descriptions` | | Include the raw English `Description` column from `CubeMain.txt` on each cube recipe (default `false`) |
@@ -248,15 +248,15 @@ review and commit the website changes. There is no separate install step.
   (every importer, exporter, audit and the manifest) runs inside a hidden
   `.d2r-dryrun-*` scratch directory in the dry-run log directory and is deleted
   afterwards, whether the run succeeded, recorded errors or aborted. `--out` is
-  never read or written and may be omitted. The only files kept are the reports a
-  real run writes to `extras\` (`import-report.txt` with every error and warning,
-  `missing-translations.txt`, `casc-fallback-report.txt`, `asset-report.txt`,
-  `source-report.txt`), copied to `extras\` of the log directory, and
-  `dryrun-errors.txt`, which lists every recorded error (warnings excluded) with
-  its exception detail, only when the run recorded errors. A run aborted before the
-  extras phase keeps only the error log. Each dry run first removes the previous
-  `dryrun-errors.txt` and its previous copies of those five reports (nothing else
-  in the log directory), so the folder always reflects the latest run. The console
+  never read or written and may be omitted. The `extras\` reports are discarded with
+  the rest of the export; no `extras\` folder is created in the log directory. The
+  only file kept is `dryrun-log.txt`, which lists every recorded error (with its
+  exception detail) followed by every warning, written only when the run recorded
+  an error or a warning, including a run that aborted. Each dry run first removes
+  the previous `dryrun-log.txt`, plus the `dryrun-errors.txt` and `extras\` report
+  copies earlier versions kept there (those exact five report paths, and the
+  `extras\` folder once it is empty; nothing else in the log directory), so the
+  folder always reflects the latest run. The console
   and the GUI log list every error and warning and print the error, warning and
   missing-translation counts. The log directory is `--dry-run-logs` (the GUI's **Dry-run Log Directory**),
   by default `test-output\dryrun` of the repository containing the exporter (or
