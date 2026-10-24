@@ -394,6 +394,7 @@
     },
     "$comment": "Configuration for d2r-multi-export export pipeline. Edit these instead of modifying code.",
 
+    "$ignoredUniqueItemsNote": "Case-insensitive substrings. UniqueImporter matches them against the uniqueitems.txt index (e.g. 'KhalimFlail'); base armors.json/weapons.json rows match them against the resolved English base name (e.g. \"Khalim's Flail\"). Quest/spawnable columns are deliberately not consulted.",
     "ignoredUniqueItems": [
         "amulet of the viper",
         "staff of kings",
@@ -401,6 +402,12 @@
         "hell forge hammer",
         "khalimflail",
         "superkhalimflail",
+        "Decoy Gidbinn",
+        "The Gidbinn",
+        "Wirt's Leg",
+        "Horadric Malus",
+        "Khalim's Flail",
+        "Khalim's Will",
         "pliers",
         "grabber",
         "gem bag",
