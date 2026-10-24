@@ -644,6 +644,7 @@ public static class KeyedJsonExporter
         var export = EquipmentHelper.MapToExport(baseEq, baseEq.Name, [], data, data.ExportConfig, baseEq.Level ?? 0);
         if (export is null) return null;
         DamageArmorCalculator.Apply(export, baseEq, [], baseEq.LevelReq ?? 0, data);
+        MissilePotionDamage.Apply(export, baseEq, data);
         return export;
     }
 

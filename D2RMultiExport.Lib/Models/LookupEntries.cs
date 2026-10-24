@@ -283,6 +283,12 @@ public sealed class EquipmentEntry
     public int? TwoHandMaxDamage { get; init; }
     public int? MissileMinDamage { get; init; }
     public int? MissileMaxDamage { get; init; }
+
+    /// <summary>
+    /// weapons.txt <c>missiletype</c>: the engine record index of the thrown missile's
+    /// <c>missiles.txt</c> row (see <see cref="GameData.MissilesByIndex"/>).
+    /// </summary>
+    public int? MissileType { get; init; }
     public int? StrBonus { get; init; }
     public int? DexBonus { get; init; }
     public string? TwoHandedWClass { get; init; }

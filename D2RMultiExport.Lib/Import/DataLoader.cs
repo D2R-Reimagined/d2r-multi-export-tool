@@ -99,12 +99,28 @@ public sealed class DataLoader
             }
 
             var entries = await MissilesParser.GetEntries(path);
+            // A weapon's numeric missiletype is the engine record index, never *ID or the
+            // name. Name lookups for skill descriptions survive an unalignable file.
+            int?[] indices = [];
+            try
+            {
+                indices = await EngineRowIndex.DeriveAsync(path, [.. entries.Select(static entry => entry.MissileName)]);
+            }
+            catch (InvalidDataException ex)
+            {
+                _pipeline.AddWarning("Missiles", "missiles.txt",
+                    $"{ex.Message} Weapon missiletype references will not resolve, so missile potions export no damage.");
+            }
             var rows = new RowTracker<string, D2RReimaginedTools.Models.Missiles>("Missiles", _data.Missiles.Comparer,
                 static missile => $"Missile='{missile.MissileName}'", identityIncludesKey: true);
             var row = 0;
             foreach (var entry in entries)
             {
                 row++;
+                if (indices.Length > 0 && indices[row - 1] is { } index)
+                {
+                    _data.MissilesByIndex[index] = entry;
+                }
                 if (string.IsNullOrEmpty(entry.MissileName)) continue;
                 Put(_data.Missiles, entry.MissileName, entry, "missiles.txt", "Missile", rows, row);
             }
@@ -677,6 +693,7 @@ public sealed class DataLoader
                     TwoHandMaxDamage = entry.TwoHandMaxDam,
                     MissileMinDamage = entry.MinMisDam,
                     MissileMaxDamage = entry.MaxMisDam,
+                    MissileType = entry.MissileType,
                     StrBonus = entry.StrBonus,
                     DexBonus = entry.DexBonus,
                     TwoHandedWClass = entry.TwoHandedWClass,

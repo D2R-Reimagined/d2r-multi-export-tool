@@ -148,7 +148,7 @@ public static class PropertyCleanup
                     var frames = length.Min ?? length.Max;
                     if (!frames.HasValue) continue;
                     min.Parameter = frames.Value.ToString(CultureInfo.InvariantCulture);
-                    args = [.. args.Select(v => (object)(int)Math.Ceiling((int)v * (double)frames.Value / 256)), frames.Value / 25d];
+                    args = [.. args.Select(v => (object)PropertyKeyResolver.PoisonTotalDamage((int)v, frames.Value)), PropertyKeyResolver.PoisonDurationSeconds(frames.Value)];
                 }
                 var original = min.Lines.FirstOrDefault() ?? max.Lines.FirstOrDefault();
                 min.PropertyCode = pair.Code;

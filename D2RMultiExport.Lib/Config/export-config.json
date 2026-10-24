@@ -442,6 +442,17 @@
         "pois-min": "pois-max"
     },
 
+    "$missilePotionDamageNote": "Throwing potions deal the damage of the missiles.txt row their weapons.txt missiletype names (engine record index, not *ID or the missile name), not their weapon damage columns. itemTypes: weapon type codes handled this way; their meaningless Indestructible line is dropped. Physical damage uses the throw-damage line; elementalDamageKeys maps the missile EType to its damage template. Poison is read from the row the projectile's HitSubMissile1 names (the gas cloud that applies it), never the projectile's own poison and never both: rate x ELen / 256 truncated to whole hit points, followed by durationKey (durationSingularKey at exactly one second).",
+    "missilePotionDamage": {
+        "itemTypes": [ "tpot" ],
+        "elementalDamageKeys": {
+            "fire": "StrSkill5",
+            "pois": "StrSkill8"
+        },
+        "durationKey": "StrSkill63",
+        "durationSingularKey": "StrSkillPoisonLengthSingular"
+    },
+
     "cubeRecipeCoreItemCodes": [ "rin", "amu", "cm1", "cm2", "cm3", "jew" ],
     "cubeRecipeAllowedCodes": [ "rin", "amu", "cm1", "cm2", "cm3", "cs1" ],
 

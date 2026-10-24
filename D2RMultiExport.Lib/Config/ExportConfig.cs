@@ -239,6 +239,13 @@ public sealed class ExportConfig
     [JsonPropertyName("cubeIngredientLabels")]
     public CubeIngredientLabelsConfig CubeIngredientLabels { get; set; } = new();
 
+    /// <summary>
+    /// Throwing potions whose damage lives on the <c>missiles.txt</c> row their
+    /// <c>missiletype</c> names rather than on the weapon damage columns.
+    /// </summary>
+    [JsonPropertyName("missilePotionDamage")]
+    public MissilePotionDamageConfig MissilePotionDamage { get; set; } = new();
+
     public sealed class SkillIconSheet
     {
         [JsonPropertyName("folder")] public string Folder { get; set; } = "";
@@ -282,6 +289,27 @@ public sealed class ExportConfig
         {
             if (Input.Count  > 0) Input  = new Dictionary<string, string>(Input,  StringComparer.OrdinalIgnoreCase);
             if (Output.Count > 0) Output = new Dictionary<string, string>(Output, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public sealed class MissilePotionDamageConfig
+    {
+        /// <summary>weapons.txt <c>type</c> codes whose damage is read from their missile row.</summary>
+        [JsonPropertyName("itemTypes")] public List<string> ItemTypes { get; set; } = [];
+
+        /// <summary>missiles.txt <c>EType</c> → template key for that missile's elemental damage.</summary>
+        [JsonPropertyName("elementalDamageKeys")] public Dictionary<string, string> ElementalDamageKeys { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Template for a poison duration in seconds, and its exactly-one-second form.</summary>
+        [JsonPropertyName("durationKey")]         public string DurationKey { get; set; } = "";
+        [JsonPropertyName("durationSingularKey")] public string DurationSingularKey { get; set; } = "";
+
+        [JsonIgnore] public HashSet<string> ItemTypesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        internal void BuildLookups()
+        {
+            ItemTypesSet = new HashSet<string>(ItemTypes, StringComparer.OrdinalIgnoreCase);
+            if (ElementalDamageKeys.Count > 0) ElementalDamageKeys = new Dictionary<string, string>(ElementalDamageKeys, StringComparer.OrdinalIgnoreCase);
         }
     }
 
@@ -405,6 +433,7 @@ public sealed class ExportConfig
 
         CubeSocketPunch.BuildLookups();
         CubeIngredientLabels.BuildLookups();
+        MissilePotionDamage.BuildLookups();
     }
 
     public static async Task<ExportConfig> LoadAsync(string path)

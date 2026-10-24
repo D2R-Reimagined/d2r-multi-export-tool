@@ -46,6 +46,12 @@ public sealed class GameData
     public Dictionary<string, D2RReimaginedTools.Models.Missiles> Missiles { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// <c>missiles.txt</c> rows by engine record index — the number a weapon's numeric
+    /// <c>missiletype</c> names. Never the informational <c>*ID</c> column or the row name.
+    /// </summary>
+    public Dictionary<int, D2RReimaginedTools.Models.Missiles> MissilesByIndex { get; } = [];
+
+    /// <summary>
     /// The <c>skillcalc.txt</c> / <c>misscalc.txt</c> symbol vocabularies backing
     /// <c>SkillCalculator</c> and <c>MissileCalculator</c>. Empty when neither the mod nor
     /// the bundled <c>Config/CASC_DATA</c> copy could be found, in which case the

@@ -670,9 +670,9 @@ public static class PropertyKeyResolver
             case 30: // poison damage with duration
             {
                 int frames = TryParseInt(p.Parameter) ?? 0;
-                int min = (int)Math.Ceiling((p.Min ?? 0) * (double)frames / 256);
-                int max = (int)Math.Ceiling((p.Max ?? 0) * (double)frames / 256);
-                double seconds = frames / 25.0;
+                int min = PoisonTotalDamage(p.Min ?? 0, frames);
+                int max = PoisonTotalDamage(p.Max ?? 0, frames);
+                double seconds = PoisonDurationSeconds(frames);
                 return new KeyedLine
                 {
                     // strModPoisonDamageRange is a CASC item-modifier key (mod-overridable); leave as a literal.
@@ -934,4 +934,14 @@ public static class PropertyKeyResolver
         int.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : null;
 
     private static double Round2(double v) => Math.Round(v, 2);
+
+    /// <summary>
+    /// The <c>descfunc 30</c> poison conversion: a per-frame poison rate in 256ths of a hit
+    /// point applied for <paramref name="frames"/> frames, as the total damage the player sees.
+    /// Shared by every exporter path that shows poison so there is one rounding rule.
+    /// </summary>
+    public static int PoisonTotalDamage(int rate, int frames) => (int)Math.Ceiling(rate * (double)frames / 256);
+
+    /// <summary>A poison length in frames as seconds (25 frames per second).</summary>
+    public static double PoisonDurationSeconds(int frames) => frames / 25.0;
 }
