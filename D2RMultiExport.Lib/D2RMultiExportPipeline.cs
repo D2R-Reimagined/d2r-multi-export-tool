@@ -419,15 +419,23 @@ public sealed class D2RMultiExportPipeline
         DryRunErrorLogPath = Path.Combine(logDirectory, DryRunExport.ErrorLogFileName);
         DryRunReportPaths = [];
         Report($"Dry run: the export is discarded; errors and the extras reports are logged to '{logDirectory}'.");
-        var outcome = await DryRunExport.RunAsync(logDirectory, ExtrasReportPaths, RunCoreAsync, RenderDryRunErrorLog);
+        await DryRunExport.RunAsync(logDirectory, ExtrasReportPaths, RunCoreAsync, RenderDryRunErrorLog, RecordDryRunOutcome);
+        Report($"Dry run: {Result.ErrorCount} error(s), {Result.WarningCount} warning(s), "
+            + $"{ReferencedMissingKeyCount} missing translation key(s).");
+    }
+
+    /// <summary>
+    /// Records a dry run's kept reports and warnings (for example a report that could not be
+    /// copied); also called when the run threw, so an aborted run reports exactly what it kept.
+    /// </summary>
+    private void RecordDryRunOutcome(DryRunResult outcome)
+    {
         DryRunReportPaths = outcome.ReportsKept;
         if (outcome.Warning is { } warning)
         {
             Result.AddWarning("Export", "dry-run", warning);
             Report($"[WARN] dry-run: {warning}");
         }
-        Report($"Dry run: {Result.ErrorCount} error(s), {Result.WarningCount} warning(s), "
-            + $"{ReferencedMissingKeyCount} missing translation key(s).");
         Report($"Dry run: {outcome.Message}");
     }
 

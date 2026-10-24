@@ -133,9 +133,11 @@ public sealed class CubeRecipeImporter
                 // 2. Process Outputs (A, B, C)
                 var rowId = entry.Description ?? $"Index {index}";
                 void Warn(string message) => result.AddWarning("CubeRecipe", rowId, message);
-                export.Outputs.A = ParseOutput(entry.Output, null, "", entry, Warn);
-                export.Outputs.B = ParseOutput(entry.OutputB, null, "B", entry, Warn);
-                export.Outputs.C = ParseOutput(entry.OutputC, null, "C", entry, Warn);
+                void Validate(SourcePropertySlot slot) =>
+                    PropertySourceValidator.Report(result, rowId, "cubemain.txt", index, slot, _data);
+                export.Outputs.A = ParseOutput(entry.Output, null, "", entry, Warn, Validate);
+                export.Outputs.B = ParseOutput(entry.OutputB, null, "B", entry, Warn, Validate);
+                export.Outputs.C = ParseOutput(entry.OutputC, null, "C", entry, Warn, Validate);
 
                 // 3. Process Notes/Heuristics
                 ProcessNotes(export, entry);
@@ -302,7 +304,8 @@ public sealed class CubeRecipeImporter
         return ingredient;
     }
 
-    private CubeOutputExport? ParseOutput(string? token, int? chance, string suffix, D2RReimaginedTools.Models.CubeMain entry, Action<string> warn)
+    private CubeOutputExport? ParseOutput(string? token, int? chance, string suffix, D2RReimaginedTools.Models.CubeMain entry, Action<string> warn,
+        Action<SourcePropertySlot> validate)
     {
         if (string.IsNullOrEmpty(token)) return null;
 
@@ -376,6 +379,9 @@ public sealed class CubeRecipeImporter
             var min = ImportReflection.GetInt(entry, $"Mod{i}Min{suffix}", warn);
             var max = ImportReflection.GetInt(entry, $"Mod{i}Max{suffix}", warn);
             var modChance = ImportReflection.GetInt(entry, $"Mod{i}Chance{suffix}", warn);
+            // cubemain.txt headers: "mod 1" for output A, "b mod 1"/"c mod 1" for outputs B/C.
+            var column = $"{(suffix.Length == 0 ? "" : suffix.ToLowerInvariant() + " ")}mod {i}";
+            validate(new SourcePropertySlot(column, $"{column} param", $"{column} min", $"{column} max", propCode, param, min, max));
 
             // propertygroups.txt reference on a cube-recipe Mod slot → expand
             // into the parent KeyedLine carrying strPropertyGroupsProperty.

@@ -16,6 +16,37 @@ applicable item rows undergo cleanup and equipment calculation. Affixes resolve
 at export without item equipment cleanup. Keyed DTOs serialize through
 `ExportOutputs`; English display comes from resolving keyed lines.
 
+## Source property validation
+
+Before mapping, every importer passes each raw slot (code, param, min, max as the
+typed DTO parsed them, named by its source column) to `PropertySourceValidator`.
+It reads the code's `properties.txt` functions and reports malformed slots as
+`SourceProperties` import errors with file, item, slot, code and cells. The slot
+is still exported unchanged; nothing is corrected, filled in or dropped. Ignored
+codes, property-group references and codes without a definition are skipped.
+
+- Range functions (1, 3, 5-10, 13, 15/16, 18, 21, 22, 24, 36): both endpoints are
+  required, a parameter is not a value, and min must not exceed max. Negative
+  ranges are accepted in either order because vanilla writes them by magnitude
+  (`of Bashing`: `dmg-ac` -25/-40). Functions 2/4 require only max.
+- Presence flags: when every applied stat is a 1-bit ItemStatCost flag
+  (`Save Bits` 1, e.g. `nofreeze`, `half-freeze`), blank Min and Max are valid.
+  A partly filled or reversed range is still reported.
+- Durations such as `cold-len` are ordinary function-1 values: a standalone
+  duration needs no companion damage property, but its frames belong in Min/Max.
+  A number only in Param (Param=300, Min/Max blank) is reported.
+- Function 11 (event skills, including custom splash): Param names the skill, Min
+  is the trigger chance and Max the skill level. A blank Min/Max is an error; an
+  explicit 0 chance is the documented 5% default and a 0 or negative level is
+  derived from the item level.
+- Function 19 (charged skills): Param names the skill, Min is the charge count
+  (0 selects 5, negative scales with item level) and Max the skill level; blank
+  cells are errors, explicit zero and negative values are not.
+- Function 12 needs both selection bounds in order; function 14 needs an ordered
+  socket range or a parameter; function 17 needs a parameter or a range.
+
+Blank and non-numeric cells both arrive as `null`; an explicit `0` is a value.
+
 ## Value and scope rules
 
 - Preserve distinct roll endpoints, including zero and negative values. Equal

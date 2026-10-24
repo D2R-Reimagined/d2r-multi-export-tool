@@ -71,4 +71,27 @@ public sealed class DryRunButtonTests : IDisposable
         Assert.Equal(logs, AppSettings.Load().DryRunLogPath);
         window.Close();
     }
+
+    [AvaloniaFact]
+    public async Task DryRunAbortedBeforeTheReportsShowsThatNoneWereKept()
+    {
+        var (window, vm) = ShowMain();
+        var logs = Path.Combine(_root, "logs");
+        var staleReport = Path.Combine(logs, "extras", "import-report.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(staleReport)!);
+        File.WriteAllText(staleReport, "report of an earlier dry run");
+        vm.ModDataPath = _mod;
+        vm.DryRunLogPath = logs;
+        // The empty mod fails its first phase, which aborts the run before the extras.
+        vm.ContinueOnException = false;
+
+        await vm.DryRunPipelineCommand.ExecuteAsync(null);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.StartsWith("Dry run aborted: ", vm.StatusText, StringComparison.Ordinal);
+        Assert.EndsWith(" No reports were kept.", vm.StatusText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Reports:", vm.StatusText);
+        Assert.False(File.Exists(staleReport));
+        window.Close();
+    }
 }

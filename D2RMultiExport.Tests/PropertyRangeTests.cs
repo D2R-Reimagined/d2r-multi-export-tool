@@ -509,8 +509,11 @@ public sealed class PropertyRangeTests
             data.Weapons["9st"] = new EquipmentEntry { Code = "9st", NameStr = "9st", EquipmentType = EquipmentType.Weapon, Durability = 250 };
 
             var uniques = await new UniqueImporter(SourceRoots.Create(root, null), data).ImportAsync();
-            var warning = Assert.Single(uniques.Errors);
-            Assert.Equal(ImportErrorSeverity.Warning, warning.Severity);
+            // The blank min3/max3 is also a malformed source slot, reported once as an error.
+            var invalid = Assert.Single(uniques.Errors, static e => e.Severity == ImportErrorSeverity.Error);
+            Assert.Equal(PropertySourceValidator.Category, invalid.Category);
+            Assert.Contains("prop3 'value'", invalid.Message);
+            var warning = Assert.Single(uniques.Errors, static e => e.Severity == ImportErrorSeverity.Warning);
             Assert.Equal("Hone Sundan", warning.ItemIdentifier);
             Assert.Contains("'valueKey'", warning.Message);
             Assert.Empty(data.OmittedPropertyLines);

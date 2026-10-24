@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using D2RMultiExport.Lib;
+using D2RMultiExport.Lib.ErrorHandling;
 using D2RMultiExport.Lib.Exporters;
 
 namespace D2RMultiExport.Tests;
@@ -102,16 +103,56 @@ public sealed class DryRunExportTests : IDisposable
     [Fact]
     public async Task ThrowingRunWritesTheErrorLogDiscardsTheExportAndRethrows()
     {
+        DryRunResult? finished = null;
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => DryRunExport.RunAsync(_logs, Reports, async working =>
         {
             await WriteExportAsync(working);
             throw new InvalidOperationException("exporter blew up");
-        }, failure => $"fatal: {failure?.Message}"));
+        }, failure => $"fatal: {failure?.Message}", outcome => finished = outcome));
 
         Assert.Equal("exporter blew up", error.Message);
         Assert.Equal("fatal: exporter blew up", File.ReadAllText(ErrorLog));
-        // Reports the run produced before it threw are kept.
+        // Reports the run produced before it threw are kept, and the caller still learns which.
         Assert.Equal("report", File.ReadAllText(ImportReport));
+        Assert.NotNull(finished);
+        Assert.Equal([ImportReport], finished.ReportsKept);
+        Assert.Contains("aborted", finished.Message);
+        AssertNoScratchDirectories();
+    }
+
+    [Fact]
+    public async Task RunThatAbortsBeforeTheReportsKeepsNoneAndRemovesTheStaleCopies()
+    {
+        Directory.CreateDirectory(Path.Combine(_logs, "extras"));
+        File.WriteAllText(ImportReport, "report of an earlier dry run");
+        DryRunResult? finished = null;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => DryRunExport.RunAsync(_logs, Reports,
+            _ => throw new InvalidOperationException("phase failed"), _ => "errors\n", outcome => finished = outcome));
+
+        Assert.NotNull(finished);
+        Assert.Empty(finished.ReportsKept);
+        Assert.Contains("No reports were kept.", finished.Message);
+        Assert.False(File.Exists(ImportReport));
+    }
+
+    [Fact]
+    public async Task ReportThatCannotBeKeptIsAWarning()
+    {
+        // A directory where the copy must go: the copy fails, the other report is still kept.
+        Directory.CreateDirectory(ImportReport);
+
+        var result = await DryRunExport.RunAsync(_logs, Reports, async working =>
+        {
+            await WriteExportAsync(working);
+            Directory.CreateDirectory(Path.Combine(working, "extras"));
+            await File.WriteAllTextAsync(Path.Combine(working, "extras", "missing-translations.txt"), "missing");
+        }, _ => null);
+
+        Assert.Equal([Path.Combine(_logs, "extras", "missing-translations.txt")], result.ReportsKept);
+        Assert.NotNull(result.Warning);
+        Assert.Contains("'extras/import-report.txt' could not be kept", result.Warning);
+        Assert.True(Directory.Exists(ImportReport));
         AssertNoScratchDirectories();
     }
 
@@ -194,8 +235,25 @@ public sealed class DryRunExportTests : IDisposable
         else
         {
             // The first failed phase aborted the run before any report was written.
+            Assert.Empty(pipeline.DryRunReportPaths);
             Assert.Equal([DryRunExport.ErrorLogFileName], Directory.EnumerateFileSystemEntries(_logs).Select(Path.GetFileName));
         }
+    }
+
+    [Fact]
+    public async Task DryPipelineRunCountsAReportThatCannotBeKeptAsAWarning()
+    {
+        Directory.CreateDirectory(ImportReport);
+        var pipeline = CreatePipeline(null, continueOnException: true);
+
+        await pipeline.RunAsync();
+
+        Assert.DoesNotContain(ImportReport, pipeline.DryRunReportPaths);
+        Assert.NotEmpty(pipeline.DryRunReportPaths);
+        var warning = Assert.Single(pipeline.Result.AllErrors, e => e.Category == "Export" && e.ItemIdentifier == "dry-run");
+        Assert.Equal(ImportErrorSeverity.Warning, warning.Severity);
+        Assert.Contains("'extras/import-report.txt' could not be kept", warning.Message);
+        Assert.Contains("could not be kept", pipeline.Result.GenerateReport());
     }
 
     [Fact]

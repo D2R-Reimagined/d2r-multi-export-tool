@@ -60,10 +60,12 @@ public static class DryRunExport
     /// that the run wrote is copied to the same relative path below <paramref name="logRoot"/>
     /// first. <paramref name="renderErrorLog"/> receives the exception the run threw (or
     /// <c>null</c>) and returns the error log, or <c>null</c> when there is nothing to log.
-    /// An exception thrown by <paramref name="generate"/> is rethrown after the logs were written.
+    /// <paramref name="finished"/> receives the outcome in every case, so the reports kept and the
+    /// warnings of a run that threw are not lost; an exception thrown by
+    /// <paramref name="generate"/> is rethrown after the logs were written and it was called.
     /// </summary>
     internal static async Task<DryRunResult> RunAsync(string logRoot, IReadOnlyList<string> reports, Func<string, Task> generate,
-        Func<Exception?, string?> renderErrorLog)
+        Func<Exception?, string?> renderErrorLog, Action<DryRunResult>? finished = null)
     {
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(logRoot));
         Directory.CreateDirectory(root);
@@ -123,15 +125,18 @@ public static class DryRunExport
             // The run's own exception is the one worth surfacing; its errors are also in the
             // console or GUI log.
         }
-        if (failure is not null)
-            ExceptionDispatchInfo.Capture(failure).Throw();
-
         var message = log is null
             ? $"No errors; the export was discarded and no error log was written to '{root}'."
-            : $"The run recorded errors; the export was discarded and the errors were written to '{logs.GetFullPath(ErrorLogFileName)}'.";
+            : $"The run {(failure is null ? "recorded errors" : "aborted")}; the export was discarded and the errors were written to '{logs.GetFullPath(ErrorLogFileName)}'.";
         if (kept.Count > 0)
             message += $" Reports kept: {string.Join(", ", kept.Select(path => $"'{path}'"))}.";
-        return new DryRunResult(log is not null, message, warnings.Count > 0 ? string.Join(" ", warnings) : null, kept);
+        else if (reports.Count > 0)
+            message += " No reports were kept.";
+        var result = new DryRunResult(log is not null, message, warnings.Count > 0 ? string.Join(" ", warnings) : null, kept);
+        finished?.Invoke(result);
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        return result;
     }
 
     /// <summary>Scratch directories a killed earlier dry run left behind; only the exact generated shape.</summary>

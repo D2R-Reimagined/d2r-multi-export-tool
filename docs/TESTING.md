@@ -213,6 +213,12 @@ promoted vanilla keys separately.
 `Id`, `charstats.txt` `class`, `missiles.txt` `Missile`) instead of
 overwriting it silently. A new duplicate warning is a mod data error.
 
+A `SourceProperties` error names a raw item property slot whose param/min/max
+cells do not fit the code's `properties.txt` function (reversed range, missing
+endpoint, blank trigger chance or skill level, …); rules are in
+[PROPERTY-RANGES.md](PROPERTY-RANGES.md#source-property-validation). The item is
+still exported with the cells unchanged. It is a mod data error to fix in the mod.
+
 Skill ids, monster indices and property-group ids are engine row indices
 (`EngineRowIndex`): the row position after the `Expansion` marker is dropped, so
 they cannot collide. The informational `*Id`/`*hcIdx` columns are never read as

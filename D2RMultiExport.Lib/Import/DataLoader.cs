@@ -759,8 +759,10 @@ public sealed class DataLoader
         try
         {
             var entries = await GemParser.GetEntries(_sources.Excel("gems.txt"));
+            var row = 0;
             foreach (var entry in entries)
             {
+                row++;
                 if (string.IsNullOrEmpty(entry.Name) || string.IsNullOrEmpty(entry.Code)) continue;
 
                 _data.Gems[entry.Code] = new GemEntry
@@ -768,9 +770,9 @@ public sealed class DataLoader
                     Name = entry.Name,
                     Code = entry.Code,
                     Letter = entry.Letter,
-                    WeaponProperties = MapNumberedProps(entry, "Weapon", "gems.txt", entry.Code),
-                    HelmProperties = MapNumberedProps(entry, "Helm", "gems.txt", entry.Code),
-                    ShieldProperties = MapNumberedProps(entry, "Shield", "gems.txt", entry.Code),
+                    WeaponProperties = MapNumberedProps(entry, "Weapon", "gems.txt", entry.Code, row),
+                    HelmProperties = MapNumberedProps(entry, "Helm", "gems.txt", entry.Code, row),
+                    ShieldProperties = MapNumberedProps(entry, "Shield", "gems.txt", entry.Code, row),
                 };
             }
         }
@@ -785,30 +787,36 @@ public sealed class DataLoader
         try
         {
             var prefixes = await MagicPrefixParser.GetEntries(_sources.Excel("magicprefix.txt"));
+            var row = 0;
             foreach (var entry in prefixes)
             {
+                row++;
                 if (string.IsNullOrEmpty(entry.Name)) continue;
                 // Skip rows whose `spawnable` column != 1 — these affixes are
                 // disabled in the source `.txt` and never roll in-game.
                 if (entry.Spawnable != true) continue;
-                _data.MagicPrefixes.Add(MapMagicAffix(entry, "magicprefix.txt"));
+                _data.MagicPrefixes.Add(MapMagicAffix(entry, "magicprefix.txt", row));
             }
 
             var suffixes = await MagicSuffixParser.GetEntries(_sources.Excel("magicsuffix.txt"));
+            row = 0;
             foreach (var entry in suffixes)
             {
+                row++;
                 if (string.IsNullOrEmpty(entry.Name)) continue;
                 // Skip rows whose `spawnable` column != 1 — these affixes are
                 // disabled in the source `.txt` and never roll in-game.
                 if (entry.Spawnable != true) continue;
-                _data.MagicSuffixes.Add(MapMagicAffix(entry, "magicsuffix.txt"));
+                _data.MagicSuffixes.Add(MapMagicAffix(entry, "magicsuffix.txt", row));
             }
 
             var autoMagics = await AutoMagicParser.GetEntries(_sources.Excel("automagic.txt"));
+            row = 0;
             foreach (var entry in autoMagics)
             {
+                row++;
                 if (string.IsNullOrEmpty(entry.Name)) continue;
-                _data.AutoMagics.Add(MapMagicAffix(entry, "automagic.txt"));
+                _data.AutoMagics.Add(MapMagicAffix(entry, "automagic.txt", row));
             }
         }
         catch (Exception ex)
@@ -817,7 +825,7 @@ public sealed class DataLoader
         }
     }
 
-    private MagicAffixEntry MapMagicAffix(dynamic entry, string file)
+    private MagicAffixEntry MapMagicAffix(dynamic entry, string file, int parsedRow)
     {
         // Statically typed handle for the reflection probes, so CallerMemberName binds.
         object row = entry;
@@ -837,7 +845,7 @@ public sealed class DataLoader
             ClassSpecific = isClassSpecific ? rawClass : "",
             Class = rawClass,
             ClassLevelReq = entry.ClassLevelReq ?? 0,
-            Properties = MapNumberedProps(row, "", file, (string?)entry.Name)
+            Properties = MapNumberedProps(row, "", file, (string?)entry.Name, parsedRow)
         };
 
         for (int i = 1; i <= 7; i++)
@@ -954,9 +962,11 @@ public sealed class DataLoader
     /// reflection. Used by both gem-row and magic-affix-row loaders, which
     /// only differ by the slot prefix (gems pass <c>"Helm"</c>/<c>"Magic"</c>/<c>"Rare"</c>/<c>"Set"</c>;
     /// affix rows pass <c>""</c>). A malformed Min/Max cell is reported against
-    /// <paramref name="file"/>/<paramref name="rowId"/>.
+    /// <paramref name="file"/>/<paramref name="rowId"/>, and each raw slot is checked by
+    /// <see cref="PropertySourceValidator"/> against its source column
+    /// (<c>weaponMod1Code</c>, <c>mod1code</c>, …) at <paramref name="parsedRow"/>.
     /// </summary>
-    private List<ItemPropertyValue> MapNumberedProps(object entry, string slotPrefix, string file, string? rowId, int count = 3)
+    private List<ItemPropertyValue> MapNumberedProps(object entry, string slotPrefix, string file, string? rowId, int parsedRow, int count = 3)
     {
         void Warn(string message) => _pipeline.AddWarning("DataLoader", file, $"Row '{rowId}': {message}");
         var props = new List<ItemPropertyValue>();
@@ -964,13 +974,23 @@ public sealed class DataLoader
         {
             var code = ImportReflection.GetString(entry, $"{slotPrefix}Mod{i}Code");
             if (string.IsNullOrEmpty(code)) continue;
-            props.Add(new ItemPropertyValue
+            var prop = new ItemPropertyValue
             {
                 Code      = code,
                 Parameter = ImportReflection.GetString(entry, $"{slotPrefix}Mod{i}Param"),
                 Min       = ImportReflection.GetInt(entry,    $"{slotPrefix}Mod{i}Min", Warn),
                 Max       = ImportReflection.GetInt(entry,    $"{slotPrefix}Mod{i}Max", Warn),
-            });
+            };
+            // Source headers: gems.txt "weaponMod1Code"/"weaponMod1Param"/…, affix tables "mod1code"/"mod1param"/….
+            var column = slotPrefix.Length == 0 ? $"mod{i}" : $"{slotPrefix.ToLowerInvariant()}Mod{i}";
+            var (codeSuffix, paramSuffix, minSuffix, maxSuffix) = slotPrefix.Length == 0
+                ? ("code", "param", "min", "max")
+                : ("Code", "Param", "Min", "Max");
+            PropertySourceValidator.Report(_pipeline, rowId ?? "", file, parsedRow,
+                new SourcePropertySlot(column + codeSuffix, column + paramSuffix, column + minSuffix, column + maxSuffix,
+                    prop.Code, prop.Parameter, prop.Min, prop.Max),
+                _data);
+            props.Add(prop);
         }
         return props;
     }

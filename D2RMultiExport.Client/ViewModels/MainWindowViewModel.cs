@@ -364,9 +364,7 @@ public partial class MainWindowViewModel : ViewModelBase
             if (dryRun)
             {
                 var findings = $"{pipeline.Result.WarningCount} warning(s), {pipeline.ReferencedMissingKeyCount} missing translation key(s)";
-                var reports = pipeline.DryRunReportPaths.Count > 0 && Path.GetDirectoryName(pipeline.DryRunErrorLogPath) is { } logDirectory
-                    ? $" Reports: {Path.Combine(logDirectory, "extras")}."
-                    : "";
+                var reports = DescribeDryRunReports(pipeline);
                 StatusText = pipeline.Result.HasErrors
                     ? $"Dry run finished with {pipeline.Result.ErrorCount} error(s), {findings} — see {pipeline.DryRunErrorLogPath}. The export was discarded.{reports}"
                     : $"Dry run finished without errors ({findings}). The export was discarded; no error log was written.{reports}";
@@ -387,9 +385,11 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            StatusText = dryRun && pipeline.DryRunErrorLogPath is { } log && File.Exists(log)
-                ? $"Dry run aborted: {ex.Message} — see {log}. The export was discarded."
-                : $"Aborted: {ex.Message}";
+            StatusText = !dryRun
+                ? $"Aborted: {ex.Message}"
+                : pipeline.DryRunErrorLogPath is { } log && File.Exists(log)
+                    ? $"Dry run aborted: {ex.Message} — see {log}. The export was discarded.{DescribeDryRunReports(pipeline)}"
+                    : $"Dry run aborted: {ex.Message}{DescribeDryRunReports(pipeline)}";
             AppendLog($"[FATAL] {ex}");
         }
         finally
@@ -404,6 +404,12 @@ public partial class MainWindowViewModel : ViewModelBase
             IsBusy = false;
         }
     }
+
+    /// <summary>Where the last dry run kept its reports, or that it kept none (for example after an early abort).</summary>
+    private static string DescribeDryRunReports(D2RMultiExportPipeline pipeline) =>
+        pipeline.DryRunReportPaths.Count > 0 && Path.GetDirectoryName(pipeline.DryRunReportPaths[0]) is { } reportDirectory
+            ? $" Reports: {reportDirectory}."
+            : " No reports were kept.";
 
     private bool CanRunPipeline()
     {

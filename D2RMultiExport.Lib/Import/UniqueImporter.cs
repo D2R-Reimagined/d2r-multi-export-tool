@@ -164,6 +164,10 @@ public sealed class UniqueImporter
         {
             var prop = entry.Properties[i];
             if (string.IsNullOrEmpty(prop.Property)) continue;
+            var slot = i + 1;
+            PropertySourceValidator.Report(result, itemName, "uniqueitems.txt", parsedRow,
+                new SourcePropertySlot($"prop{slot}", $"par{slot}", $"min{slot}", $"max{slot}", prop.Property, prop.Parameter, prop.Min, prop.Max),
+                _data);
             if (PropertyMapper.IsIgnored(prop.Property, _data.ExportConfig)) continue;
 
             try

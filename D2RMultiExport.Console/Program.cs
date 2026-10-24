@@ -133,6 +133,8 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
                 + $"{pipeline.ReferencedMissingKeyCount} missing translation key(s).");
             foreach (var report in pipeline.DryRunReportPaths)
                 Console.WriteLine($"  Report: '{report}'");
+            if (pipeline.DryRunReportPaths.Count == 0)
+                Console.WriteLine("  No reports were kept.");
             if (pipeline.Result.HasErrors)
             {
                 Console.Error.WriteLine($"Dry run finished with {pipeline.Result.ErrorCount} error(s); the export was discarded. Errors: '{pipeline.DryRunErrorLogPath}'.");
@@ -170,8 +172,17 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
     {
         Console.Error.WriteLine($"Fatal error: {ex.Message}");
         Console.Error.WriteLine(ex.ToString());
-        if (pipeline.DryRun && pipeline.DryRunErrorLogPath is { } log && File.Exists(log))
-            Console.Error.WriteLine($"Dry run aborted; the export was discarded. Errors: '{log}'.");
+        if (pipeline.DryRun)
+        {
+            // Includes the dry run's own warnings, for example a report that could not be kept.
+            Console.WriteLine(pipeline.Result.GenerateReport());
+            foreach (var report in pipeline.DryRunReportPaths)
+                Console.WriteLine($"  Report: '{report}'");
+            if (pipeline.DryRunReportPaths.Count == 0)
+                Console.WriteLine("  No reports were kept.");
+            if (pipeline.DryRunErrorLogPath is { } log && File.Exists(log))
+                Console.Error.WriteLine($"Dry run aborted; the export was discarded. Errors: '{log}'.");
+        }
         return 2;
     }
 });

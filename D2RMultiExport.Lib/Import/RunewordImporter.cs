@@ -60,8 +60,11 @@ public sealed class RunewordImporter
             return result;
         }
 
+        // 1-based position among the parsed data rows, reported with source-property diagnostics.
+        var parsedRow = 0;
         foreach (var entry in rawEntries)
         {
+            parsedRow++;
             var name = entry.Name ?? "";
             if (string.IsNullOrEmpty(entry.Rune1)) continue;
 
@@ -163,6 +166,11 @@ public sealed class RunewordImporter
                     {
                         var mod = entry.Mods[i];
                         if (string.IsNullOrEmpty(mod.Code)) continue;
+                        // Mods keeps one entry per T1Code column, so the list index is the slot.
+                        var slot = i + 1;
+                        PropertySourceValidator.Report(result, name, "runes.txt", parsedRow,
+                            new SourcePropertySlot($"T1Code{slot}", $"T1Param{slot}", $"T1Min{slot}", $"T1Max{slot}", mod.Code, mod.Param, mod.Min, mod.Max),
+                            _data);
                         if (PropertyMapper.IsIgnored(mod.Code, _data.ExportConfig)) continue;
                         // propertygroups.txt reference on a runeword's direct mods
                         // → expand into the parent KeyedLine carrying
