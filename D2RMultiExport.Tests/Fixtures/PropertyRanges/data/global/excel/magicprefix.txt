@@ -1,0 +1,4 @@
+name	* Description	version	spawnable	rare	level	maxlevel	levelreq	classspecific	class	classlevelreq	frequency	group	mod1code	mod1param	mod1min	mod1max	mod2code	mod2param	mod2min	mod2max	mod3code	mod3param	mod3min	mod3max	transformcolor	itype1	itype2	itype3	itype4	itype5	itype6	itype7	etype1	etype2	etype3	etype4	etype5	multiply	add
+Snowflake	Cold Length # of Frames (25 Frames = 1 Second) & +# to Minimum Cold Damage & +# to Maximum Cold Damage	100	1	1	25	30	18				6	137	cold-len		25	25	cold-min		6	9	cold-max		19	30	lblu	weap	circ											0	0
+Mechanist's	Socketed (#)	100	1	1	10		7				6	122	sock		1	2										weap	shld	helm	tors	circ			thro					0	0
+Snowflake	+# to Minimum Cold Damage & +# to Maximum Cold Damage	100	1	1	5	60	5				24	137	cold-min		2	4	cold-max		4	5						lcha												0	0

@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+using System.Text.Json.Serialization;
+
 namespace D2RMultiExport.Lib.Config;
 
 /// <summary>Engine rules which cannot be obtained from the mod's Excel tables.</summary>
 public sealed class AttackSpeedConfig
 {
+    /// <summary>Number of skill levels (1..N) each exported speed curve is solved for.</summary>
+    public int CurveLevels { get; set; }
+
     public Dictionary<string, string> ClassTokens { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, string> FormTokens { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<string> AnimationModes { get; set; } = [];
@@ -15,8 +20,17 @@ public sealed class AttackSpeedConfig
     public Dictionary<string, AttackSpeedRule> SkillRules { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, int> StartingFrames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    [JsonIgnore] public HashSet<string> AnimationModesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+    [JsonIgnore] public HashSet<string> ExcludedSkillsSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+    [JsonIgnore] public HashSet<string> CommonSkillsSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+    [JsonIgnore] public HashSet<string> BuffSkillsSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
     internal void BuildLookups()
     {
+        AnimationModesSet = new HashSet<string>(AnimationModes, StringComparer.OrdinalIgnoreCase);
+        ExcludedSkillsSet = new HashSet<string>(ExcludedSkills, StringComparer.OrdinalIgnoreCase);
+        CommonSkillsSet = new HashSet<string>(CommonSkills, StringComparer.OrdinalIgnoreCase);
+        BuffSkillsSet = new HashSet<string>(BuffSkills, StringComparer.OrdinalIgnoreCase);
         ClassTokens = new(ClassTokens, StringComparer.OrdinalIgnoreCase);
         FormTokens = new(FormTokens, StringComparer.OrdinalIgnoreCase);
         BuffCalcOverrides = new(BuffCalcOverrides, StringComparer.OrdinalIgnoreCase);

@@ -34,10 +34,12 @@ public static class DamageArmorCalculator
         }
 
         // Handle durability adjustments
-        var durProp = properties.FirstOrDefault(x => x.PropertyCode == "dur");
-        if (durProp != null)
+        var durabilityProperties = properties.Where(x => string.Equals(x.PropertyCode, "dur", StringComparison.OrdinalIgnoreCase)).ToList();
+        int? durabilityMax = equipment.Durability;
+        if (durabilityProperties.Count > 0 && equipment.Durability is > 0)
         {
-            equipment.Durability = (equipment.Durability ?? 0) + (durProp.Min ?? 0);
+            durabilityMax += durabilityProperties.Sum(p => p.Max ?? p.Min ?? 0);
+            equipment.Durability += durabilityProperties.Sum(p => p.Min ?? p.Max ?? 0);
         }
 
         bool indestructible = properties.Any(x => x.PropertyCode == "indestruct");
@@ -50,6 +52,12 @@ public static class DamageArmorCalculator
         // numerics have been settled. Property KeyedLines (already on each
         // CubePropertyExport.Lines) are emitted by the importer separately.
         EquipmentHelper.AppendFinalRequirementLines(equipment, indestructible);
+        if (!indestructible && durabilityMax.HasValue && equipment.Durability is > 0 && equipment.Durability != durabilityMax)
+        {
+            equipment.Lines.RemoveAll(static line => line.Key == SyntheticStringRegistry.Keys.Durability);
+            equipment.Lines.Add(KeyedLine.Of(SyntheticStringRegistry.Keys.DurabilityRolls,
+                equipment.Durability.Value, durabilityMax.Value, equipment.Durability.Value, durabilityMax.Value));
+        }
     }
 
     private static void ApplyWeaponDamage(ExportEquipment equipment, EquipmentEntry baseEq, List<CubePropertyExport> properties, int requiredLevel, bool isEthereal, GameData? data = null)
@@ -70,7 +78,7 @@ public static class DamageArmorCalculator
             {
                 case "dmg%":
                 {
-                    float valMin = prop.Min ?? 0;
+                    float valMin = prop.Min ?? prop.Max ?? 0;
                     float valMax = prop.Max ?? prop.Min ?? 0;
                     edLowMin += valMin; edHighMin += valMax;
                     edLowMax += valMin; edHighMax += valMax;
@@ -95,14 +103,14 @@ public static class DamageArmorCalculator
                 }
                 case "dmg-min":
                 {
-                    int valMin = prop.Min ?? 0;
+                    int valMin = prop.Min ?? prop.Max ?? 0;
                     int valMax = prop.Max ?? prop.Min ?? 0;
                     flatLowMin += valMin; flatHighMin += valMax;
                     break;
                 }
                 case "dmg-max":
                 {
-                    flatLowMax += prop.Min ?? 0;
+                    flatLowMax += prop.Min ?? prop.Max ?? 0;
                     flatHighMax += prop.Max ?? prop.Min ?? 0;
                     break;
                 }
@@ -218,7 +226,7 @@ public static class DamageArmorCalculator
             {
                 case "ac%":
                 {
-                    float valMin = prop.Min ?? 0;
+                    float valMin = prop.Min ?? prop.Max ?? 0;
                     float valMax = prop.Max ?? prop.Min ?? 0;
                     edLowMin += valMin; edHighMin += valMin;
                     edLowMax += valMax; edHighMax += valMax;
@@ -240,7 +248,7 @@ public static class DamageArmorCalculator
                 }
                 case "ac":
                 {
-                    int valMin = prop.Min ?? 0;
+                    int valMin = prop.Min ?? prop.Max ?? 0;
                     int valMax = prop.Max ?? prop.Min ?? 0;
                     flatLowMin += valMin; flatHighMin += valMin;
                     flatLowMax += valMax; flatHighMax += valMax;
@@ -338,7 +346,7 @@ public static class DamageArmorCalculator
         var elementalPairs = data?.ExportConfig.ElementalMinMaxPairs
                              ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        int elemMinSum = 0, elemMaxSum = 0;
+        int elemMinLow = 0, elemMinHigh = 0, elemMaxLow = 0, elemMaxHigh = 0;
         bool hasElemental = false;
 
         foreach (var prop in properties)
@@ -347,27 +355,26 @@ public static class DamageArmorCalculator
 
             if (elementalCodes.Contains(prop.PropertyCode))
             {
-                int minVal = prop.Min ?? 0;
-                int maxVal = prop.Max ?? 0;
+                var rolls = prop.DamageRolls ?? (prop.Min ?? 0, prop.Min ?? 0, prop.Max ?? 0, prop.Max ?? 0);
 
-                // Poison: dmg-pois from MergeElementalTriplets already has converted values.
-                // Only convert raw bitrate if pois-min/pois-max were NOT merged (no dmg-pois yet).
+                // Both direct and paired dmg-pois rows retain raw bitrates.
                 if (string.Equals(prop.PropertyCode, "dmg-pois", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Values are already total damage (converted by MergeElementalTriplets).
-                    // Convert total damage to per-second for elemental DPS display.
+                    // Convert once to total damage, then to per-second damage.
                     int lenFrames = 0;
                     if (int.TryParse(prop.Parameter, out var f)) lenFrames = f;
                     if (lenFrames > 0)
                     {
                         double seconds = lenFrames / 25.0;
-                        minVal = (int)Math.Round(minVal / seconds);
-                        maxVal = (int)Math.Round(maxVal / seconds);
+                        int PerSecond(int rate) => (int)Math.Round(Math.Ceiling(rate * (double)lenFrames / 256) / seconds);
+                        rolls = (PerSecond(rolls.Item1), PerSecond(rolls.Item2), PerSecond(rolls.Item3), PerSecond(rolls.Item4));
                     }
                 }
 
-                elemMinSum += minVal;
-                elemMaxSum += maxVal;
+                elemMinLow += rolls.Item1;
+                elemMinHigh += rolls.Item2;
+                elemMaxLow += rolls.Item3;
+                elemMaxHigh += rolls.Item4;
                 hasElemental = true;
             }
         }
@@ -375,13 +382,21 @@ public static class DamageArmorCalculator
         // Handle separate min/max codes
         foreach (var pair in elementalPairs)
         {
-            var minProp = properties.FirstOrDefault(p => string.Equals(p.PropertyCode, pair.Key, StringComparison.OrdinalIgnoreCase));
-            var maxProp = properties.FirstOrDefault(p => string.Equals(p.PropertyCode, pair.Value, StringComparison.OrdinalIgnoreCase));
-
-            if (minProp != null || maxProp != null)
+            foreach (var prop in properties.Where(p => string.Equals(p.PropertyCode, pair.Key, StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(p.PropertyCode, pair.Value, StringComparison.OrdinalIgnoreCase)))
             {
-                elemMinSum += minProp?.Min ?? 0;
-                elemMaxSum += maxProp?.Max ?? maxProp?.Min ?? 0;
+                var low = prop.Min ?? prop.Max ?? 0;
+                var high = prop.Max ?? prop.Min ?? 0;
+                if (string.Equals(prop.PropertyCode, pair.Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    elemMinLow += low;
+                    elemMinHigh += high;
+                }
+                else
+                {
+                    elemMaxLow += low;
+                    elemMaxHigh += high;
+                }
                 hasElemental = true;
             }
         }
@@ -391,10 +406,10 @@ public static class DamageArmorCalculator
             var elem = new DamageTypeExport
             {
                 Type = 4, // Elemental
-                DamageString = $"{elemMinSum} to {elemMaxSum}",
-                AverageDamage = (elemMinSum + elemMaxSum) / 2.0
+                DamageString = $"({elemMinLow}-{elemMinHigh}) to ({elemMaxLow}-{elemMaxHigh})",
+                AverageDamage = (elemMinLow + elemMinHigh + elemMaxLow + elemMaxHigh) / 4.0
             };
-            EquipmentLineBuilder.AppendWeaponDamage(elem.Lines, 4, elemMinSum, elemMinSum, elemMaxSum, elemMaxSum);
+            EquipmentLineBuilder.AppendWeaponDamage(elem.Lines, 4, elemMinLow, elemMinHigh, elemMaxLow, elemMaxHigh);
             damageTypes.Add(elem);
         }
     }
@@ -412,7 +427,7 @@ public static class DamageArmorCalculator
 
     private static (float min, float max) GetGrowthValues(CubePropertyExport prop)
     {
-        float gMin = prop.Min ?? (float.TryParse(prop.Parameter, out var p) ? p : 0);
+        float gMin = prop.Min ?? prop.Max ?? (float.TryParse(prop.Parameter, out var p) ? p : 0);
         float gMax = prop.Max ?? gMin;
         return (gMin, gMax);
     }

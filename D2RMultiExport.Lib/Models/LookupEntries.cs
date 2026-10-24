@@ -23,6 +23,9 @@ public sealed class StatEntry
     public string? GroupDescriptionStringPositive { get; set; }
     public string? GroupDescriptionStringNegative { get; set; }
     public string? GroupDescriptionString2 { get; set; }
+    public string? GroupDescStrPosKey { get; set; }
+    public string? GroupDescStrNegKey { get; set; }
+    public string? GroupDescStr2Key { get; set; }
     public int? Op { get; set; }
     public int? OpParam { get; set; }
     public string? OpBase { get; set; }
@@ -53,7 +56,26 @@ public sealed class PropertyEntry
     public int? Set1 { get; init; }
     public int? Value1 { get; init; }
 
+    /// <summary>
+    /// The applied <c>func</c>/<c>stat</c>/<c>set</c>/<c>val</c> slots in column order. The
+    /// engine stops at the first empty function, so later columns are never applied. Slot 1
+    /// is also exposed through <see cref="Stat1"/>/<see cref="Function1"/>. Empty when the
+    /// entry was built without slot data, which is treated as a single-stat definition.
+    /// </summary>
+    public IReadOnlyList<PropertySlot> Slots { get; init; } = [];
+
     public override string ToString() => Code;
+}
+
+/// <summary>One applied function slot of a Properties.txt definition.</summary>
+public sealed class PropertySlot
+{
+    public required int Function { get; init; }
+    public string? Stat { get; init; }
+    public int? Set { get; init; }
+    public int? Value { get; init; }
+
+    public override string ToString() => $"{Function}:{Stat}";
 }
 
 /// <summary>
@@ -87,6 +109,10 @@ public sealed class ItemTypeEntry
 /// </summary>
 public sealed class SkillEntry
 {
+    /// <summary>
+    /// The engine skill id: the row's record index in <c>skills.txt</c> (see
+    /// <see cref="Import.EngineRowIndex"/>), never the informational <c>*Id</c> column.
+    /// </summary>
     public required int Id { get; init; }
     public required string Skill { get; init; }
     public string? CharClass { get; init; }
@@ -102,12 +128,19 @@ public sealed class SkillEntry
 
     /// <summary>
     /// The translation-lookup key for this skill's display name. Resolved by following
-    /// skills.txt <c>skilldesc</c> → skilldesc.txt → <c>str name</c> column. Falls back
-    /// to the skills.txt <c>skill</c> code when no skilldesc row / str name exists.
+    /// skills.txt <c>skilldesc</c> → skilldesc.txt → <c>str name</c> column.
     /// This is the value that should be emitted into <c>KeyedLine.Args</c> so that the
     /// website can <c>t(nameKey)</c> against <c>strings/&lt;lang&gt;.json</c>.
+    /// <para>
+    /// <c>null</c> when the row carries no <c>str name</c> at all — the monster-only
+    /// skills (<c>MonBow</c>, <c>VampireFireball</c>, …) that have no <c>skilldesc</c>
+    /// row. Those are untranslated in vanilla too, so putting the raw <c>skills.txt</c>
+    /// code here would be a promise the strings bundle cannot keep: the website would
+    /// print the identifier verbatim and the missing-translations audit would flag it.
+    /// Consumers render <see cref="Name"/> (exported as <c>FallbackName</c>) instead.
+    /// </para>
     /// </summary>
-    public string NameKey { get; set; } = "";
+    public string? NameKey { get; set; }
 
     /// <summary>
     /// The parsed <c>skills.txt</c> row this entry was projected from. Retained so
@@ -142,6 +175,17 @@ public sealed class SkillDescEntry
 
     /// <summary>The <c>dsc3line1..7</c> block — the "Receives Bonuses From" synergy list.</summary>
     public List<SkillDescLine> SynergyLines { get; init; } = [];
+
+    /// <summary>
+    /// The <c>descmissile1..3</c> columns. <c>skillcalc.txt</c> resolves the <c>m1en</c> /
+    /// <c>m2ex</c> / <c>m3rn</c> symbol families against these rather than against the
+    /// skill's own <c>SrvMissile</c>, so a description can quote the missile it actually
+    /// wants to describe.
+    /// </summary>
+    public string? DescriptionMissile1 { get; init; }
+    public string? DescriptionMissile2 { get; init; }
+    public string? DescriptionMissile3 { get; init; }
+
     public override string ToString() => SkillDesc;
 }
 
@@ -191,6 +235,8 @@ public sealed class PropertyGroupSubEntry
 public sealed class PropertyGroupEntry
 {
     public required string Code { get; init; }
+
+    /// <summary>The engine record index in <c>propertygroups.txt</c>, not the informational <c>*Id</c>.</summary>
     public int Id { get; init; }
     public int? PickMode { get; init; }
     public List<PropertyGroupSubEntry> SubProperties { get; init; } = [];
@@ -202,7 +248,12 @@ public sealed class PropertyGroupEntry
 public sealed class MonStatEntry
 {
     public required string Id { get; init; }
-    public int HcIdx { get; init; }
+
+    /// <summary>
+    /// The monster class index a numeric parameter (e.g. <c>reanimate</c>) names: the row's
+    /// engine record index in <c>monstats.txt</c>, never the informational <c>*hcIdx</c> column.
+    /// </summary>
+    public int Index { get; init; }
     public string? NameStr { get; init; }
     public string? Name { get; set; }
 
@@ -232,6 +283,12 @@ public sealed class EquipmentEntry
     public int? TwoHandMaxDamage { get; init; }
     public int? MissileMinDamage { get; init; }
     public int? MissileMaxDamage { get; init; }
+
+    /// <summary>
+    /// weapons.txt <c>missiletype</c>: the engine record index of the thrown missile's
+    /// <c>missiles.txt</c> row (see <see cref="GameData.MissilesByIndex"/>).
+    /// </summary>
+    public int? MissileType { get; init; }
     public int? StrBonus { get; init; }
     public int? DexBonus { get; init; }
     public string? TwoHandedWClass { get; init; }

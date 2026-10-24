@@ -17,14 +17,14 @@ namespace D2RMultiExport.Lib.Exporters;
 /// </summary>
 public static class LanguageBundleExporter
 {
-    public static async Task<IReadOnlyList<string>> ExportAsync(
-        string exportRootPath,
-        MultiLanguageTranslationService translations,
-        bool prettyPrint = true)
-    {
-        var stringsDir = Path.Combine(exportRootPath, "strings");
-        Directory.CreateDirectory(stringsDir);
+    /// <summary>Root-relative path of the bundle for <paramref name="lang"/>.</summary>
+    public static string OutputPath(string lang) => $"strings/{lang}.json";
 
+    public static async Task<IReadOnlyList<string>> ExportAsync(
+        ExportOutputs outputs,
+        MultiLanguageTranslationService translations,
+        bool prettyPrint)
+    {
         var options = new JsonSerializerOptions
         {
             WriteIndented = prettyPrint,
@@ -41,9 +41,8 @@ public static class LanguageBundleExporter
             var ordered = dict.OrderBy(kvp => kvp.Key, StringComparer.Ordinal)
                               .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal);
 
-            var path = Path.Combine(stringsDir, $"{lang}.json");
-            await using var fs = File.Create(path);
-            await JsonSerializer.SerializeAsync(fs, ordered, options);
+            var path = OutputPath(lang);
+            await outputs.WriteJsonAsync(path, ordered, options);
             written.Add(path);
         }
 

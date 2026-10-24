@@ -8,10 +8,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="D2RMultiExport.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="D2RReimaginedTools.FileExtensions" Version="0.6.2" />
-    <PackageReference Include="SkiaSharp" Version="3.119.2" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.2" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
+    <PackageReference Include="SkiaSharp" Version="4.153.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.153.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="4.153.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -31,11 +35,12 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <!--
-      Bundled CASC-derived data. This folder ships only the canonical
-      runes.txt used by the runeword importer to flag vanilla runewords.
-      Users who hit missing-translation reports should extract the relevant
-      data\local\lng\strings\*.json files themselves with CascView and
-      point the export at that folder via the base-strings option;
+      Bundled CASC-derived reference tables: the canonical runes.txt used by
+      the runeword importer to flag vanilla runewords, and the skillcalc.txt /
+      misscalc.txt calc vocabularies used when neither the mod nor the CASC
+      extraction supplies a copy.
+      Users who hit missing-translation reports should supply a CascView
+      extraction of the base game's data tree via the casc-data option;
       the bundled tree intentionally no longer ships Blizzard string tables.
     -->
     <None Update="Config\CASC_DATA\**\*">

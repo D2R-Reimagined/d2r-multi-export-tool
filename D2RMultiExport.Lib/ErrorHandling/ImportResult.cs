@@ -63,12 +63,37 @@ public sealed class PipelineResult
         });
     }
 
+    public void AddWarning(string category, string itemId, string message)
+    {
+        AllErrors.Add(new ImportError
+        {
+            Category = category,
+            ItemIdentifier = itemId,
+            Message = message,
+            Severity = ImportErrorSeverity.Warning
+        });
+    }
+
     public bool HasErrors => AllErrors.Any(e => e.Severity == ImportErrorSeverity.Error);
 
-    public string GenerateReport()
+    /// <summary>Recorded errors, warnings excluded.</summary>
+    public int ErrorCount => AllErrors.Count(e => e.Severity == ImportErrorSeverity.Error);
+
+    /// <summary>Recorded warnings, errors excluded.</summary>
+    public int WarningCount => AllErrors.Count(e => e.Severity == ImportErrorSeverity.Warning);
+
+    public string GenerateReport() => string.Join("\n", GenerateReportEntries());
+
+    /// <summary>
+    /// The report as log entries: one per header/separator line and one per error or
+    /// warning, which keeps a multi-line diagnostic (its indented detail lines) together so
+    /// a log viewer classifies and filters it as a unit. Joined with <c>\n</c> it is
+    /// <see cref="GenerateReport"/>.
+    /// </summary>
+    public List<string> GenerateReportEntries()
     {
         if (AllErrors.Count == 0)
-            return "No errors.";
+            return ["No errors."];
 
         var errors = AllErrors.Where(e => e.Severity == ImportErrorSeverity.Error).ToList();
         var warnings = AllErrors.Where(e => e.Severity == ImportErrorSeverity.Warning).ToList();
@@ -79,14 +104,15 @@ public sealed class PipelineResult
 
         foreach (var group in AllErrors.GroupBy(e => e.Category))
         {
-            lines.Add($"\n--- {group.Key} ---");
+            lines.Add("");
+            lines.Add($"--- {group.Key} ---");
             foreach (var error in group)
             {
                 lines.Add($"  {error}");
             }
         }
 
-        return string.Join("\n", lines);
+        return lines;
     }
 
     public async Task WriteReportAsync(string exportPath)

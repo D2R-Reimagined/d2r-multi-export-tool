@@ -49,3 +49,57 @@ internal sealed class LevelTableConverter : JsonConverter<List<double[]>>
         writer.WriteRawValue(builder.ToString(), skipInputValidation: true);
     }
 }
+
+/// <summary>
+/// The two-dimensional counterpart of <see cref="LevelTableConverter"/>, used by the lines
+/// whose formula reads <c>blvl</c> and therefore needs one value per
+/// (hard points, bonus levels) pair rather than per effective level. Written on a single
+/// line for the same reason.
+/// </summary>
+internal sealed class LevelGridConverter : JsonConverter<List<double[][]>>
+{
+    public override List<double[][]>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType != JsonTokenType.StartArray) throw new JsonException();
+
+        var grids = new List<double[][]>();
+        while (reader.Read() && reader.TokenType == JsonTokenType.StartArray)
+        {
+            var rows = new List<double[]>();
+            while (reader.Read() && reader.TokenType == JsonTokenType.StartArray)
+            {
+                var row = new List<double>();
+                while (reader.Read() && reader.TokenType == JsonTokenType.Number) row.Add(reader.GetDouble());
+                rows.Add([.. row]);
+            }
+            grids.Add([.. rows]);
+        }
+        return grids;
+    }
+
+    public override void Write(Utf8JsonWriter writer, List<double[][]> value, JsonSerializerOptions options)
+    {
+        var builder = new StringBuilder("[");
+        for (var grid = 0; grid < value.Count; grid++)
+        {
+            if (grid > 0) builder.Append(',');
+            builder.Append('[');
+            for (var hard = 0; hard < value[grid].Length; hard++)
+            {
+                if (hard > 0) builder.Append(',');
+                builder.Append('[');
+                for (var bonus = 0; bonus < value[grid][hard].Length; bonus++)
+                {
+                    if (bonus > 0) builder.Append(',');
+                    builder.Append(value[grid][hard][bonus].ToString("0.###", CultureInfo.InvariantCulture));
+                }
+                builder.Append(']');
+            }
+            builder.Append(']');
+        }
+        builder.Append(']');
+
+        writer.WriteRawValue(builder.ToString(), skipInputValidation: true);
+    }
+}

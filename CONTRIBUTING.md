@@ -7,7 +7,8 @@ deeper docs only when you actually need them.
 > Looking for the rules that apply to AI coding assistants (Claude,
 > Junie, Copilot, Codex, …)? Those live in
 > [`AGENTS.md`](./AGENTS.md). The conventions there apply to humans
-> too, but the structure of that file is optimized for agents.
+> too. Root `CLAUDE.md` imports `AGENTS.md` using Claude Code's supported
+> `@AGENTS.md` syntax; do not maintain a second standards document.
 
 ---
 
@@ -17,18 +18,12 @@ deeper docs only when you actually need them.
 D2R Reimagined mod source tree (`data\global\excel\*.txt` plus
 `data\local\lng\strings\*.json`) and produces the key-based, language-
 agnostic JSON bundle consumed by the companion
-[D2R Reimagined website](https://github.com/D2R-Reimagined).
+[D2R Reimagined website](https://github.com/D2R-Reimagined/d2r-reimagined-website).
 
-Concretely, the tool exists to produce:
-
-- `<out>/keyed/*.json` — one file per content family
-  (uniques, sets, runewords, magic affixes, cube recipes, base items,
-  etc.), with every player-facing string represented as a translation
-  **key** or a `KeyedLine { key, args }` object.
-- `<out>/strings/<lang>.json` — flat `{ key: "localized text" }` map
-  per supported D2R locale.
-- `<out>/extras/` — audit folder (import report, missing-translations
-  audit, etc.).
+It writes keyed content documents (`keyed/*.json`, with every player-facing
+string as a translation key or `KeyedLine { key, args }`), per-locale string
+bundles, WebP sprites, audit reports and a run manifest; see the
+[output layout](README.md#output-layout).
 
 The schema, CLI flags, and config shape exist to serve **that one
 downstream consumer** and may change whenever the mod or the site need
@@ -37,18 +32,13 @@ D2R data dumper" are out of scope and will likely be declined.
 
 ---
 
-## Repository layout (high level)
+## Repository layout
 
-| Path | Purpose |
-|---|---|
-| `D2RMultiExport.Lib/` | Core import → translation → export pipeline. |
-| `D2RMultiExport.Lib/Config/` | Bundled JSON config + matching `*Config.cs` POCOs. |
-| `D2RMultiExport.Lib/Import/` | One importer per `.txt` family (uniques, sets, runewords, cube recipes, …). |
-| `D2RMultiExport.Lib/Translation/` | Property → translation-key resolution, synthetic-string registry. |
-| `D2RMultiExport.Lib/Exporters/` | Final JSON writers (`keyed/`, `strings/`). |
-| `D2RMultiExport.Console/` | Headless CLI (`export` command). |
-| `D2RMultiExport.Client/` | Avalonia desktop GUI front-end. |
-| `docs/` | Operational docs (`TESTING.md`, `RELEASING.md`). |
+The project and folder responsibilities are listed in
+[`AGENTS.md` §1](./AGENTS.md#1-purpose-and-architecture). Subsystem contracts live
+under `docs/` and are indexed in [`AGENTS.md` §9](./AGENTS.md#9-detailed-references).
+
+## Parser dependency
 
 Excel `.txt` parsing is delegated to the
 [`D2RReimaginedTools.FileExtensions`](https://www.nuget.org/packages/D2RReimaginedTools.FileExtensions)
@@ -63,9 +53,8 @@ in `D2RMultiExport.Lib/D2RMultiExport.Lib.csproj` for a local
 checkout, validate via the smoke export, ship the upstream PR, then
 bump the `<PackageReference>` `Version` once the upstream release is
 out. **Revert the swap before committing** — the committed `.csproj`
-must always restore from NuGet (Dependabot syncs versions via
-`.github/dependabot.yml`). This same recipe is summarized for agents
-in [`AGENTS.md`](./AGENTS.md).
+must always restore from NuGet, and `dotnet restore .\D2RMultiExport.sln` is
+required after package changes.
 
 ---
 
@@ -75,13 +64,14 @@ in [`AGENTS.md`](./AGENTS.md).
   `rollForward: latestFeature`).
 - A D2R mod source tree with `data\global\excel\*.txt` and
   `data\local\lng\strings\*.json`.
-- *(Optional)* A CASC dump of the base game's `local\lng\strings`
-  if you want to fill missing translations. See `README.md` for the
-  `--base-strings` flag.
+- *(Recommended)* A CascView extraction of the base game's `data` tree,
+  passed as `--casc-data`: it supplies vanilla sprites, base strings and
+  tables the mod does not ship. See `README.md`.
 
 Windows is the primary supported platform (the GUI is Avalonia and the
-release workflow publishes `win-x64`). The library and console build
-on any .NET 10 platform.
+release workflow publishes `win-x64`). The library and console target portable
+.NET 10, but Linux execution is not verified. Do not infer verified portability
+from the target framework alone.
 
 ---
 
@@ -94,37 +84,19 @@ dotnet restore .\D2RMultiExport.sln
 dotnet build   .\D2RMultiExport.sln -c Release --no-restore
 ```
 
-Run the headless export (CLI):
-
-```powershell
-dotnet run --project .\D2RMultiExport.Console -c Release -- export `
-    --mod-root "<path-to-mod>" `
-    --out      .\test-output
-```
-
-Run the desktop GUI:
-
-```powershell
-dotnet run --project .\D2RMultiExport.Client -c Release
-```
+Run the [CLI](README.md#run--cli) (`export`) and the
+[desktop GUI](README.md#run--gui) as described in the README, which is
+authoritative for CLI options, source-root layouts and export modes.
 
 ---
 
-## Smoke test (the de-facto test suite)
+## Tests and validation
 
-There is no automated unit-test project today. The end-to-end smoke
-export documented in [`docs/TESTING.md`](./docs/TESTING.md) **is** the
-project's test suite. Any change that touches the import, translation,
-or export pipeline must be validated by running it.
-
-A successful smoke export prints `Export completed successfully.` and
-leaves a clean `extras/import-report.txt` (no new errors). For
-refactors, snapshot `test-output/` to `test-output-baseline/` first and
-diff `keyed/*.json` after to confirm parity.
-
-Documentation-only or comment-only changes can skip the smoke export;
-say so explicitly in your PR description so reviewers don't waste time
-re-running it.
+[docs/TESTING.md](./docs/TESTING.md) is authoritative for validation levels,
+commands, test selection and report review. Choose the level the change
+requires (documentation-only changes need diff and link review, without builds
+or exports). Record passed, failed, skipped and unexecuted checks in the PR; a
+deterministic test pass alone does not establish required real-data validation.
 
 ---
 
@@ -156,7 +128,7 @@ contributor needs in their head:
 2. **Exports are keyed.** Every player-facing string written under
    `<out>/keyed/*.json` must be a translation key (or a `KeyedLine
    { key, args }`) — never a baked English sentence. Three documented
-   structural exceptions (cube recipe `Description`, the `PType`
+   raw-English cases (cube recipe `Description`, the `PType`
    Prefix/Suffix discriminator, `RequiredClass`) are listed in
    `AGENTS.md`; new exceptions require an explicit decision.
 
@@ -180,35 +152,37 @@ bundles include it.
    | build | ci | chore | revert`. Use `!` (e.g. `feat!:`) or a
    `BREAKING CHANGE:` body paragraph for breaking changes. The
    **Validate Commits** workflow (`pr-semantic-commits.yml`, status
-   context `validate-commits`) enforces this on every PR; squash-
+   context `validate-commits`) enforces this on pull requests targeting
+   `main` (or `master`); squash-
    merging with the PR title as the commit subject is the intended
    workflow.
-3. **Build locally before pushing.** Run
-   `dotnet build .\D2RMultiExport.sln` — that's the same command the
-   **Build Check** workflow (`ci.yml`) runs. Build Check is
-   **manual-only** (`workflow_dispatch`) to avoid burning ~3–4 Actions
-   minutes per commit on open PRs; trigger it from
-   **Actions → Build Check → Run workflow** before merge if you want a
-   clean-runner confirmation.
-4. **Smoke-test the export** if you touched the pipeline.
-5. **Don't leave a local `<ProjectReference>` swap** for
+3. **Validate locally before pushing** at the appropriate level in
+   [docs/TESTING.md](./docs/TESTING.md), including Level C when the change's
+   scope requires it; reuse an already passing matching build/test session.
+   The **Build Check** workflow (`ci.yml`) is **manual-only**
+   (`workflow_dispatch`); trigger it from **Actions → Build Check → Run
+   workflow** before merge for a clean-runner confirmation. It builds Release
+   and runs deterministic C#/Python suites, without private real-data inputs.
+4. **Don't leave a local `<ProjectReference>` swap** for
    `D2RReimaginedTools.FileExtensions` in `D2RMultiExport.Lib.csproj`
    — the committed `.csproj` must always restore from NuGet.
-6. **Fill out the PR template.** It's not enforced, but it shortens
-   review.
+5. **Fill out the PR template** (validation level, commands/results and any
+   skipped or unexecuted checks). It's not enforced, but it shortens review.
 
 ---
 
 ## Where to file things
 
-- **Bug reports** → GitHub Issues, `Bug report` template.
-- **Feature requests** → GitHub Issues, `Feature request` template.
-  Note the project scope above; requests outside it will be declined
-  with a pointer back here.
-- **Questions / discussion** → GitHub Discussions.
-- **Security vulnerabilities** → **Do not open a public issue.**
-  Use [GitHub private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new).
-  See [`SECURITY.md`](./SECURITY.md).
+- **Bug reports and feature requests** → GitHub Issues (the repository
+  provides only a blank issue template). For bugs, include the exporter
+  version or commit, the command/options used and the relevant
+  `extras\import-report.txt` lines. Note the project scope above; requests
+  outside it will be declined with a pointer back here.
+- **Questions and support requests** → GitHub Issues (GitHub Discussions is
+  not enabled for this repository).
+- **Security concerns** → **do not open a public issue.** Use
+  [GitHub private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new);
+  see [`SECURITY.md`](./SECURITY.md) for the threat model and what to include.
 - **Code-of-conduct concerns** → see [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)
   for the reporting channel.
 
@@ -217,46 +191,12 @@ bundles include it.
 ## Releases
 
 Tagged releases are produced manually from
-**Actions → Release → Run workflow**. Full procedure in
-[`docs/RELEASING.md`](./docs/RELEASING.md). The release notes are
-auto-generated from Conventional-Commits subjects on the merged PRs;
-**there is no `CHANGELOG.md`** — the
+**Actions → Release → Run workflow**; the procedure, package contents,
+versioning, assembly metadata and application-icon branding are in
+[`docs/RELEASING.md`](./docs/RELEASING.md). Release notes are generated from
+Conventional-Commits subjects; **there is no `CHANGELOG.md`** — the
 [GitHub Releases page](https://github.com/D2R-Reimagined/d2r-multi-export-tool/releases)
 is the canonical changelog.
-
-The release workflow:
-
-1. Validates the SemVer `version` input.
-2. Publishes `D2RMultiExport.Console` and `D2RMultiExport.Client`
-   side-by-side as a self-contained, single-file `win-x64` build
-   (`-p:PublishSingleFile=true`,
-   `-p:IncludeNativeLibrariesForSelfExtract=true`,
-   `-p:Version=<input>`).
-3. Verifies the bundled `Config\` tree shipped (the
-   `D2RMultiExport.Lib.csproj` `<None Update>` rules must keep
-   propagating `export-config.json`, `synthetic-strings.json`,
-   `stat-overrides.json`, `class-ranges.json`, and
-   `Config\CASC_DATA\runes.txt`).
-4. Tags `v<version>`, zips into
-   `D2RMultiExport-v<version>-win-x64.zip` (top-level folder
-   `D2RMultiExport\`), and attaches it to a GitHub Release with notes
-   generated by `.github/scripts/Generate-ReleaseNotes.ps1`.
-
-Shared assembly metadata (`Company`, `Copyright`,
-`PackageLicenseExpression=GPL-3.0-or-later`, `RepositoryUrl`, etc.) is
-declared in the root `Directory.Build.props` and applies to every
-project.
-
-### Application icon
-
-The branding artwork lives under `branding/` (the master PNG +
-`build-icon.ps1`, which produces a multi-size PNG-in-ICO). The shipping
-icon `D2RMultiExport.Client/Assets/icon.ico` is a copy of
-`branding/icon.ico`; if the source PNG changes, re-run
-`branding/build-icon.ps1` and copy the regenerated `icon.ico` over the
-Client `Assets\` copy. Both `.csproj` files reference an
-`<ApplicationIcon>` so the generated `.exe` files carry the icon as a
-Win32 resource.
 
 ---
 

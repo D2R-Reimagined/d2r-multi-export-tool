@@ -169,39 +169,8 @@ public sealed class TranslationService
     /// </summary>
     public int Count => _translations.Count;
 
-    /// <summary>
-    /// Writes a report of all missing translation keys encountered during processing.
-    /// </summary>
-    /// <param name="exportPath">Destination report path.</param>
-    /// <param name="referencedKeys">
-    /// Optional filter — when supplied, only missing keys that also appear as string
-    /// values inside the exported keyed item files are reported. Keys that are merely
-    /// looked up during legacy descfunc resolution but never surface in
-    /// <c>keyed/*.json</c> are skipped, since translators can't act on them.
-    /// </param>
-    public async Task WriteMissingKeysReportAsync(string exportPath, IReadOnlySet<string>? referencedKeys = null)
-    {
-        IEnumerable<string> source = _missingKeys;
-        if (referencedKeys is not null)
-            source = source.Where(referencedKeys.Contains);
-
-        var filtered = source.Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal).ToList();
-        if (filtered.Count == 0)
-        {
-            // Always overwrite any stale report so re-runs reflect the current state.
-            await File.WriteAllTextAsync(exportPath, "=== Missing Translation Keys (0) ===\n");
-            return;
-        }
-
-        var lines = new List<string>
-        {
-            $"=== Missing Translation Keys ({filtered.Count}) ===",
-            "Add these to your supplemental translation file to resolve them.",
-            ""
-        };
-        lines.AddRange(filtered.Select(k => $"  {k}"));
-
-        await File.WriteAllTextAsync(exportPath, string.Join("\n", lines));
-    }
-
+    // The missing-key audit lives in D2RMultiExportPipeline: deciding whether a key
+    // is really missing needs the final multi-language bundle (mod overrides + CASC
+    // fallback + synthetics), which this enUS-only service never sees. MissingKeys
+    // above is only the candidate list of probes that failed here.
 }

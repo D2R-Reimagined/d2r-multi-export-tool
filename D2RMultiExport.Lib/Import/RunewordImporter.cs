@@ -8,11 +8,11 @@ namespace D2RMultiExport.Lib.Import;
 public sealed class RunewordImporter
 {
     private readonly GameData _data;
-    private readonly string _excelPath;
+    private readonly SourceRoots _sources;
 
-    public RunewordImporter(string excelPath, GameData data)
+    public RunewordImporter(SourceRoots sources, GameData data)
     {
-        _excelPath = excelPath;
+        _sources = sources;
         _data = data;
     }
 
@@ -32,10 +32,15 @@ public sealed class RunewordImporter
 
         try
         {
-            rawEntries = await RunesParser.GetEntries(Path.Combine(_excelPath, "Runes.txt"));
+            rawEntries = await RunesParser.GetEntries(_sources.Excel("runes.txt"));
 
             var canonicalPath = ResolveCanonicalRunesPath();
-            if (File.Exists(canonicalPath))
+            if (canonicalPath is null)
+            {
+                result.AddWarning("Runeword", "runes.txt",
+                    "No vanilla runes.txt (CASC global/excel or bundled Config/CASC_DATA); no runeword is flagged Vanilla.");
+            }
+            else
             {
                 var canonicalRows = await RunesParser.GetEntries(canonicalPath);
                 foreach (var crow in canonicalRows)
@@ -55,8 +60,11 @@ public sealed class RunewordImporter
             return result;
         }
 
+        // 1-based position among the parsed data rows, reported with source-property diagnostics.
+        var parsedRow = 0;
         foreach (var entry in rawEntries)
         {
+            parsedRow++;
             var name = entry.Name ?? "";
             if (string.IsNullOrEmpty(entry.Rune1)) continue;
 
@@ -158,6 +166,11 @@ public sealed class RunewordImporter
                     {
                         var mod = entry.Mods[i];
                         if (string.IsNullOrEmpty(mod.Code)) continue;
+                        // Mods keeps one entry per T1Code column, so the list index is the slot.
+                        var slot = i + 1;
+                        PropertySourceValidator.Report(result, name, "runes.txt", parsedRow,
+                            new SourcePropertySlot($"T1Code{slot}", $"T1Param{slot}", $"T1Min{slot}", $"T1Max{slot}", mod.Code, mod.Param, mod.Min, mod.Max),
+                            _data);
                         if (PropertyMapper.IsIgnored(mod.Code, _data.ExportConfig)) continue;
                         // propertygroups.txt reference on a runeword's direct mods
                         // → expand into the parent KeyedLine carrying
@@ -167,18 +180,7 @@ public sealed class RunewordImporter
                             export.Properties.AddRange(groupExpansion);
                             continue;
                         }
-                        var resolved = PropertyMapper.Map(mod.Code, mod.Param, mod.Min, mod.Max, _data, itemLevel);
-                        export.Properties.Add(new CubePropertyExport
-                        {
-                            Index = i,
-                            PropertyCode = mod.Code,
-                            Priority = resolved.Priority,
-                            Min = mod.Min,
-                            Max = mod.Max,
-                            Parameter = mod.Param,
-                            IsEase = mod.Code == "ease",
-                            Lines = resolved.Lines
-                        });
+                        export.Properties.AddRange(PropertyMapper.MapRows(mod.Code, mod.Param, mod.Min, mod.Max, _data, itemLevel, i));
                     }
                 }
 
@@ -223,6 +225,11 @@ public sealed class RunewordImporter
             catch (Exception ex)
             {
                 result.AddError("Runeword", name, $"Failed to process: {ex.Message}", ex);
+            }
+            finally
+            {
+                foreach (var omission in PropertyMapper.TakeOmittedLines(_data))
+                    result.AddWarning("Runeword", name, omission);
             }
         }
 
@@ -271,39 +278,29 @@ public sealed class RunewordImporter
                 }
                 continue;
             }
-            var prop = PropertyMapper.Map(gp.Code, gp.Parameter, gp.Min, gp.Max, _data, itemLevel);
             var actualSuffix = addSuffix ? suffix.Trim() : "";
-
-            // Stamp the scope qualifier on every keyed line emitted by this
-            // gem-property contribution so the website can render the
-            // "(Weapon)/(Shield)/(Armor)" tail in the active language.
-            // Lines are cloned to avoid mutating shared instances cached
-            // upstream by PropertyMapper.
-            var taggedLines = prop.Lines;
-            if (qualifier != null && taggedLines.Count > 0)
+            foreach (var row in PropertyMapper.MapRows(gp.Code, gp.Parameter, gp.Min, gp.Max, _data, itemLevel, target.Count))
             {
-                taggedLines = taggedLines.Select(l => new KeyedLine
+                // Stamp the scope qualifier on every keyed line emitted by this
+                // gem-property contribution so the website can render the
+                // "(Weapon)/(Shield)/(Armor)" tail in the active language.
+                // Lines are cloned to avoid mutating shared instances cached
+                // upstream by PropertyMapper.
+                if (qualifier != null && row.Lines.Count > 0)
                 {
-                    Key = l.Key,
-                    Args = l.Args,
-                    PerLevel = l.PerLevel,
-                    Priority = l.Priority,
-                    Qualifier = qualifier
-                }).ToList();
+                    row.Lines = row.Lines.Select(l => new KeyedLine
+                    {
+                        Key = l.Key,
+                        Args = l.Args,
+                        Selection = l.Selection,
+                        PerLevel = l.PerLevel,
+                        Priority = l.Priority,
+                        Qualifier = qualifier
+                    }).ToList();
+                }
+                row.Suffix = actualSuffix;
+                target.Add(row);
             }
-
-            target.Add(new CubePropertyExport
-            {
-                Index = target.Count,
-                PropertyCode = gp.Code,
-                Priority = prop.Priority,
-                Min = gp.Min,
-                Max = gp.Max,
-                Parameter = gp.Parameter,
-                IsEase = gp.Code == "ease",
-                Suffix = actualSuffix,
-                Lines = taggedLines
-            });
         }
     }
 
@@ -364,26 +361,14 @@ public sealed class RunewordImporter
     }
 
     /// <summary>
-    /// Returns the bundled canonical <c>runes.txt</c> shipped under
-    /// <c>D2RMultiExport.Lib/Config/CASC_DATA/</c>. Resolution prefers the
-    /// copy next to the running assembly (covers the standard
-    /// <c>copyToOutputDirectory</c> deployment) and falls back to walking up
-    /// from the current directory for development scenarios where the
-    /// assembly path is not the same as the project root.
+    /// Returns the canonical vanilla <c>runes.txt</c>: the CASC copy when a CASC data root is
+    /// configured, otherwise the copy bundled under <c>Config/CASC_DATA/</c>. Never the mod's
+    /// own file — that is what is being compared against it.
     /// </summary>
-    private static string ResolveCanonicalRunesPath()
+    private string? ResolveCanonicalRunesPath()
     {
-        const string relative = "Config/CASC_DATA/runes.txt";
-        var asmDir = AppContext.BaseDirectory;
-        var fromAssembly = Path.Combine(asmDir, relative);
-        if (File.Exists(fromAssembly)) return fromAssembly;
-
-        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
-        for (int i = 0; i < 6 && dir != null; i++, dir = dir.Parent)
-        {
-            var candidate = Path.Combine(dir.FullName, "D2RMultiExport.Lib", "Config", "CASC_DATA", "runes.txt");
-            if (File.Exists(candidate)) return candidate;
-        }
-        return "";
+        var casc = _sources.ResolveIn(SourceOrigin.Casc, $"{SourceRoots.ExcelDirectory}/runes.txt");
+        if (casc.Exists) return casc.Path;
+        return _sources.ResolveIn(SourceOrigin.Bundled, "runes.txt").Path;
     }
 }

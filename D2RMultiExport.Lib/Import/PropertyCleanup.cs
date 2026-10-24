@@ -1,42 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+using System.Globalization;
 using D2RMultiExport.Lib.Models;
 using D2RMultiExport.Lib.Translation;
 
 namespace D2RMultiExport.Lib.Import;
 
-/// <summary>
-/// Merges duplicate properties matching the old doc-generator's CleanupDublicates logic.
-/// Properties with the same stat key (PropertyCode + Parameter) are summed and re-resolved.
-/// </summary>
+/// <summary>Merges additive rolls before pairing damage components, retaining activation scopes.</summary>
 public static class PropertyCleanup
 {
-    /// <summary>
-    /// Merges duplicate properties in-place, matching the old tool's CleanupDublicates behavior.
-    /// Groups properties by (PropertyCode, Suffix), sums their Min/Max, and re-resolves the display string.
-    /// Also transforms "+X to Minimum Weapon Damage" ? "Adds X Weapon Damage".
-    /// </summary>
-    /// <summary>
-    /// Split elemental damage codes (min/max/len) that ItemStatCost typically renders
-    /// as bare numbers (descfunc 0). They must survive UniqueImporter's bare-int filter
-    /// so MergeElementalTriplets can aggregate them into dmg-{fire,cold,ltng,pois} entries.
-    /// Backed by <see cref="Config.ExportConfig.SplitElementalCodesSet"/>
-    /// (<c>export-config.json → splitElementalCodes</c>).
-    /// </summary>
+    /// <summary>Split damage helpers must survive until their components can be paired.</summary>
     public static bool IsSplitElementalCode(string? code, Config.ExportConfig config) =>
         !string.IsNullOrEmpty(code) && config.SplitElementalCodesSet.Contains(code);
 
     /// <summary>
-    /// Merges duplicate properties in-place and returns the cleaned list.
+    /// Sums additive duplicate rolls within the same activation scope, then combines
+    /// damage components. Independent chance/level and charge/level fields are never summed.
     /// </summary>
-    /// <param name="properties">Properties to merge / sort.</param>
-    /// <param name="data">Shared game data — used to re-resolve display strings on merge.</param>
-    /// <param name="itemLevel">Item level for property re-resolution.</param>
-    /// <param name="suffixBucketOrder">
-    /// Optional comparator over the trimmed <c>Suffix</c> token (e.g. <c>"(Weapon)"</c>,
-    /// <c>"(Armor)"</c>, <c>"(Shield)"</c>). When supplied, suffixed-property buckets are
-    /// emitted in the order it dictates; otherwise insertion order is preserved. Used by
-    /// runewords to enforce the legacy doc-generator ordering (Weapon → Armor → Shield → other).
-    /// </param>
     public static List<CubePropertyExport> CleanupDuplicates(
         List<CubePropertyExport> properties,
         GameData data,
@@ -44,282 +23,177 @@ public static class PropertyCleanup
         IComparer<string>? suffixBucketOrder = null)
     {
         if (properties.Count == 0) return properties;
-
-        // Merge elemental triplets (cold-min+cold-max+cold-len ? "Adds X-Y Weapon Cold Damage", etc.)
-        MergeElementalTriplets(properties, data);
-
-        // Merge dmg-min + dmg-max pairs into a single row: the 2-arg case uses the
-        // game-native strModMinDamageRange template ("Adds %d-%d Damage"); the 4-arg
-        // level-scaled case uses the synthetic strDamageMergedRange ("Adds %d-%d to %d-%d Damage")
-        // since the game has no equivalent shape. Restores the legacy doc-generator's
-        // "Adds X-Y Damage" / "Adds X-Y to A-B Damage" output.
-        MergeMinMaxDamage(properties);
-
-        // Separate base props (no suffix) from suffixed props
-        var baseProps = properties.Where(p => string.IsNullOrEmpty(p.Suffix)).ToList();
-        var suffixedProps = properties.Where(p => !string.IsNullOrEmpty(p.Suffix)).ToList();
-
-        // Merge base props with duplicate (PropertyCode + Parameter) - e.g. two dmg-min entries
-        // but NOT two different "skill" entries with different skill parameters
-        // and NOT "rip" (random skill) entries which represent different class skill pools.
-        // The blocklist is config-driven (export-config.json -> propertyMergeBlocklist).
-        var neverMerge = data.ExportConfig.PropertyMergeBlocklistSet;
-        var duplicateGroups = baseProps
-            .Where(p => !neverMerge.Contains(p.PropertyCode ?? ""))
-            .GroupBy(p => (p.PropertyCode ?? "") + "|" + (p.Parameter ?? ""))
-            .Where(g => g.Count() > 1)
+        var merged = properties
+            .GroupBy(p => CanSum(p, data) ? MergeIdentity(p) : $"unmerged:{properties.IndexOf(p)}", StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.Count() > 1 ? MergePropertyGroup(g.ToList(), data, itemLevel) : g.First())
             .ToList();
-
-        foreach (var group in duplicateGroups)
-        {
-            var items = group.ToList();
-            var merged = MergePropertyGroup(items, data, itemLevel);
-            var groupSet = new HashSet<CubePropertyExport>(items);
-            baseProps.RemoveAll(p => groupSet.Contains(p));
-            baseProps.Add(merged);
-        }
-
-        // Merge suffixed props by suffix category and normalized property string
-        var result = new List<CubePropertyExport>();
-        result.AddRange(baseProps.OrderByDescending(p => p.Priority).ThenBy(p => p.Index));
-
-        var suffixGroups = suffixedProps.GroupBy(p => p.Suffix.Trim()).ToList();
+        // Pairing first and subsequently re-resolving a duplicate as dmg-min erased
+        // the maximum damage component. Elemental pairing had the same ordering issue.
+        MergeElementalTriplets(merged);
+        MergeMinMaxDamage(merged);
+        var result = merged.Where(p => string.IsNullOrEmpty(p.Suffix))
+            .OrderByDescending(p => p.Priority).ThenBy(p => p.Index).ToList();
+        var scopes = merged.Where(p => !string.IsNullOrEmpty(p.Suffix)).GroupBy(p => p.Suffix.Trim());
         if (suffixBucketOrder != null)
         {
-            suffixGroups = suffixGroups.OrderBy(g => g.Key, suffixBucketOrder).ToList();
+            scopes = scopes.OrderBy(g => g.Key, suffixBucketOrder);
         }
-        foreach (var suffixGroup in suffixGroups)
+        foreach (var scope in scopes)
         {
-            var merged = MergeDuplicatesWithinSuffixBucket(suffixGroup.ToList(), data, itemLevel);
-            result.AddRange(merged);
+            result.AddRange(scope.OrderByDescending(p => p.Priority).ThenBy(p => p.Index));
         }
-
         return result;
     }
 
-    /// <summary>
-    /// Suffix-bucket comparator used by <see cref="RunewordImporter"/>: emits
-    /// <c>(Weapon)</c> → <c>(Armor)</c> → <c>(Shield)</c> → any other token, matching
-    /// the legacy doc-generator's runeword output ordering.
-    /// </summary>
+    /// <summary>Engine runeword equipment scopes in their established display order.</summary>
     public static readonly IComparer<string> RunewordSuffixOrder =
         Comparer<string>.Create((a, b) => RunewordSuffixRank(a).CompareTo(RunewordSuffixRank(b)));
 
     private static int RunewordSuffixRank(string suffix) => suffix switch
     {
         "(Weapon)" => 0,
-        "(Armor)"  => 1,
+        "(Armor)" => 1,
         "(Shield)" => 2,
-        _          => 3,
+        _ => 3
     };
+
+    private static bool CanSum(CubePropertyExport property, GameData data) =>
+        !data.ExportConfig.PropertyMergeBlocklistSet.Contains(property.PropertyCode ?? "")
+        && !data.PropertyGroups.ContainsKey(property.PropertyCode ?? "")
+        // Fixed engine encodings: event chance/level, random selection and charged
+        // skill count/level are independent fields, not additive roll endpoints.
+        && (!data.Properties.TryGetValue(property.PropertyCode ?? "", out var definition)
+            || definition.Function1 is not (11 or 12 or 19));
+
+    private static string ActivationIdentity(CubePropertyExport p) =>
+        $"{p.Suffix}|{p.NumberOfItemsRequired}|{p.ModChance}|{p.PickMode}|{p.Chance}|{p.Lines.FirstOrDefault()?.Qualifier}|{p.Lines.FirstOrDefault()?.FullSet}";
+
+    private static string MergeIdentity(CubePropertyExport p) =>
+        $"{p.PropertyCode}|{p.Parameter}|{ActivationIdentity(p)}";
 
     private static CubePropertyExport MergePropertyGroup(List<CubePropertyExport> group, GameData data, int itemLevel)
     {
         var first = group[0];
-        int? sumMin = group.Sum(p => p.Min ?? 0);
-        int? sumMax = group.Sum(p => p.Max ?? 0);
-
-        // Re-resolve with summed values
-        var resolved = PropertyMapper.Map(first.PropertyCode!, first.Parameter, sumMin, sumMax, data, itemLevel);
-
+        int? sumMin = group.All(p => !p.Min.HasValue && !p.Max.HasValue) ? null : group.Sum(p => p.Min ?? p.Max ?? 0);
+        int? sumMax = group.All(p => !p.Max.HasValue) ? null : group.Sum(p => p.Max ?? p.Min ?? 0);
+        var parameter = first.Parameter;
+        if (data.Properties.TryGetValue(first.PropertyCode ?? "", out var definition)
+            && definition.Function1 == 17 && int.TryParse(parameter, out var value))
+        {
+            parameter = checked(value * group.Count).ToString(CultureInfo.InvariantCulture);
+        }
+        var resolved = PropertyMapper.Map(first.PropertyCode!, parameter, sumMin, sumMax, data, itemLevel);
         var merged = new CubePropertyExport
         {
-            Index = first.Index,
+            Index = group.Min(p => p.Index),
             PropertyCode = first.PropertyCode,
             Priority = resolved.Priority,
             Min = sumMin,
             Max = sumMax,
-            Parameter = first.Parameter,
+            Parameter = parameter,
             IsEase = first.IsEase,
+            ModChance = first.ModChance,
+            NumberOfItemsRequired = first.NumberOfItemsRequired,
+            PickMode = first.PickMode,
+            Chance = first.Chance,
             Suffix = first.Suffix,
             Lines = resolved.Lines
         };
-
+        Stamp(merged, first.Lines.FirstOrDefault());
         return merged;
     }
 
-    /// <summary>
-    /// Merges elemental min+max+len triplets into single "Adds X-Y Weapon [Element] Damage" entries,
-    /// matching the old doc-generator's GetProperties aggregation logic.
-    /// </summary>
-    private static void MergeElementalTriplets(List<CubePropertyExport> properties, GameData data)
+    private static void Stamp(CubePropertyExport row, KeyedLine? original)
     {
-        // Cold: merge min+max (with or without len). Poison: require len.
-        // Fire/Lightning stay as separate min/max entries (matching old code).
-        // Fire/Lightning have no duration component, so lenCode is null.
-        // Cold has a duration in source data but the rendered tooltip drops it.
-        // Poison merges min+max+len into total damage over N seconds.
-        var elemDefs = new (string minCode, string maxCode, string? lenCode, string element, int priority, bool requireLen)[]
+        foreach (var line in row.Lines)
         {
-            ("fire-min", "fire-max", null,       "Fire",      100, false),
-            ("ltng-min", "ltng-max", null,       "Lightning",  98, false),
-            ("cold-min", "cold-max", "cold-len", "Cold",       96, false),
-            ("pois-min", "pois-max", "pois-len", "Poison",     92, false),
-        };
+            line.Qualifier = original?.Qualifier;
+            line.ItemsRequired = original?.ItemsRequired ?? row.NumberOfItemsRequired;
+            line.FullSet = original?.FullSet ?? false;
+            line.Chance = original?.Chance ?? row.Chance;
+        }
+    }
 
-        foreach (var (minCode, maxCode, lenCode, element, priority, requireLen) in elemDefs)
+    /// <summary>Established elemental pairing order and priorities; each component can itself roll.</summary>
+    private static readonly (string Min, string Max, string? Length, string Code, string Key, string RollsKey, int Priority)[] ElementalPairs =
+    [
+        ("fire-min", "fire-max", null, "dmg-fire", "strModFireDamageRange", SyntheticStringRegistry.Keys.FireDamageRolls, 100),
+        ("ltng-min", "ltng-max", null, "dmg-ltng", "strModLightningDamageRange", SyntheticStringRegistry.Keys.LightningDamageRolls, 98),
+        ("cold-min", "cold-max", "cold-len", "dmg-cold", "strModColdDamageRange", SyntheticStringRegistry.Keys.ColdDamageRolls, 96),
+        ("pois-min", "pois-max", "pois-len", "dmg-pois", "strModPoisonDamageRange", SyntheticStringRegistry.Keys.PoisonDamageRolls, 92)
+    ];
+
+    private static void MergeElementalTriplets(List<CubePropertyExport> properties)
+    {
+        foreach (var pair in ElementalPairs)
         {
-            var minProp = properties.FirstOrDefault(p => string.Equals(p.PropertyCode, minCode, StringComparison.OrdinalIgnoreCase));
-            var maxProp = properties.FirstOrDefault(p => string.Equals(p.PropertyCode, maxCode, StringComparison.OrdinalIgnoreCase));
-            var lenProp = lenCode != null ? properties.FirstOrDefault(p => string.Equals(p.PropertyCode, lenCode, StringComparison.OrdinalIgnoreCase)) : null;
-
-            // Drop orphaned length properties
-            if (lenProp != null && minProp == null && maxProp == null)
+            foreach (var scope in properties.GroupBy(ActivationIdentity).Select(g => g.ToList()).ToList())
             {
-                properties.Remove(lenProp);
-                continue;
-            }
-
-            // Merge when min+max present (and len if required)
-            bool canMerge = minProp != null && maxProp != null;
-            if (canMerge && requireLen && lenProp == null)
-                canMerge = false;
-
-            if (canMerge)
-            {
-                var minVal = minProp!.Min ?? 0;
-                var maxVal = maxProp!.Max ?? maxProp.Min ?? 0;
-                int? secondsArg = null;
-
-                if (element == "Poison" && lenProp != null)
+                var min = scope.FirstOrDefault(p => string.Equals(p.PropertyCode, pair.Min, StringComparison.OrdinalIgnoreCase));
+                var max = scope.FirstOrDefault(p => string.Equals(p.PropertyCode, pair.Max, StringComparison.OrdinalIgnoreCase));
+                var length = scope.FirstOrDefault(p => pair.Length != null && string.Equals(p.PropertyCode, pair.Length, StringComparison.OrdinalIgnoreCase));
+                if (min == null || max == null) continue;
+                if ((!min.Min.HasValue && !min.Max.HasValue) || (!max.Min.HasValue && !max.Max.HasValue)) continue;
+                // Keep a duration roll separate instead of guessing a single duration.
+                if (length?.Min.HasValue == true && length.Max.HasValue && length.Min != length.Max) continue;
+                var minLow = min.Min ?? min.Max!.Value;
+                var minHigh = min.Max ?? minLow;
+                var maxLow = max.Min ?? max.Max!.Value;
+                var maxHigh = max.Max ?? maxLow;
+                var ranged = minLow != minHigh || maxLow != maxHigh;
+                object[] args = ranged ? [minLow, minHigh, maxLow, maxHigh] : [minLow, maxLow];
+                if (pair.Code == "dmg-pois")
                 {
-                    var frames = lenProp.Min ?? lenProp.Max ?? 0;
-                    var poisMin = (int)Math.Ceiling(minVal * frames / 256.0);
-                    var poisMax = (int)Math.Ceiling(maxVal * frames / 256.0);
-                    var seconds = frames / 25.0;
-                    minProp.Parameter = frames.ToString();
-                    minVal = poisMin;
-                    maxVal = poisMax;
-                    secondsArg = (int)Math.Round(seconds);
+                    if (length == null) continue;
+                    var frames = length.Min ?? length.Max;
+                    if (!frames.HasValue) continue;
+                    min.Parameter = frames.Value.ToString(CultureInfo.InvariantCulture);
+                    args = [.. args.Select(v => (object)PropertyKeyResolver.PoisonTotalDamage((int)v, frames.Value)), PropertyKeyResolver.PoisonDurationSeconds(frames.Value)];
                 }
-
-                var mergedCode = element switch
+                var original = min.Lines.FirstOrDefault() ?? max.Lines.FirstOrDefault();
+                min.PropertyCode = pair.Code;
+                min.Priority = pair.Priority;
+                // Raw rates stay internal; only keyed args are converted to total
+                // poison damage. Converting both caused a second conversion later.
+                min.Min = minLow;
+                min.Max = maxHigh;
+                min.DamageRolls = (minLow, minHigh, maxLow, maxHigh);
+                min.Index = Math.Min(min.Index, max.Index);
+                min.Lines = [new KeyedLine { Key = ranged ? pair.RollsKey : pair.Key, Args = args }];
+                Stamp(min, original);
+                properties.Remove(max);
+                if (length != null && pair.Code == "dmg-pois")
                 {
-                    "Fire"      => "dmg-fire",
-                    "Cold"      => "dmg-cold",
-                    "Lightning" => "dmg-ltng",
-                    "Poison"    => "dmg-pois",
-                    _           => $"dmg-{element.ToLowerInvariant()}"
-                };
-                minProp.PropertyCode = mergedCode;
-                minProp.Priority = priority;
-                minProp.Min = minVal;
-                minProp.Max = maxVal;
-
-                var earliestIndex = minProp.Index;
-                if (maxProp.Index < earliestIndex) earliestIndex = maxProp.Index;
-                if (lenProp != null && lenProp.Index < earliestIndex) earliestIndex = lenProp.Index;
-                minProp.Index = earliestIndex;
-
-                // Regenerate the keyed-line for the merged row. Without this the
-                // wire-side Lines list keeps the original "cold-min"/"pois-min"
-                // resolution (e.g. ModStr1t "+5 to Minimum Cold Damage") which
-                // both selects the wrong template and silently drops the max
-                // half of the range.
-                minProp.Lines = element switch
-                {
-                    "Fire"      => [new KeyedLine { Key = "strModFireDamageRange",      Args = [minVal, maxVal] }],
-                    "Lightning" => [new KeyedLine { Key = "strModLightningDamageRange", Args = [minVal, maxVal] }],
-                    "Cold"      => [new KeyedLine { Key = "strModColdDamageRange",      Args = [minVal, maxVal] }],
-                    "Poison"    => [new KeyedLine
-                    {
-                        Key = "strModPoisonDamageRange",
-                        Args = [minVal, maxVal, secondsArg ?? 0]
-                    }],
-                    _ => minProp.Lines
-                };
-
-                properties.Remove(maxProp);
-                if (lenProp != null) properties.Remove(lenProp);
-            }
-            else
-            {
-                if (lenProp != null) properties.Remove(lenProp);
+                    properties.Remove(length);
+                }
             }
         }
     }
 
-    /// <summary>
-    /// Merges paired dmg-min and dmg-max base properties into a single row. The
-    /// fixed 2-arg case uses the game-native strModMinDamageRange template; the
-    /// level-scaled 4-arg case uses the synthetic strDamageMergedRange template
-    /// (the game has no equivalent shape). This restores the legacy
-    /// "Adds X-Y Damage" / "Adds X-Y to A-B Damage" output for items like
-    /// runewords (Steel) and set items (Isenhart's Lightbrand) where the underlying
-    /// data carries dmg-min and dmg-max as separate stat entries.
-    /// </summary>
+    /// <summary>Pairs physical damage components without changing the raw rows used by equipment math.</summary>
     public static void MergeMinMaxDamage(List<CubePropertyExport> properties)
     {
-        if (properties.Count == 0) return;
-
-        // Pair within the same Suffix scope so " (Weapon)" / " (Shield)" / " (Armor)"
-        // gem-property contributions merge independently.
-        var suffixGroups = properties
-            .GroupBy(p => p.Suffix ?? "")
-            .Select(g => g.ToList())
-            .ToList();
-
-        foreach (var group in suffixGroups)
+        foreach (var scope in properties.GroupBy(ActivationIdentity).Select(g => g.ToList()).ToList())
         {
-            var minProp = group.FirstOrDefault(p => string.Equals(p.PropertyCode, "dmg-min", StringComparison.OrdinalIgnoreCase));
-            var maxProp = group.FirstOrDefault(p => string.Equals(p.PropertyCode, "dmg-max", StringComparison.OrdinalIgnoreCase));
-            if (minProp == null || maxProp == null) continue;
-
-            int minLow = minProp.Min ?? 0;
-            int minHigh = minProp.Max ?? minLow;
-            int maxLow = maxProp.Min ?? 0;
-            int maxHigh = maxProp.Max ?? maxLow;
-
-            // Preserve any qualifier ("(Weapon)" etc.) carried on the existing line.
-            string? qualifier = minProp.Lines?.FirstOrDefault()?.Qualifier
-                                ?? maxProp.Lines?.FirstOrDefault()?.Qualifier;
-
-            KeyedLine line;
-            if (minLow == minHigh && maxLow == maxHigh)
+            var min = scope.FirstOrDefault(p => string.Equals(p.PropertyCode, "dmg-min", StringComparison.OrdinalIgnoreCase));
+            var max = scope.FirstOrDefault(p => string.Equals(p.PropertyCode, "dmg-max", StringComparison.OrdinalIgnoreCase));
+            if (min == null || max == null) continue;
+            if ((!min.Min.HasValue && !min.Max.HasValue) || (!max.Min.HasValue && !max.Max.HasValue)) continue;
+            var minLow = min.Min ?? min.Max!.Value;
+            var minHigh = min.Max ?? minLow;
+            var maxLow = max.Min ?? max.Max!.Value;
+            var maxHigh = max.Max ?? maxLow;
+            var ranged = minLow != minHigh || maxLow != maxHigh;
+            var original = min.Lines.FirstOrDefault() ?? max.Lines.FirstOrDefault();
+            min.Lines = [new KeyedLine
             {
-                line = new KeyedLine
-                {
-                    Key = "strModMinDamageRange",
-                    Args = [minLow, maxLow],
-                    Qualifier = qualifier
-                };
-            }
-            else
-            {
-                line = new KeyedLine
-                {
-                    Key = SyntheticStringRegistry.Keys.DamageMergedRange,
-                    Args = [minLow, minHigh, maxLow, maxHigh],
-                    Qualifier = qualifier
-                };
-            }
-
-            minProp.Lines = new List<KeyedLine> { line };
-            minProp.Min = minLow;
-            minProp.Max = maxHigh;
-            minProp.Priority = Math.Max(minProp.Priority, maxProp.Priority);
-            if (maxProp.Index < minProp.Index) minProp.Index = maxProp.Index;
-
-            properties.Remove(maxProp);
+                Key = ranged ? SyntheticStringRegistry.Keys.DamageMergedRange : "strModMinDamageRange",
+                Args = ranged ? [minLow, minHigh, maxLow, maxHigh] : [minLow, maxLow]
+            }];
+            Stamp(min, original);
+            max.Lines = [];
+            min.Priority = Math.Max(min.Priority, max.Priority);
+            min.Index = Math.Min(min.Index, max.Index);
         }
     }
-
-    /// <summary>
-    /// Merges duplicate properties within an already-suffix-scoped bucket and
-    /// returns the bucket sorted by descending priority then ascending index —
-    /// matching the legacy behaviour without depending on the long-removed
-    /// English `PropertyString`. Two properties are considered duplicates when
-    /// they share the same <see cref="CubePropertyExport.PropertyCode"/> and
-    /// <see cref="CubePropertyExport.Parameter"/>.
-    /// </summary>
-    private static List<CubePropertyExport> MergeDuplicatesWithinSuffixBucket(List<CubePropertyExport> props, GameData data, int itemLevel)
-    {
-        return props
-            .GroupBy(p => (p.PropertyCode ?? "") + "|" + (p.Parameter ?? ""), StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.Count() > 1 ? MergePropertyGroup(g.ToList(), data, itemLevel) : g.First())
-            .OrderByDescending(p => p.Priority)
-            .ThenBy(p => p.Index)
-            .ToList();
-    }
 }
-

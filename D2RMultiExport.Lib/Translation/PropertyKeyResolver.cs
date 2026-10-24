@@ -133,9 +133,14 @@ public static class PropertyKeyResolver
                 // ModStr3h2 "Requirements Increased By %d%%"). Prefer those keys when
                 // defined so mod authors' wording wins; fall back to the synthetic
                 // strRequirementsReducedBy / strRequirementsIncreasedBy seeds otherwise.
-                var min = property.Min ?? 0;
+                var min = property.Min ?? property.Max ?? 0;
                 var max = property.Max ?? min;
-                var absArgs = ToRangeArgs(Math.Abs(min), Math.Abs(max));
+                // A reduction template needs magnitudes; a roll crossing zero must
+                // keep its signs in the increase template rather than collapse ±N.
+                var isReduction = min <= 0 && max <= 0;
+                var absArgs = isReduction
+                    ? ToRangeArgs(Math.Abs(max), Math.Abs(min))
+                    : ToRangeArgs(min, max);
 
                 StatEntry? easeStat = null;
                 if (data.Properties.TryGetValue("ease", out var easeProp)
@@ -147,12 +152,12 @@ public static class PropertyKeyResolver
                 string? key = null;
                 if (easeStat != null)
                 {
-                    key = min < 0
+                    key = isReduction
                         ? (easeStat.DescStrNegKey ?? easeStat.DescStrPosKey)
                         : (easeStat.DescStrPosKey ?? easeStat.DescStrNegKey);
                 }
                 if (string.IsNullOrEmpty(key))
-                    key = min < 0
+                    key = isReduction
                         ? SyntheticStringRegistry.Keys.RequirementsReducedBy
                         : SyntheticStringRegistry.Keys.RequirementsIncreasedBy;
 
@@ -160,7 +165,7 @@ public static class PropertyKeyResolver
                 return lines;
             }
             case "reqlevel":
-                lines.Add(new KeyedLine { Key = SyntheticStringRegistry.Keys.RequiredLevel, Args = [property.Min ?? 0] });
+                lines.Add(new KeyedLine { Key = SyntheticStringRegistry.Keys.RequiredLevel, Args = ToRangeArgs(property.Min, property.Max) });
                 return lines;
             case "fade":
                 lines.Add(new KeyedLine { Key = "fadeDescription" });
@@ -169,7 +174,7 @@ public static class PropertyKeyResolver
                 lines.Add(new KeyedLine { Key = SyntheticStringRegistry.Keys.SkillRandom, Args = [TryParseInt(property.Parameter) ?? 0] });
                 return lines;
             case "charm-weight":
-                lines.Add(new KeyedLine { Key = SyntheticStringRegistry.Keys.CharmWeight, Args = [property.Min ?? property.Max ?? 0] });
+                lines.Add(new KeyedLine { Key = SyntheticStringRegistry.Keys.CharmWeight, Args = ToRangeArgs(property.Min, property.Max) });
                 return lines;
             case "2500":
                 // strModMinDamageRange is a CASC item-modifier key (mod-overridable); leave as a literal.
@@ -186,9 +191,187 @@ public static class PropertyKeyResolver
             return lines;
         }
 
+        // Synthetic stat rows (res-all, all-stats, dmg-fire, fireskill, ...) are the
+        // established composite renderings and keep precedence over the slot analysis.
+        if (!stat.IsSynthetic
+            && data.Properties.TryGetValue(property.PropertyCode, out var multiStatDefinition)
+            && multiStatDefinition.Slots.Count > 1)
+        {
+            return ResolveMultiStat(property, multiStatDefinition, stat, data, itemLevel);
+        }
+
         var line = ResolveStatLine(property, stat, data, itemLevel);
         if (line != null) lines.Add(line);
+        if (data.Properties.TryGetValue(property.PropertyCode, out var damageDefinition)
+            && damageDefinition.Function1 == 15 && damageDefinition.Stat1 == "coldmindam"
+            && TryParseInt(property.Parameter) is { } coldFrames)
+        {
+            lines.Add(new KeyedLine { Key = "StrSkill13", Args = [coldFrames / 25d] });
+        }
         return lines;
+    }
+
+    /// <summary>
+    /// Engine property functions (D2Common <c>ItemAssignProperty</c>) that apply the value
+    /// returned by slot 1 when it is non-zero instead of rolling their own: 3/4 (the
+    /// "same value as the previous call" variants of 1/2), 5-8 (damage and speed),
+    /// 9/10 (single skill / skill tab) and 24.
+    /// </summary>
+    private static readonly HashSet<int> FirstValueReuseFunctions = [3, 4, 5, 6, 7, 8, 9, 10, 24];
+
+    /// <summary>
+    /// Engine functions whose return value, handed to every later slot, is the value they
+    /// applied: rolls 1/2/21/22, the reuse functions, fixed minimum 15 / maximum 16 and
+    /// parameter-or-roll 17. After any other first function no later value is guaranteed.
+    /// </summary>
+    private static readonly HashSet<int> ValueReturningFunctions = [1, 2, 3, 4, 5, 6, 8, 9, 10, 15, 16, 17, 21, 22, 24];
+
+    /// <summary>
+    /// Renders a Properties.txt definition that applies several stats. Stats guaranteed the
+    /// same value (see <see cref="ValueSource"/>) that together form a complete ItemStatCost
+    /// <c>dgrp</c> render as that group's description; every other displayable stat keeps
+    /// its own line, even when its <c>dgrp</c> matches. Later stats without a description
+    /// template are engine helpers that the game does not display either.
+    /// </summary>
+    private static List<KeyedLine> ResolveMultiStat(ExportProperty property, PropertyEntry definition, StatEntry firstStat, GameData data, int itemLevel)
+    {
+        var slots = definition.Slots;
+        var slotStats = new StatEntry?[slots.Count];
+        var slotProperties = new ExportProperty?[slots.Count];
+        var sources = new string[slots.Count];
+        for (var i = 0; i < slots.Count; i++)
+        {
+            slotStats[i] = i == 0 ? firstStat
+                : slots[i].Stat is { } statName && data.Stats.TryGetValue(statName, out var slotStat) ? slotStat : null;
+            sources[i] = ValueSource(i, slots, property, data);
+            slotProperties[i] = SlotProperty(property, definition, i, sources[i]);
+        }
+
+        var rendered = new List<(int Priority, int Order, KeyedLine Line)>();
+        var grouped = new HashSet<int>();
+        foreach (var mirrored in Enumerable.Range(0, slots.Count)
+                     .Where(i => slotStats[i] != null && slotProperties[i] != null)
+                     .GroupBy(i => sources[i], StringComparer.Ordinal))
+        {
+            foreach (var displayGroup in mirrored.GroupBy(i => slotStats[i]!.GroupDescription))
+            {
+                if (displayGroup.Key is not > 0) continue;
+                var members = displayGroup.ToList();
+                var groupLine = BuildGroupLine(displayGroup.Key.Value, members, slotStats, slotProperties[members[0]]!, data, itemLevel);
+                if (groupLine == null) continue;
+                rendered.Add((members.Max(i => slotStats[i]!.DescriptionPriority ?? 0), members[0], groupLine));
+                grouped.UnionWith(members);
+            }
+        }
+
+        for (var i = 0; i < slots.Count; i++)
+        {
+            if (grouped.Contains(i) || slotStats[i] is not { } stat || slotProperties[i] is not { } slotProperty) continue;
+            if (i > 0 && string.IsNullOrEmpty(stat.DescStrPosKey) && string.IsNullOrEmpty(stat.DescStrNegKey)
+                && stat.Stat is not ("coldlength" or "poisonlength"))
+                continue;
+            if (ResolveStatLine(slotProperty, stat, data, itemLevel) is { } line)
+                rendered.Add((stat.DescriptionPriority ?? 0, i, line));
+        }
+
+        return [.. rendered.OrderByDescending(r => r.Priority).ThenBy(r => r.Order).Select(r => r.Line)];
+    }
+
+    /// <summary>
+    /// Identifies the value a slot applies. Slots sharing an identifier are guaranteed equal:
+    /// slot 1's value reused by a later reuse function, the row minimum (15), the row
+    /// maximum (16) or a non-zero parameter (17). Every independent roll is distinct, even
+    /// when its range equals another slot's. A zero slot-1 value is not passed on; reuse
+    /// slots then roll themselves, so mirroring needs a range that excludes zero.
+    /// </summary>
+    private static string ValueSource(int index, IReadOnlyList<PropertySlot> slots, ExportProperty p, GameData data)
+    {
+        var function = slots[index].Function;
+        if (function == 15) return "min";
+        if (function == 16) return "max";
+        if (function == 17 && TryParseInt(p.Parameter) is not (null or 0)) return "param";
+        if (index > 0 && FirstValueReuseFunctions.Contains(function) && FirstValueIsNonZero(slots[0], p, data))
+            return ValueSource(0, slots, p, data);
+        return $"roll{index}";
+    }
+
+    private static bool FirstValueIsNonZero(PropertySlot first, ExportProperty p, GameData data)
+    {
+        // The engine returns zero when the first stat has no ItemStatCost row.
+        if (!ValueReturningFunctions.Contains(first.Function) || first.Stat is null || !data.Stats.ContainsKey(first.Stat))
+            return false;
+        if (first.Function == 15) return p.Min is not (null or 0);
+        if (first.Function == 16) return p.Max is not (null or 0);
+        if (first.Function == 17 && TryParseInt(p.Parameter) is not (null or 0)) return true;
+        var low = p.Min ?? p.Max;
+        var high = p.Max ?? p.Min;
+        if (!low.HasValue || !high.HasValue) return false;
+        return Math.Min(low.Value, high.Value) > 0 || Math.Max(low.Value, high.Value) < 0;
+    }
+
+    /// <summary>
+    /// The values one slot applies, or <c>null</c> when a fixed value is zero (the engine
+    /// applies nothing). A later slot's own <c>val</c> replaces the slot-1 <c>val</c> that
+    /// <see cref="Import.PropertyMapper.Map"/> substitutes for an empty parameter.
+    /// </summary>
+    private static ExportProperty? SlotProperty(ExportProperty p, PropertyEntry definition, int index, string source)
+    {
+        var parameter = p.Parameter;
+        var slot = definition.Slots[index];
+        if (index > 0 && slot.Value is { } slotValue
+            && (string.IsNullOrEmpty(parameter) || parameter == "0"
+                || parameter == definition.Value1?.ToString(CultureInfo.InvariantCulture)))
+        {
+            parameter = slotValue.ToString(CultureInfo.InvariantCulture);
+        }
+
+        int? fixedValue = source switch
+        {
+            "min" => p.Min,
+            "max" => p.Max,
+            "param" => TryParseInt(p.Parameter),
+            _ => null
+        };
+        if (source is "min" or "max" or "param" && fixedValue is (null or 0)) return null;
+        return new ExportProperty
+        {
+            PropertyCode = p.PropertyCode,
+            Parameter = parameter,
+            Min = fixedValue ?? p.Min,
+            Max = fixedValue ?? p.Max,
+            Priority = p.Priority
+        };
+    }
+
+    /// <summary>
+    /// Renders mirrored stats as their ItemStatCost display group, which the game uses only
+    /// when every stat of that <c>dgrp</c> is present with the same value and the group
+    /// defines a description function and template.
+    /// </summary>
+    private static KeyedLine? BuildGroupLine(int group, List<int> members, StatEntry?[] slotStats, ExportProperty value, GameData data, int itemLevel)
+    {
+        var present = members.Select(i => slotStats[i]!.Stat).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var groupStats = data.Stats.Values.Where(s => !s.IsSynthetic && s.GroupDescription == group).ToList();
+        if (groupStats.Count == 0 || groupStats.Any(s => !present.Contains(s.Stat))) return null;
+
+        var first = slotStats[members[0]]!;
+        if (first.GroupDescriptionFunction is not { } function
+            || (string.IsNullOrEmpty(first.GroupDescStrPosKey) && string.IsNullOrEmpty(first.GroupDescStrNegKey)))
+            return null;
+
+        var groupStat = new StatEntry
+        {
+            Stat = first.Stat,
+            DescriptionPriority = members.Max(i => slotStats[i]!.DescriptionPriority),
+            DescriptionFunction = function,
+            DescriptionValue = first.GroupDescriptionValue,
+            DescStrPosKey = string.IsNullOrEmpty(first.GroupDescStrPosKey) ? first.GroupDescStrNegKey : first.GroupDescStrPosKey,
+            DescStrNegKey = first.GroupDescStrNegKey,
+            DescStr2Key = first.GroupDescStr2Key,
+            Op = first.Op,
+            OpParam = first.OpParam
+        };
+        return ResolveStatLine(value, groupStat, data, itemLevel);
     }
 
     private static StatEntry? ResolveStat(ExportProperty property, GameData data)
@@ -220,6 +403,16 @@ public static class PropertyKeyResolver
 
     private static KeyedLine? ResolveStatLine(ExportProperty property, StatEntry stat, GameData data, int itemLevel)
     {
+        if (stat.Stat is "coldlength" or "poisonlength")
+        {
+            if (!property.Min.HasValue && !property.Max.HasValue) return null;
+            return new KeyedLine
+            {
+                Key = stat.Stat == "coldlength" ? "StrSkill13" : "StrSkill20",
+                Args = ToRangeArgs(property.Min.HasValue ? property.Min.Value / 25d : null,
+                    property.Max.HasValue ? property.Max.Value / 25d : null)
+            };
+        }
         // Pick the template key (positive vs negative) the same way the legacy resolver does.
         bool useNegative = property.Max.HasValue && property.Max.Value < 0
                            && !string.IsNullOrEmpty(stat.DescStrNegKey);
@@ -236,7 +429,7 @@ public static class PropertyKeyResolver
                 case "item_cannotbefrozen":
                     return new KeyedLine { Key = SyntheticStringRegistry.Keys.CannotBeFrozen };
                 case "item_levelreq":
-                    return new KeyedLine { Key = SyntheticStringRegistry.Keys.RequiredLevel, Args = [property.Min ?? property.Max ?? 0] };
+                    return new KeyedLine { Key = SyntheticStringRegistry.Keys.RequiredLevel, Args = ToRangeArgs(property.Min, property.Max) };
                 case "fade":
                     return new KeyedLine { Key = "fadeDescription" };
                 case "item_extrablood":
@@ -270,8 +463,8 @@ public static class PropertyKeyResolver
 
             case 5: // value scaled by 100/128
             {
-                var v1 = p.Min.HasValue ? p.Min.Value * 100 / 128 : (int?)null;
-                var v2 = p.Max.HasValue ? p.Max.Value * 100 / 128 : (int?)null;
+                var v1 = p.Min.HasValue ? (int)((long)p.Min.Value * 100 / 128) : (int?)null;
+                var v2 = p.Max.HasValue ? (int)((long)p.Max.Value * 100 / 128) : (int?)null;
                 return new KeyedLine { Key = templateKey, Args = ToRangeArgs(v1, v2) };
             }
 
@@ -281,7 +474,7 @@ public static class PropertyKeyResolver
             case 9: // "%s %d-%d (%d/level)"
             {
                 // PerLevel composites — defer math to one synthetic shape carrying all parts.
-                var growth1 = p.Min.HasValue ? p.Min.Value / 8d : 0d;
+                var growth1 = (p.Min ?? p.Max ?? 0) / 8d;
                 var growth2 = p.Max.HasValue ? p.Max.Value / 8d : growth1;
                 return new KeyedLine
                 {
@@ -289,8 +482,8 @@ public static class PropertyKeyResolver
                     Args =
                     [
                         templateKey,
-                        Round2(growth1),
-                        Round2(growth2),
+                        growth1,
+                        growth2,
                         Math.Floor(growth1),
                         Math.Floor(growth2 * 99d)
                     ]
@@ -349,7 +542,7 @@ public static class PropertyKeyResolver
                     return new KeyedLine
                     {
                         Key = templateKey,
-                        Args = [.. ToRangeArgs(p.Min, p.Max), s16.NameKey]
+                        Args = [.. ToRangeArgs(p.Min, p.Max), SkillNameArg(s16)]
                     };
                 }
                 return new KeyedLine { Key = templateKey, Args = [.. ToRangeArgs(p.Min, p.Max), p.Parameter ?? ""] };
@@ -376,13 +569,13 @@ public static class PropertyKeyResolver
                     // substitute the growth value into the inner template's %d / %+d slot,
                     // which left consumers rendering the bare template literal.
                     var div = stat.OpParam.HasValue ? Math.Pow(2, stat.OpParam.Value) : 1d;
-                    double growth = double.TryParse(p.Parameter, NumberStyles.Any, CultureInfo.InvariantCulture, out var pp19)
-                        ? pp19 / div
-                        : (p.Min ?? 0) / div;
+                    var growthArgs = double.TryParse(p.Parameter, NumberStyles.Any, CultureInfo.InvariantCulture, out var pp19)
+                        ? new object[] { pp19 / div }
+                        : ToRangeArgs(p.Min.HasValue ? p.Min.Value / div : null, p.Max.HasValue ? p.Max.Value / div : null);
                     return new KeyedLine
                     {
                         Key = templateKey,
-                        Args = [Round2(growth)],
+                        Args = growthArgs,
                         PerLevel = true
                     };
                 }
@@ -433,7 +626,7 @@ public static class PropertyKeyResolver
                     return new KeyedLine
                     {
                         Key = SyntheticStringRegistry.Keys.SkillCharges,
-                        Args = [level24, s24.NameKey, charges24, charges24]
+                        Args = [level24, SkillNameArg(s24), charges24, charges24]
                     };
                 }
                 return new KeyedLine
@@ -458,23 +651,28 @@ public static class PropertyKeyResolver
             {
                 var s28 = data.ResolveSkill(p.Parameter);
                 if (s28 != null)
-                    return new KeyedLine { Key = templateKey, Args = [.. ToRangeArgs(p.Min, p.Max), s28.NameKey] };
+                    return new KeyedLine { Key = templateKey, Args = [.. ToRangeArgs(p.Min, p.Max), SkillNameArg(s28)] };
                 return new KeyedLine { Key = templateKey, Args = [.. ToRangeArgs(p.Min, p.Max), p.Parameter ?? ""] };
             }
 
             case 29: // sockets
             {
-                int n = p.Min ?? p.Max ?? 0;
-                if (n <= 0 && int.TryParse(p.Parameter, out var pn)) n = pn;
-                return new KeyedLine { Key = SyntheticStringRegistry.Keys.SocketedCount, Args = [n] };
+                // Only legacy rows with neither endpoint use the parameter.
+                // Zero is an endpoint, not an instruction to fall back.
+                var args = ToRangeArgs(p.Min, p.Max);
+                if (args.Length == 0 && int.TryParse(p.Parameter, out var pn))
+                {
+                    args = [pn];
+                }
+                return new KeyedLine { Key = SyntheticStringRegistry.Keys.SocketedCount, Args = args };
             }
 
             case 30: // poison damage with duration
             {
                 int frames = TryParseInt(p.Parameter) ?? 0;
-                int min = (int)Math.Ceiling((p.Min ?? 0) * frames / 256.0);
-                int max = (int)Math.Ceiling((p.Max ?? 0) * frames / 256.0);
-                double seconds = frames / 25.0;
+                int min = PoisonTotalDamage(p.Min ?? 0, frames);
+                int max = PoisonTotalDamage(p.Max ?? 0, frames);
+                double seconds = PoisonDurationSeconds(frames);
                 return new KeyedLine
                 {
                     // strModPoisonDamageRange is a CASC item-modifier key (mod-overridable); leave as a literal.
@@ -484,7 +682,9 @@ public static class PropertyKeyResolver
             }
 
             case 31: // damage spread "%d-%d"
-                return new KeyedLine { Key = templateKey, Args = ToRangeArgs(p.Min, p.Max) };
+                // These are two damage components, including when numerically
+                // equal. The native damage template has two numeric slots.
+                return new KeyedLine { Key = templateKey, Args = p.Min.HasValue && p.Max.HasValue ? [p.Min.Value, p.Max.Value] : ToRangeArgs(p.Min, p.Max) };
 
             default:
                 return new KeyedLine { Key = templateKey, Args = ToRangeArgs(p.Min, p.Max) };
@@ -611,7 +811,7 @@ public static class PropertyKeyResolver
             level = low > 0 ? low : high;
         }
 
-        return new KeyedLine { Key = templateKey, Args = [p.Min ?? 0, level, skill.NameKey] };
+        return new KeyedLine { Key = templateKey, Args = [p.Min ?? 0, level, SkillNameArg(skill)] };
     }
 
     /// <summary>
@@ -621,6 +821,8 @@ public static class PropertyKeyResolver
     /// </summary>
     private static KeyedLine BuildFixedSkill(ExportProperty p, GameData data)
     {
+        var min = p.Min ?? p.Max ?? 0;
+        var max = p.Max ?? p.Min ?? 0;
         var skill = data.ResolveSkill(p.Parameter);
         if (skill == null)
         {
@@ -628,7 +830,7 @@ public static class PropertyKeyResolver
             return new KeyedLine
             {
                 Key = SyntheticStringRegistry.Keys.SkillRandomFromSkill,
-                Args = [p.Min ?? 0, p.Max ?? 0, p.Parameter ?? ""]
+                Args = [min, max, p.Parameter ?? ""]
             };
         }
 
@@ -640,15 +842,24 @@ public static class PropertyKeyResolver
                 Key = SyntheticStringRegistry.Keys.SkillRandomFromSkillClass,
                 // [min, max, skill, classOnly] — the level range is kept (e.g. Boneshade +3-5);
                 // the website renders the range and appends the class qualifier.
-                Args = [p.Min ?? 0, p.Max ?? 0, skill.NameKey, ResolveClassOnlyKey(skill.CharClass)]
+                Args = [min, max, SkillNameArg(skill), ResolveClassOnlyKey(skill.CharClass)]
             };
         }
         return new KeyedLine
         {
             Key = SyntheticStringRegistry.Keys.SkillRandomFromSkill,
-            Args = [p.Min ?? 0, p.Max ?? 0, skill.NameKey]
+            Args = [min, max, SkillNameArg(skill)]
         };
     }
+
+    /// <summary>
+    /// The name argument for a skill-granting property. <see cref="SkillEntry.NameKey"/>
+    /// is null for the monster-only <c>skills.txt</c> rows that have no <c>skilldesc</c>
+    /// row; an item granting one of those is not something the mod does today, so the
+    /// raw code is kept as the honest last resort — it renders verbatim and the
+    /// missing-translations audit flags it, which is the correct outcome.
+    /// </summary>
+    private static string SkillNameArg(SkillEntry skill) => skill.NameKey ?? skill.Skill;
 
     /// <summary>
     /// Renders a genuine random-skill roll (<c>skill-rand</c> property): the +level
@@ -723,4 +934,14 @@ public static class PropertyKeyResolver
         int.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v) ? v : null;
 
     private static double Round2(double v) => Math.Round(v, 2);
+
+    /// <summary>
+    /// The <c>descfunc 30</c> poison conversion: a per-frame poison rate in 256ths of a hit
+    /// point applied for <paramref name="frames"/> frames, as the total damage the player sees.
+    /// Shared by every exporter path that shows poison so there is one rounding rule.
+    /// </summary>
+    public static int PoisonTotalDamage(int rate, int frames) => (int)Math.Ceiling(rate * (double)frames / 256);
+
+    /// <summary>A poison length in frames as seconds (25 frames per second).</summary>
+    public static double PoisonDurationSeconds(int frames) => frames / 25.0;
 }

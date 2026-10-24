@@ -9,14 +9,26 @@ namespace D2RMultiExport.Lib.Exporters;
 /// <summary>Exports UnHoarder's literal selectors alongside localized catalog keys.</summary>
 public static class LootFilterExporter
 {
-    public static async Task ExportAsync(string exportDir, string excelPath, MultiLanguageTranslationService translations, bool prettyPrint = true)
+    public const string OutputPath = "keyed/loot-filter.json";
+
+    private static readonly string[] InputFiles =
+        ["weapons.txt", "armor.txt", "misc.txt", "itemtypes.txt", "uniqueitems.txt", "setitems.txt"];
+
+    public static async Task ExportAsync(
+        ExportOutputs outputs,
+        SourceRoots sources,
+        MultiLanguageTranslationService translations,
+        bool prettyPrint,
+        Action<string> warn)
     {
-        var weapons = await WeaponParser.GetEntries(Path.Combine(excelPath, "weapons.txt"));
-        var armor = await ArmorParser.GetEntries(Path.Combine(excelPath, "armor.txt"));
-        var misc = await MiscParser.GetEntries(Path.Combine(excelPath, "misc.txt"));
-        var types = await ItemTypeParser.GetEntries(Path.Combine(excelPath, "itemtypes.txt"));
-        var uniques = await UniqueItemsParser.GetEntries(Path.Combine(excelPath, "uniqueitems.txt"));
-        var sets = await SetItemParser.GetEntries(Path.Combine(excelPath, "setitems.txt"));
+        if (!ExcelInputs.RequireAll(sources, OutputPath, warn, InputFiles)) return;
+
+        var weapons = await WeaponParser.GetEntries(sources.Excel("weapons.txt"));
+        var armor = await ArmorParser.GetEntries(sources.Excel("armor.txt"));
+        var misc = await MiscParser.GetEntries(sources.Excel("misc.txt"));
+        var types = await ItemTypeParser.GetEntries(sources.Excel("itemtypes.txt"));
+        var uniques = await UniqueItemsParser.GetEntries(sources.Excel("uniqueitems.txt"));
+        var sets = await SetItemParser.GetEntries(sources.Excel("setitems.txt"));
 
         // The plugin's complete lookup tables include legacy/non-spawnable rows
         // omitted from the normal catalog. Seed their source names as English
@@ -72,9 +84,6 @@ public static class LootFilterExporter
             SetItems = sets.Where(row => ValidCode(row.Item) && !string.IsNullOrWhiteSpace(row.Index))
                 .Select(row => new { NameKey = row.Index, Code = Clean(row.Item) })
         };
-        var directory = Path.Combine(exportDir, "keyed");
-        Directory.CreateDirectory(directory);
-        await using var stream = File.Create(Path.Combine(directory, "loot-filter.json"));
-        await JsonSerializer.SerializeAsync(stream, bundle, new JsonSerializerOptions { WriteIndented = prettyPrint });
+        await outputs.WriteJsonAsync(OutputPath, bundle, new JsonSerializerOptions { WriteIndented = prettyPrint });
     }
 }

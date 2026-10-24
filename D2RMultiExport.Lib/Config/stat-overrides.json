@@ -3,6 +3,15 @@
     "$comment": "Synthetic ItemStatCost entries that don't exist in ItemStatCost.txt but are used by the game engine. These are loaded at startup and merged into the stat registry.",
     "statOverrides": [
         {
+            "$comment": "Flat durability rolls on affixes/cube properties need a tooltip even though maxdurability has no native description. Equipment consumes dur separately and exports its finalized durability range.",
+            "stat": "dur",
+            "descPriority": 3,
+            "descFunc": 1,
+            "descVal": 1,
+            "descStrPosKey": "strDurabilityBonus",
+            "descStrNegKey": "strDurabilityBonus"
+        },
+        {
             "stat": "dmg%",
             "descPriority": 144,
             "descFunc": 19,
