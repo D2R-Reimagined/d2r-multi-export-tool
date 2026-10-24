@@ -16,10 +16,9 @@ var cascDataOption = new Option<string?>("--casc-data", "-c")
         + "Supplies every file the mod does not ship: HD sprites, base strings, vanilla tables. Strongly recommended."
 };
 
-var exportOption = new Option<string>("--export", "--out", "-o")
+var exportOption = new Option<string?>("--export", "--out", "-o")
 {
-    Description = "Path for generated export",
-    Required = true
+    Description = "Path for generated export (required unless --dry-run is given)"
 };
 
 var configOption = new Option<string?>("--config")
@@ -33,6 +32,17 @@ var destructiveOption = new Option<bool>("--destructive")
     Description = "Replace ALL existing contents of --out with only this export, after the run finished without errors "
         + "(refused for drive roots, repository roots and similar locations). Default: overwrite matching files and leave the rest untouched.",
     DefaultValueFactory = _ => false
+};
+var dryRunOption = new Option<bool>("--dry-run")
+{
+    Description = "Run the full export into a scratch directory and discard it; --out is never touched. Only an error log "
+        + "(dryrun-errors.txt in --dry-run-logs) is kept, and only when the run recorded errors.",
+    DefaultValueFactory = _ => false
+};
+var dryRunLogsOption = new Option<string?>("--dry-run-logs")
+{
+    Description = "Directory for the dry-run error log (default: test-output\\dryrun of the repository containing the exporter, "
+        + "else below the exporter's folder)"
 };
 var prettyOption = new Option<bool>("--pretty")
 {
@@ -60,7 +70,7 @@ var continueOnExceptionOption = new Option<bool>("--continue-on-exception")
 var exportCommand = new Command("export", "Import game data and export the key-based JSON bundle (keyed/*.json + strings/{lang}.json × 13)")
 {
     modDataOption, cascDataOption, exportOption, configOption,
-    destructiveOption, prettyOption,
+    destructiveOption, dryRunOption, dryRunLogsOption, prettyOption,
     earlyStopOption, cubeRecipeDescOption, continueOnExceptionOption
 };
 
@@ -68,8 +78,20 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
 {
     var modData      = parseResult.GetValue(modDataOption)!;
     var cascData     = parseResult.GetValue(cascDataOption);
-    var export       = parseResult.GetValue(exportOption)!;
+    var export       = parseResult.GetValue(exportOption);
     var config       = parseResult.GetValue(configOption);
+    var dryRun       = parseResult.GetValue(dryRunOption);
+
+    if (!dryRun && string.IsNullOrWhiteSpace(export))
+    {
+        Console.Error.WriteLine("Option '--out' is required unless --dry-run is given.");
+        return 1;
+    }
+    if (dryRun && parseResult.GetValue(destructiveOption))
+    {
+        Console.Error.WriteLine("--dry-run and --destructive cannot be combined: a dry run never touches --out.");
+        return 3;
+    }
 
     D2RMultiExportPipeline pipeline;
     try
@@ -81,6 +103,8 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
             CubeRecipeUseDescription  = parseResult.GetValue(cubeRecipeDescOption),
             ContinueOnException       = parseResult.GetValue(continueOnExceptionOption),
             DestructiveExport         = parseResult.GetValue(destructiveOption),
+            DryRun                    = dryRun,
+            DryRunLogDirectory        = parseResult.GetValue(dryRunLogsOption),
         };
     }
     catch (SourceLayoutException ex)
@@ -99,11 +123,23 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
     {
         await pipeline.RunAsync();
 
+        if (pipeline.DryRun)
+        {
+            if (pipeline.Result.HasErrors)
+            {
+                Console.WriteLine(pipeline.Result.GenerateReport());
+                Console.Error.WriteLine($"Dry run finished with {pipeline.Result.ErrorCount} error(s); the export was discarded. Errors: '{pipeline.DryRunErrorLogPath}'.");
+                return 1;
+            }
+            Console.WriteLine("Dry run completed without errors; the export was discarded and no error log was written.");
+            return 0;
+        }
+
         if (pipeline.Result.HasErrors)
         {
             Console.WriteLine(pipeline.Result.GenerateReport());
             if (pipeline.DestructiveExport)
-                Console.Error.WriteLine($"Destructive export: '{Path.GetFullPath(export)}' was not replaced (see the errors above).");
+                Console.Error.WriteLine($"Destructive export: '{Path.GetFullPath(export!)}' was not replaced (see the errors above).");
             return 1;
         }
 
@@ -111,7 +147,7 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
         if (pipeline.DestructiveExport)
         {
             // Without errors the replacement succeeded; a failed replacement is a recorded error.
-            Console.WriteLine($"  Destructive export: '{Path.GetFullPath(export)}' now holds only this export.");
+            Console.WriteLine($"  Destructive export: '{Path.GetFullPath(export!)}' now holds only this export.");
         }
         if (pipeline.MultiLangTranslations is { } ml)
         {
@@ -127,6 +163,8 @@ exportCommand.SetAction(async (parseResult, cancellationToken) =>
     {
         Console.Error.WriteLine($"Fatal error: {ex.Message}");
         Console.Error.WriteLine(ex.ToString());
+        if (pipeline.DryRun && pipeline.DryRunErrorLogPath is { } log && File.Exists(log))
+            Console.Error.WriteLine($"Dry run aborted; the export was discarded. Errors: '{log}'.");
         return 2;
     }
 });

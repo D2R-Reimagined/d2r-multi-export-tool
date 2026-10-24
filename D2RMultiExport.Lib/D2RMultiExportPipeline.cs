@@ -29,7 +29,7 @@ public sealed record PipelineProgress(int Current, int Total, string Message)
 /// </summary>
 public sealed class D2RMultiExportPipeline
 {
-    private readonly string _exportPath;
+    private readonly string? _exportPath;
     private readonly string _configPath;
 
     /// <summary>
@@ -83,6 +83,24 @@ public sealed class D2RMultiExportPipeline
     /// directly into the export directory and leaves every file it does not write untouched.
     /// </summary>
     public bool DestructiveExport { get; set; }
+
+    /// <summary>
+    /// When <c>true</c>, the complete export runs into a hidden scratch directory inside
+    /// <see cref="DryRunLogDirectory"/> and is discarded afterwards; the export directory is
+    /// never touched (and may be omitted) and <see cref="DestructiveExport"/> is ignored. Only
+    /// <see cref="DryRunExport.ErrorLogFileName"/> is kept, and only when the run recorded
+    /// errors (see <see cref="DryRunExport"/>).
+    /// </summary>
+    public bool DryRun { get; set; }
+
+    /// <summary>
+    /// Where a <see cref="DryRun"/> keeps its error log; <c>null</c> selects
+    /// <see cref="DryRunExport.DefaultLogDirectory"/> (<c>test-output/dryrun</c> of the repository).
+    /// </summary>
+    public string? DryRunLogDirectory { get; set; }
+
+    /// <summary>Full path of the dry-run error log of the last dry run (written only when it recorded errors).</summary>
+    public string? DryRunErrorLogPath { get; private set; }
 
     /// <summary>
     /// Optional progress sink that receives one human-readable status line per
@@ -305,9 +323,10 @@ public sealed class D2RMultiExportPipeline
     /// nesting are both recognised), or <c>null</c> to run without vanilla fallback. Throws
     /// <see cref="SourceLayoutException"/> with an actionable message for an unsupported layout.
     /// </summary>
-    public D2RMultiExportPipeline(string modDataPath, string? cascDataPath, string exportPath, string? configPath = null)
+    public D2RMultiExportPipeline(string modDataPath, string? cascDataPath, string? exportPath, string? configPath = null)
     {
-        _exportPath = Path.GetFullPath(exportPath);
+        // A dry run needs no export directory; any other run refuses to start without one.
+        _exportPath = string.IsNullOrWhiteSpace(exportPath) ? null : Path.GetFullPath(exportPath);
         _configPath = Path.GetFullPath(configPath ?? Path.Combine(AppContext.BaseDirectory, "Config"));
         Sources = SourceRoots.Create(modDataPath, cascDataPath, Path.Combine(_configPath, "CASC_DATA"));
     }
@@ -316,7 +335,7 @@ public sealed class D2RMultiExportPipeline
     /// Why a destructive export into the export directory is refused, or <c>null</c> when it
     /// is allowed (see <see cref="DestructiveReplacement.FindDanger"/>).
     /// </summary>
-    public string? FindDestructiveExportDanger() => DestructiveReplacement.FindDanger(_exportPath,
+    public string? FindDestructiveExportDanger() => _exportPath is null ? "No export directory was given." : DestructiveReplacement.FindDanger(_exportPath,
     [
         ("the Mod Data Directory", Sources.ModDataRoot),
         ("the CASC Data Directory", Sources.CascDataRoot),
@@ -330,6 +349,13 @@ public sealed class D2RMultiExportPipeline
     /// </summary>
     public async Task RunAsync()
     {
+        if (DryRun)
+        {
+            await RunDryRunAsync();
+            return;
+        }
+        if (_exportPath is null)
+            throw new InvalidOperationException("An export directory is required unless DryRun is set.");
         if (!DestructiveExport)
         {
             await RunCoreAsync(_exportPath);
@@ -359,6 +385,68 @@ public sealed class D2RMultiExportPipeline
             Report($"[WARN] destructive-export: {warning}");
         }
         Report($"Destructive export: {replacement.Message}");
+    }
+
+    /// <summary>
+    /// Runs the full pipeline into a discarded scratch directory (<see cref="DryRunExport"/>),
+    /// keeping only an error log when the run recorded errors.
+    /// </summary>
+    private async Task RunDryRunAsync()
+    {
+        var logDirectory = Path.GetFullPath(string.IsNullOrWhiteSpace(DryRunLogDirectory)
+            ? DryRunExport.DefaultLogDirectory()
+            : DryRunLogDirectory);
+        DryRunErrorLogPath = Path.Combine(logDirectory, DryRunExport.ErrorLogFileName);
+        Report($"Dry run: the export is discarded; errors are logged to '{DryRunErrorLogPath}'.");
+        var outcome = await DryRunExport.RunAsync(logDirectory, RunCoreAsync, RenderDryRunErrorLog);
+        if (outcome.Warning is { } warning)
+        {
+            Result.AddWarning("Export", "dry-run", warning);
+            Report($"[WARN] dry-run: {warning}");
+        }
+        Report($"Dry run: {outcome.Message}");
+    }
+
+    /// <summary>
+    /// The dry-run error log: every recorded error (warnings excluded), with its exception
+    /// detail, plus an exception that ended the run without having been recorded. <c>null</c>
+    /// when there is nothing to log.
+    /// </summary>
+    private string? RenderDryRunErrorLog(Exception? failure)
+    {
+        var errors = Result.AllErrors.Where(static e => e.Severity == ImportErrorSeverity.Error).ToList();
+        // A phase failure that aborted the run was recorded before it was rethrown.
+        var unrecorded = failure is not null && !errors.Any(e => ReferenceEquals(e.Exception, failure)) ? failure : null;
+        if (errors.Count == 0 && unrecorded is null) return null;
+
+        var total = errors.Count + (unrecorded is null ? 0 : 1);
+        var lines = new List<string>
+        {
+            $"=== Dry Run Errors: {total} error(s) ===",
+            $"Generated {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}. The export was discarded; warnings are not listed.",
+        };
+        lines.AddRange(Sources.Describe());
+        foreach (var group in errors.GroupBy(static e => e.Category))
+        {
+            lines.Add("");
+            lines.Add($"--- {group.Key} ---");
+            foreach (var error in group)
+            {
+                lines.Add($"  {error}");
+                if (error.Exception is { } ex) lines.Add(Indent(ex.ToString()));
+            }
+        }
+        if (unrecorded is not null)
+        {
+            lines.Add("");
+            lines.Add("--- Fatal ---");
+            lines.Add($"  [ERROR] [Fatal] pipeline: {unrecorded.Message}");
+            lines.Add(Indent(unrecorded.ToString()));
+        }
+        return string.Join("\n", lines) + "\n";
+
+        static string Indent(string text) =>
+            string.Join("\n", text.ReplaceLineEndings("\n").Split('\n').Select(static line => "      " + line));
     }
 
     private async Task RunCoreAsync(string exportPath)

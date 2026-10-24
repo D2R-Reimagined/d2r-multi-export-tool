@@ -170,4 +170,22 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void BrowseDryRunLog_Click(object? sender, RoutedEventArgs e)
+    {
+        var vm = DataContext as MainWindowViewModel;
+        var current = vm is null ? null
+            : string.IsNullOrWhiteSpace(vm.DryRunLogPath) ? vm.DefaultDryRunLogPath : vm.DryRunLogPath;
+        var result = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Select the Dry-run Log Directory",
+            AllowMultiple = false,
+            SuggestedStartLocation = await ResolveStartFolderAsync(current)
+        });
+
+        if (result.Count > 0 && vm is not null)
+        {
+            vm.DryRunLogPath = result[0].Path.LocalPath;
+        }
+    }
+
 }

@@ -45,6 +45,16 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private bool _destructiveValid = true;
 
+    /// <summary>
+    /// Where the Dry Run button keeps its error log; empty selects
+    /// <see cref="DefaultDryRunLogPath"/>. Remembered.
+    /// </summary>
+    [ObservableProperty]
+    private string _dryRunLogPath;
+
+    /// <summary>The dry-run log directory used when <see cref="DryRunLogPath"/> is empty.</summary>
+    public string DefaultDryRunLogPath { get; } = DryRunExport.DefaultLogDirectory();
+
     /// <summary>Live validation result for <see cref="ModDataPath"/> (shown under the field).</summary>
     [ObservableProperty]
     private string _modDataStatus = "";
@@ -72,6 +82,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunPipelineCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DryRunPipelineCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -132,6 +143,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _cascDataPath = _settings.CascDataPath;
         _outputPath = _settings.OutputPath;
         _destructiveExport = _settings.DestructiveExport;
+        _dryRunLogPath = _settings.DryRunLogPath;
         _prettyPrintJson = _settings.PrettyPrintJson;
         _continueOnException = _settings.ContinueOnException;
         _earlyStopSentinelEnabled = _settings.EarlyStopSentinelEnabled;
@@ -240,6 +252,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _settings.CascDataPath = CascDataPath;
         _settings.OutputPath = OutputPath;
         _settings.DestructiveExport = DestructiveExport;
+        _settings.DryRunLogPath = DryRunLogPath;
         _settings.PrettyPrintJson = PrettyPrintJson;
         _settings.ContinueOnException = ContinueOnException;
         _settings.EarlyStopSentinelEnabled = EarlyStopSentinelEnabled;
@@ -280,7 +293,17 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand(CanExecute = nameof(CanRunPipeline))]
-    private async Task RunPipeline()
+    private Task RunPipeline() => RunAsync(dryRun: false);
+
+    /// <summary>
+    /// Runs the full export into a discarded scratch directory; only an error log is kept in
+    /// <see cref="DryRunLogPath"/>, and only when the run recorded errors. The Output Files
+    /// Directory is never touched, so it need not be set.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanDryRunPipeline))]
+    private Task DryRunPipeline() => RunAsync(dryRun: true);
+
+    private async Task RunAsync(bool dryRun)
     {
         IsBusy = true;
         ClearLog();
@@ -293,13 +316,16 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             // A new pipeline (and so a new SourceRoots) per run: the roots are re-validated
             // from the current fields every time and no source mapping survives a run.
-            pipeline = new D2RMultiExportPipeline(ModDataPath, string.IsNullOrWhiteSpace(CascDataPath) ? null : CascDataPath, OutputPath)
+            pipeline = new D2RMultiExportPipeline(ModDataPath, string.IsNullOrWhiteSpace(CascDataPath) ? null : CascDataPath,
+                dryRun ? null : OutputPath)
             {
                 PrettyPrintJson = PrettyPrintJson,
                 EarlyStopSentinelEnabled = EarlyStopSentinelEnabled,
                 CubeRecipeUseDescription = CubeRecipeUseDescription,
                 ContinueOnException = ContinueOnException,
-                DestructiveExport = DestructiveExport,
+                DestructiveExport = !dryRun && DestructiveExport,
+                DryRun = dryRun,
+                DryRunLogDirectory = string.IsNullOrWhiteSpace(DryRunLogPath) ? null : DryRunLogPath,
                 Progress = new Progress<string>(line =>
                 {
                     StatusText = line;
@@ -324,7 +350,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            StatusText = "Running generation pipeline...";
+            StatusText = dryRun ? "Running dry run (the export will be discarded)..." : "Running generation pipeline...";
             // Offload to a thread-pool thread. RunAsync mixes async I/O with
             // CPU-bound import/translation/export work that can run for many
             // seconds without yielding; awaiting it directly on the UI thread
@@ -335,7 +361,13 @@ public partial class MainWindowViewModel : ViewModelBase
             var run = RunOverride;
             await Task.Run(() => run is null ? pipeline.RunAsync() : run(pipeline));
 
-            if (pipeline.Result.HasErrors)
+            if (dryRun)
+            {
+                StatusText = pipeline.Result.HasErrors
+                    ? $"Dry run finished with {pipeline.Result.ErrorCount} error(s) — see {pipeline.DryRunErrorLogPath}. The export was discarded."
+                    : "Dry run finished without errors. The export was discarded; no error log was written.";
+            }
+            else if (pipeline.Result.HasErrors)
             {
                 StatusText = pipeline.DestructiveExport
                     ? $"Export finished with {pipeline.Result.AllErrors.Count} issue(s) — see the log. The Output Files Directory was not replaced."
@@ -351,7 +383,9 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            StatusText = $"Aborted: {ex.Message}";
+            StatusText = dryRun && pipeline.DryRunErrorLogPath is { } log && File.Exists(log)
+                ? $"Dry run aborted: {ex.Message} — see {log}. The export was discarded."
+                : $"Aborted: {ex.Message}";
             AppendLog($"[FATAL] {ex}");
         }
         finally
@@ -376,9 +410,20 @@ public partial class MainWindowViewModel : ViewModelBase
                && !string.IsNullOrWhiteSpace(OutputPath) && Directory.Exists(OutputPath);
     }
 
-    partial void OnModDataValidChanged(bool value) => RunPipelineCommand.NotifyCanExecuteChanged();
+    /// <summary>A dry run needs valid sources only: it never writes to the Output Files Directory.</summary>
+    private bool CanDryRunPipeline() => !IsBusy && ModDataValid && CascDataValid;
 
-    partial void OnCascDataValidChanged(bool value) => RunPipelineCommand.NotifyCanExecuteChanged();
+    partial void OnModDataValidChanged(bool value)
+    {
+        RunPipelineCommand.NotifyCanExecuteChanged();
+        DryRunPipelineCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnCascDataValidChanged(bool value)
+    {
+        RunPipelineCommand.NotifyCanExecuteChanged();
+        DryRunPipelineCommand.NotifyCanExecuteChanged();
+    }
 
     partial void OnDestructiveValidChanged(bool value) => RunPipelineCommand.NotifyCanExecuteChanged();
 }

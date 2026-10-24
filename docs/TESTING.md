@@ -235,7 +235,10 @@ and grouped sprite omissions.
 By default the tool does not own the output folder: files it did not write in this
 run stay on disk, and only `manifest.json` identifies current files and run status.
 `--destructive` instead leaves only this run's files after a run without errors
-([README](../README.md#export-modes)). Manifest fields and their limits are
+([README](../README.md#export-modes)). `--dry-run` runs the full export without
+keeping it: only `test-output\dryrun\dryrun-errors.txt` remains, and only when the
+run recorded errors (warnings are not listed; use a normal export to review them).
+Manifest fields and their limits are
 specified in
 [WEBSITE-INTEGRATION.md](WEBSITE-INTEGRATION.md#manifest-schema-2-and-output-integrity).
 Delete `test-output\` yourself when you want a clean tree.

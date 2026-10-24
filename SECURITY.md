@@ -91,7 +91,13 @@ therefore narrow but non-empty:
    system folders (or folders containing one), the exporter's folder, and folders
    containing or inside the source/configuration directories. A failed rename is
    rolled back; a process killed mid-replacement can leave the previous contents
-   in the hidden backup directory. Abandoned-temp cleanup only examines the exact
+   in the hidden backup directory. The dry run (`--dry-run`, desktop button)
+   never touches `--out`: it generates into a hidden `.d2r-dryrun-<16 hex>`
+   scratch directory inside the dry-run log directory, deletes it afterwards
+   (links removed, never followed) and keeps only `dryrun-errors.txt`, written
+   through `ExportOutputs`; it deletes nothing else there except its previous
+   error log and abandoned scratch directories of that exact name shape.
+   Abandoned-temp cleanup only examines the exact
    same-output temp-name pattern in that file's directory; it never sweeps
    unrelated files. The
    `--out` directory itself may be a link (it is the user's choice).

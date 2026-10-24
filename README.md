@@ -151,9 +151,11 @@ The console tool exposes a single `export` command.
 |---|---|---|
 | `--mod-data` | `-m` | The mod's `data` directory (or the folder containing it) |
 | `--casc-data` | `-c` | *(optional, recommended)* The extracted vanilla `data` directory (`data\`, `data\data\`, or the extraction root) |
-| `--out` | `--export`, `-o` | Output directory for the generated bundle |
+| `--out` | `--export`, `-o` | Output directory for the generated bundle (not needed with `--dry-run`) |
 | `--config` | | *(optional)* Override the bundled `Config\` directory |
 | `--destructive` | | Replace **all** existing contents of `--out` with only this export after a run without errors (default `false`; see [Export modes](#export-modes)) |
+| `--dry-run` | | Run the full export into a scratch directory and discard it; only an error log is kept (default `false`; see [Export modes](#export-modes)). Cannot be combined with `--destructive` |
+| `--dry-run-logs` | | *(optional)* Directory for the dry-run error log (default `test-output\dryrun` of the repository containing the exporter) |
 | `--pretty` | | Pretty-print JSON (default `true`) |
 | `--early-stop` | | Stop importing `CubeMain.txt` at the first sentinel row (default `true`) |
 | `--cube-recipe-descriptions` | | Include the raw English `Description` column from `CubeMain.txt` on each cube recipe (default `false`) |
@@ -242,10 +244,25 @@ review and commit the website changes. There is no separate install step.
   file-system root, a Git repository root (a folder containing `.git`), user and
   system folders or any folder containing one, the exporter's own folder, and any
   folder containing or inside the Mod Data, CASC Data or configuration directory.
+- **Dry run** (`--dry-run`, or the GUI's **Dry Run** button): the complete export
+  (every importer, exporter, audit and the manifest) runs inside a hidden
+  `.d2r-dryrun-*` scratch directory in the dry-run log directory and is deleted
+  afterwards, whether the run succeeded, recorded errors or aborted. `--out` is
+  never read or written and may be omitted. The only file kept is
+  `dryrun-errors.txt`, which lists every recorded error (warnings excluded) with
+  its exception detail, and only when the run recorded errors; each dry run first
+  removes the previous `dryrun-errors.txt`, so the folder always reflects the latest
+  run. The log directory is `--dry-run-logs` (the GUI's **Dry-run Log Directory**),
+  by default `test-output\dryrun` of the repository containing the exporter (or
+  below the exporter's own folder outside a checkout). Exit code `1` means the run
+  recorded errors. `--continue-on-exception` still decides whether the first failed
+  phase aborts the run.
 
-Neither mode creates, moves or deletes anything outside `--out`. A destructive run
-killed mid-replacement can leave the hidden working directories behind; the next
-destructive export removes them with the other previous contents.
+The default and destructive modes create, move or delete nothing outside `--out`;
+a dry run touches only its log directory. A destructive run killed mid-replacement
+can leave the hidden working directories behind; the next destructive export removes
+them with the other previous contents. A dry run killed mid-run can leave its scratch
+directory behind; the next dry run removes it.
 
 On success the tool prints `Export completed successfully.` along with
 the number of `enUS` keys loaded and a count of any referenced-but-
@@ -261,8 +278,9 @@ dotnet run --project .\D2RMultiExport.Client
 The Avalonia window has folder pickers for the Mod Data, CASC Data and output
 directories (each validated as you type, with the reason when a selection is not a
 supported layout), a remembered **Destructive export** checkbox (off by default; see
-[Export modes](#export-modes)), a "Continue on exception" toggle, a single
-**Import and Export** button and a live log panel. Clicking
+[Export modes](#export-modes)), a remembered **Dry-run Log Directory**, a "Continue
+on exception" toggle, the **Import and Export** and **Dry Run** buttons (a dry run
+needs no Output Files Directory) and a live log panel. Clicking
 the log opens a non-modal viewer with the complete log of the current run —
 including the full import report once it ends — with search, Info/Warnings/Errors
 filters, free selection, Copy All and Save. It can stay open during an export.

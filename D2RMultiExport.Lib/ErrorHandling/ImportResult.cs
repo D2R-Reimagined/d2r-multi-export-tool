@@ -76,6 +76,9 @@ public sealed class PipelineResult
 
     public bool HasErrors => AllErrors.Any(e => e.Severity == ImportErrorSeverity.Error);
 
+    /// <summary>Recorded errors, warnings excluded.</summary>
+    public int ErrorCount => AllErrors.Count(e => e.Severity == ImportErrorSeverity.Error);
+
     public string GenerateReport() => string.Join("\n", GenerateReportEntries());
 
     /// <summary>

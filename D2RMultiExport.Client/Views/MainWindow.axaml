@@ -3,13 +3,13 @@
         xmlns:vm="using:D2RMultiExport.Client.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="720"
+        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="780"
         x:Class="D2RMultiExport.Client.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Icon="/Assets/icon.ico"
         Title="D2RMultiExport - D2R Multi Export Tool"
-        Width="900" Height="720"
-        MinWidth="780" MinHeight="600"
+        Width="900" Height="780"
+        MinWidth="780" MinHeight="640"
         WindowStartupLocation="CenterScreen">
 
     <Design.DataContext>
@@ -45,7 +45,7 @@
         <!-- ─── Path inputs ─────────────────────────────────────────── -->
         <Border Grid.Row="0" BorderBrush="#555" BorderThickness="1" CornerRadius="4"
                 Padding="12" Margin="0,0,0,12">
-            <Grid ColumnDefinitions="220,*,110" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="220,*,110" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
 
                 <Label Grid.Row="0" Grid.Column="0" Classes="field" Content="Mod Data Directory"
                        ToolTip.Tip="The mod's data folder (contains global\excel, local\lng\strings and optionally hd). The mod repository root containing data is accepted too."/>
@@ -77,6 +77,13 @@
                 <TextBlock Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" x:Name="DestructiveStatusText"
                            Classes="hint" Classes.invalid="{Binding !DestructiveValid}"
                            Text="{Binding DestructiveStatus}"/>
+
+                <Label Grid.Row="7" Grid.Column="0" Classes="field" Content="Dry-run Log Directory"
+                       ToolTip.Tip="Dry Run performs the full export into a scratch folder and discards it; the Output Files Directory is never touched. Only dryrun-errors.txt is kept here, and only when the run recorded errors. Empty: test-output\dryrun of the repository containing the exporter."/>
+                <TextBox Grid.Row="7" Grid.Column="1" x:Name="DryRunLogBox" Text="{Binding DryRunLogPath}"
+                         PlaceholderText="{Binding DefaultDryRunLogPath}" Margin="0,6,0,0"/>
+                <Button Grid.Row="7" Grid.Column="2" Content="Browse..." Click="BrowseDryRunLog_Click"
+                        HorizontalAlignment="Stretch" Margin="6,6,0,0"/>
             </Grid>
         </Border>
 
@@ -102,10 +109,14 @@
         </Border>
 
         <!-- ─── Run button + progress bar ───────────────────────────── -->
-        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" Margin="0,0,0,8">
+        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,*" Margin="0,0,0,8">
             <Button Grid.Column="0" x:Name="RunButton" Content="Import and Export"
                     Command="{Binding RunPipelineCommand}"
                     Padding="20,6" FontWeight="Bold"/>
+            <Button Grid.Column="1" x:Name="DryRunButton" Content="Dry Run"
+                    Command="{Binding DryRunPipelineCommand}"
+                    Padding="20,6" Margin="8,0,0,0"
+                    ToolTip.Tip="Run the full export and discard the output; only an error log is kept in the Dry-run Log Directory."/>
             <!-- Real percentage progress bar driven by PipelineProgress milestones.
                  ShowProgressText overlays the live "NN%" label so the user gets
                  numeric feedback in addition to the bar fill. The bound
@@ -113,7 +124,7 @@
                  the view-model while IsBusy, cycling a trailing "." / ".." /
                  "..." suffix so the overlay visibly animates between
                  milestone phases. -->
-            <ProgressBar Grid.Column="1"
+            <ProgressBar Grid.Column="2"
                          Minimum="0" Maximum="100"
                          Value="{Binding ProgressValue}"
                          ShowProgressText="True"
