@@ -12,9 +12,10 @@ The pipeline is **load → import → resolve → export → audit**, orchestrat
 | `D2RMultiExport.Lib/Import/` | Typed row importers, shared property mapping, equipment arithmetic and BBE calculation scopes. |
 | `D2RMultiExport.Lib/Translation/` | Property-key resolution, synthetic strings, equipment lines and multi-language bundles. Render English by resolving `KeyedLine` against `strings/enUS.json`; do not add a parallel English property renderer. |
 | `D2RMultiExport.Lib/Exporters/` | Keyed documents, language bundles, sprites, reports, the manifest, the opt-in destructive replacement of the output directory and the dry run. `ExportOutputs` is the output gateway. |
+| `D2RMultiExport.Lib/Comparison/` | Manifest-backed snapshot validation and structured export comparison reports. |
 | `D2RMultiExport.Lib/Models/`, `ErrorHandling/` | Wire DTOs and contextual phase/row diagnostics. |
 | `D2RMultiExport.Lib/SourceRoots.cs` | Sole source-path authority for Mod Data and optional CASC Data. |
-| `D2RMultiExport.Console/`, `D2RMultiExport.Client/` | CLI (`export`) and Avalonia MVVM desktop front ends. |
+| `D2RMultiExport.Console/`, `D2RMultiExport.Client/` | CLI (`export`, `compare`) and Avalonia MVVM desktop front ends. |
 | `D2RMultiExport.Tests/`, `D2RMultiExport.Client.Tests/` | Library regressions and Avalonia headless interaction/optional real-data tests. |
 | `test-output/` | Ignored smoke-export scratch output (and the default dry-run log directory `test-output/dryrun`), never a committed fixture. |
 
@@ -124,6 +125,7 @@ These exceptions cover fixed engine/file-format/key-shape behavior, not arbitrar
 - [TESTING.md](docs/TESTING.md): validation levels, smoke commands, reports, fixtures and real-data/desktop tests.
 - [SKILL-CALCULATIONS.md](docs/SKILL-CALCULATIONS.md): skill wire axes, BBE scopes/vocabulary and bounded limitations.
 - [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md): consumer-facing wire contracts, stable recipe ids and the manifest contract.
+- [EXPORT-COMPARISON.md](docs/EXPORT-COMPARISON.md): snapshot comparison validation, CLI usage and report schema.
 - [DROP-CALCULATOR.md](docs/DROP-CALCULATOR.md), [IAS-CALCULATOR.md](docs/IAS-CALCULATOR.md), [HEALTH-CALCULATOR.md](docs/HEALTH-CALCULATOR.md), [LOOT-FILTER.md](docs/LOOT-FILTER.md): specialized exporter contracts.
 - [SECURITY.md](SECURITY.md): threat model, private reporting and filesystem/integrity limits.
 - [PROPERTY-RANGES.md](docs/PROPERTY-RANGES.md): current property mapping, range preservation and independent audit limits.

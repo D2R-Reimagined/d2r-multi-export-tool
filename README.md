@@ -58,7 +58,7 @@ importer code, so content tweaks don't require a code change.
 | Project | Description |
 |---|---|
 | `D2RMultiExport.Lib` | Core import / translation / export pipeline. Game-data parsing, property resolution, damage & defense math, synthetic-string registry, and JSON writers. |
-| `D2RMultiExport.Console` | Headless CLI front-end (`export` command). |
+| `D2RMultiExport.Console` | Headless CLI front-end (`export` and `compare` commands). |
 | `D2RMultiExport.Client` | Avalonia desktop GUI front-end for running exports interactively. |
 | `D2RMultiExport.Lib\Config` | Bundled config: `export-config.json`, `synthetic-strings.json`, `stat-overrides.json`, `class-ranges.json`, description layouts and canonical `CASC_DATA\runes.txt`, `skillcalc.txt`, `misscalc.txt`. |
 
@@ -145,7 +145,9 @@ game data; build/test locally before submission ([TESTING.md](docs/TESTING.md)).
 
 ## Run — CLI
 
-The console tool exposes a single `export` command.
+The console tool exposes an `export` command and a `compare` command for existing snapshots.
+
+### Export options
 
 | Option | Aliases | Description |
 |---|---|---|
@@ -191,6 +193,24 @@ An unsupported directory is rejected up front (exit code 3) with the selected pa
 the expected relative location and what was found. `extras\source-report.txt` lists
 which root supplied every input; `extras\asset-report.txt` explains every unresolved
 sprite.
+
+### Snapshot comparison
+
+Compare two existing, manifest-backed exports without modifying either input:
+
+```powershell
+dotnet run --project .\D2RMultiExport.Console -- compare `
+  --old "<old-export-directory>" `
+  --new "<new-export-directory>" `
+  --out "<comparison-output-directory>"
+```
+
+This writes `changes.json` in the comparison output directory. That directory must
+not be either snapshot or a directory inside either snapshot. The initial comparison
+supports only `keyed/cube-recipes.json`; it validates schema-2 manifest provenance,
+checks recorded byte lengths and hashes when available, and will not treat skipped,
+unwritten, stale or failed snapshot data as recipe deletions. See
+[Export comparison](docs/EXPORT-COMPARISON.md) for report fields and exit codes.
 
 ### Migrating from the old CLI arguments
 
