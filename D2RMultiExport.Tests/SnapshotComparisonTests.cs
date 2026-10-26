@@ -14,7 +14,12 @@ public sealed class SnapshotComparisonTests : IDisposable
     private const string UniquePath = "keyed/uniques.json";
     private const string SetPath = "keyed/sets.json";
     private const string RunewordPath = "keyed/runewords.json";
-    private static readonly string[] CategoryFiles = [CubeRecipePath, UniquePath, SetPath, RunewordPath];
+    private const string ArmorPath = "keyed/armors.json";
+    private const string WeaponPath = "keyed/weapons.json";
+
+    private static readonly string[] CategoryFiles =
+        [CubeRecipePath, UniquePath, SetPath, RunewordPath, ArmorPath, WeaponPath];
+
     private readonly string _root = Directory.CreateTempSubdirectory("d2r-snapshot-comparison-").FullName;
 
     public void Dispose()
@@ -298,6 +303,8 @@ public sealed class SnapshotComparisonTests : IDisposable
         Assert.Equal("Compared", GetCategory(report, "cube-recipes").Status);
         Assert.Equal("Compared", GetCategory(report, "uniques").Status);
         Assert.Equal("Compared", GetCategory(report, "sets").Status);
+        Assert.Equal("Compared", GetCategory(report, "armors").Status);
+        Assert.Equal("Compared", GetCategory(report, "weapons").Status);
     }
 
     [Theory]
@@ -410,6 +417,209 @@ public sealed class SnapshotComparisonTests : IDisposable
     }
 
     [Fact]
+    public async Task EquipmentCategoriesMatchByNameKeyAndPreserveAddedAndRemovedRecords()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old",
+            armors:
+            "[{\"NameKey\":\"Kept Armor\",\"NormCode\":\"kept\"},{\"NameKey\":\"Removed Armor\",\"NormCode\":\"shared\"}]",
+            weapons: "[{\"NameKey\":\"Removed Weapon\",\"NormCode\":\"same-tier-code\"}]");
+        var newSnapshot = await CreateSnapshotAsync("new",
+            armors:
+            "[{\"NameKey\":\"Kept Armor\",\"NormCode\":\"kept\"},{\"NameKey\":\"Added Armor\",\"NormCode\":\"shared\"}]",
+            weapons: "[{\"NameKey\":\"Added Weapon\",\"NormCode\":\"same-tier-code\"}]");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var armors = GetCategory(report, "armors");
+        var weapons = GetCategory(report, "weapons");
+
+        Assert.True(report.Succeeded);
+        Assert.Equal("NameKey", armors.MatchKey);
+        Assert.Equal("NameKey", weapons.MatchKey);
+        Assert.Equal((1, 1, 0), (armors.Counts.Added, armors.Counts.Removed, armors.Counts.Modified));
+        Assert.Equal((1, 1, 0), (weapons.Counts.Added, weapons.Counts.Removed, weapons.Counts.Modified));
+        Assert.Equal("Added Armor", Assert.Single(armors.AddedRecords).Record.GetProperty("NameKey").GetString());
+        Assert.Equal("shared", Assert.Single(armors.AddedRecords).Record.GetProperty("NormCode").GetString());
+        Assert.Equal("Removed Armor", Assert.Single(armors.RemovedRecords).Key);
+        Assert.Equal("Added Weapon", Assert.Single(weapons.AddedRecords).Key);
+        Assert.Equal("Removed Weapon", Assert.Single(weapons.RemovedRecords).Key);
+    }
+
+    [Fact]
+    public async Task EquipmentMetadataChangesIncludeStructuralDiffsAndCompleteRecords()
+    {
+        const string oldArmor =
+            "[{\"EquipmentType\":1,\"NameKey\":\"Armor\",\"NormCode\":\"n1\",\"UberCode\":\"u1\",\"UltraCode\":\"x1\",\"AutoPrefix\":10,\"RequiredClass\":\"amazon\",\"Type\":{\"Index\":\"armor\"},\"DamageTypes\":[{\"Type\":1,\"AverageDamage\":2,\"Lines\":[{\"key\":\"strDamage\",\"args\":[1,2]}]}],\"RequiredLevel\":5,\"MaxSockets\":2,\"GemSockets\":\"(1-25): 1\",\"Lines\":[{\"key\":\"strDefense\",\"args\":[10]},{\"key\":\"strDurability\",\"args\":[20]},{\"key\":\"strRequiredLevel\",\"args\":[5]}]}]";
+        const string newArmor =
+            "[{\"EquipmentType\":2,\"NameKey\":\"Armor\",\"NormCode\":\"n2\",\"UberCode\":\"u2\",\"UltraCode\":\"x2\",\"AutoPrefix\":11,\"RequiredClass\":\"paladin\",\"Type\":{\"Index\":\"shield\"},\"DamageTypes\":[{\"Type\":2,\"AverageDamage\":4,\"Lines\":[{\"key\":\"strDamage\",\"args\":[2,4]}]}],\"RequiredLevel\":6,\"MaxSockets\":4,\"GemSockets\":\"(1-25): 2\",\"Lines\":[{\"key\":\"strDefense\",\"args\":[15]},{\"key\":\"strDurability\",\"args\":[25]},{\"key\":\"strRequiredLevel\",\"args\":[6]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", armors: oldArmor);
+        var newSnapshot = await CreateSnapshotAsync("new", armors: newArmor);
+
+        var armors = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "armors");
+        var modified = Assert.Single(armors.ModifiedRecords);
+
+        Assert.Equal(1, armors.Counts.Modified);
+        Assert.Contains(modified.ChangedFields, static path => path == "EquipmentType");
+        Assert.Contains(modified.ChangedFields, static path => path == "RequiredClass");
+        Assert.Contains(modified.ChangedFields, static path => path == "Type.Index");
+        Assert.Contains(modified.ChangedFields, static path => path == "NormCode");
+        Assert.Contains(modified.ChangedFields, static path => path == "UberCode");
+        Assert.Contains(modified.ChangedFields, static path => path == "UltraCode");
+        Assert.Contains(modified.ChangedFields, static path => path == "AutoPrefix");
+        Assert.Contains(modified.ChangedFields, static path => path == "RequiredLevel");
+        Assert.Contains(modified.ChangedFields, static path => path == "MaxSockets");
+        Assert.Contains(modified.ChangedFields, static path => path == "GemSockets");
+        Assert.Contains(modified.ChangedFields, static path => path == "DamageTypes[0].AverageDamage");
+        Assert.Contains(modified.ChangedFields, static path => path == "DamageTypes[0].Lines[0].args[1]");
+        Assert.Contains(modified.ChangedFields, static path => path == "Lines[0].args[0]");
+        Assert.Contains(modified.ChangedFields, static path => path == "Lines[1].args[0]");
+        Assert.Contains(modified.ChangedFields, static path => path == "Lines[2].args[0]");
+        Assert.Equal("n1", modified.Old.GetProperty("NormCode").GetString());
+        Assert.Equal(4, modified.New.GetProperty("MaxSockets").GetInt32());
+    }
+
+    [Fact]
+    public async Task AutoMagicGroupsMatchByCodeAndReportAddedRemovedAndModifiedGroups()
+    {
+        const string oldArmor =
+            "[{\"NameKey\":\"Armor\",\"AutoMagicGroups\":[{\"Code\":\"Changed\",\"NameKey\":\"strChanged\",\"Level\":10,\"RequiredLevel\":5,\"Lines\":[{\"key\":\"strDefense\",\"args\":[2]},{\"key\":\"strPropertyGroupsProperty\",\"args\":[],\"pickMode\":\"2\",\"children\":[{\"key\":\"strFireDamage\",\"args\":[1,2],\"chance\":40,\"selection\":{\"stat\":\"skill\",\"min\":1,\"max\":2}}]}]},{\"Code\":\"Removed\",\"Level\":1,\"RequiredLevel\":1,\"Lines\":[]}]}]";
+        const string newArmor =
+            "[{\"NameKey\":\"Armor\",\"AutoMagicGroups\":[{\"Code\":\"Added\",\"Level\":3,\"RequiredLevel\":2,\"Lines\":[{\"key\":\"strDamage\",\"args\":[4]}]},{\"Code\":\"Changed\",\"NameKey\":\"strChanged\",\"Level\":11,\"RequiredLevel\":6,\"Lines\":[{\"key\":\"strDefense\",\"args\":[5]},{\"key\":\"strPropertyGroupsProperty\",\"args\":[],\"pickMode\":\"1\",\"children\":[{\"key\":\"strFireDamage\",\"args\":[1,2],\"chance\":60,\"selection\":{\"stat\":\"skill\",\"min\":1,\"max\":3}}]}]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", armors: oldArmor,
+            weapons: "[{\"NameKey\":\"Weapon\",\"AutoMagicGroups\":[]}]");
+        var newSnapshot = await CreateSnapshotAsync("new", armors: newArmor,
+            weapons:
+            "[{\"NameKey\":\"Weapon\",\"AutoMagicGroups\":[{\"Code\":\"Bow Group\",\"Level\":4,\"RequiredLevel\":3,\"Lines\":[]}]}]");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var armors = GetCategory(report, "armors");
+        var modified = Assert.Single(armors.ModifiedRecords);
+        var nested = Assert.IsType<NestedRecordChanges>(modified.NestedChanges);
+        var modifiedGroup = Assert.Single(nested.Modified);
+        var weapons = GetCategory(report, "weapons");
+        var addedWeaponGroup = Assert.Single(Assert.Single(weapons.ModifiedRecords).NestedChanges!.Added);
+
+        Assert.Equal("AutoMagicGroups", armors.NestedField);
+        Assert.Equal("Code", armors.NestedMatchKey);
+        Assert.Equal((1, 1, 1),
+            (armors.NestedCounts!.Added, armors.NestedCounts.Removed, armors.NestedCounts.Modified));
+        Assert.Equal("Added", Assert.Single(nested.Added).Key);
+        Assert.Equal("strDamage",
+            Assert.Single(nested.Added).Record.GetProperty("Lines")[0].GetProperty("key").GetString());
+        Assert.Equal("Removed", Assert.Single(nested.Removed).Key);
+        Assert.Equal(10, modifiedGroup.Old.GetProperty("Level").GetInt32());
+        Assert.Equal(11, modifiedGroup.New.GetProperty("Level").GetInt32());
+        Assert.Equal(6, modifiedGroup.New.GetProperty("RequiredLevel").GetInt32());
+        Assert.Contains(modifiedGroup.ChangedFields, static path => path == "Lines[0].args[0]");
+        Assert.Contains(modifiedGroup.ChangedFields,
+            static path => path == "Lines[1].children[0].chance");
+        Assert.Contains(modifiedGroup.ChangedFields,
+            static path => path == "Lines[1].children[0].selection.max");
+        Assert.Equal("Bow Group", addedWeaponGroup.Record.GetProperty("Code").GetString());
+        Assert.Contains(modified.Changes,
+            static change => change.Path == "AutoMagicGroups[Code=\"Added\"]" && change.Kind == "Added");
+    }
+
+    [Fact]
+    public async Task AutoMagicGroupReorderingIsNonSemanticAndNullEqualsMissing()
+    {
+        const string oldArmor =
+            "[{\"NameKey\":\"Armor\",\"AutoMagicGroups\":[{\"Code\":\"A\",\"Level\":1},{\"Code\":\"B\",\"Level\":2}]}]";
+        const string newArmor =
+            "[{\"NameKey\":\"Armor\",\"AutoMagicGroups\":[{\"Code\":\"B\",\"Level\":2},{\"Code\":\"A\",\"Level\":1}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", armors: oldArmor,
+            weapons: "[{\"NameKey\":\"Weapon\",\"AutoMagicGroups\":null}]");
+        var newSnapshot = await CreateSnapshotAsync("new", armors: newArmor, weapons: "[{\"NameKey\":\"Weapon\"}]");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var armors = GetCategory(report, "armors");
+        var weapons = GetCategory(report, "weapons");
+
+        Assert.True(report.Succeeded);
+        Assert.Equal(1, armors.Counts.Unchanged);
+        Assert.Equal(2, armors.NestedCounts!.Unchanged);
+        Assert.Equal(1, weapons.Counts.Unchanged);
+        Assert.Equal(0, weapons.NestedCounts!.Added + weapons.NestedCounts.Removed + weapons.NestedCounts.Modified);
+        Assert.Empty(armors.ModifiedRecords);
+        Assert.Empty(weapons.ModifiedRecords);
+    }
+
+    [Theory]
+    [InlineData("armors", "[{\"NameKey\":\"Duplicate\"},{\"NameKey\":\"Duplicate\"}]", "duplicate-record-identity")]
+    [InlineData("armors", "[{\"NormCode\":\"missing-key\"}]", "missing-record-identity")]
+    [InlineData("weapons", "[{\"NameKey\":\"Duplicate\"},{\"NameKey\":\"Duplicate\"}]", "duplicate-record-identity")]
+    [InlineData("weapons", "[{\"NormCode\":\"missing-key\"}]", "missing-record-identity")]
+    public async Task InvalidEquipmentIdentityInvalidatesOnlyItsCategory(
+        string category,
+        string payload,
+        string errorCode)
+    {
+        var oldSnapshot = category == "armors"
+            ? await CreateSnapshotAsync("old", armors: payload)
+            : await CreateSnapshotAsync("old", weapons: payload);
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.Equal("NotCompared", GetCategory(report, category).Status);
+        Assert.Contains(GetCategory(report, category).Errors, issue => issue.Code == errorCode);
+        Assert.Equal("Compared", GetCategory(report, category == "armors" ? "weapons" : "armors").Status);
+        Assert.Equal("Compared", GetCategory(report, "uniques").Status);
+    }
+
+    [Theory]
+    [InlineData("[{\"Code\":\"Duplicate\"},{\"Code\":\"Duplicate\"}]", "duplicate-nested-record-identity")]
+    [InlineData("[{\"NameKey\":\"No code\"}]", "missing-nested-record-identity")]
+    public async Task InvalidAutoMagicGroupIdentityInvalidatesOnlyItsEquipmentCategory(
+        string groups,
+        string errorCode)
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old",
+            armors: $"[{{\"NameKey\":\"Armor\",\"AutoMagicGroups\":{groups}}}]");
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.Equal("NotCompared", GetCategory(report, "armors").Status);
+        Assert.Contains(GetCategory(report, "armors").Errors, issue => issue.Code == errorCode);
+        Assert.Equal("Compared", GetCategory(report, "weapons").Status);
+        Assert.Equal("Compared", GetCategory(report, "uniques").Status);
+    }
+
+    [Fact]
+    public async Task InvalidArmorNestedDataDoesNotSuppressWeaponsOrOtherCategories()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old",
+            armors: "[{\"NameKey\":\"Bad armor\",\"AutoMagicGroups\":{}}]",
+            weapons: "[{\"NameKey\":\"Good weapon\"}]");
+        var newSnapshot = await CreateSnapshotAsync("new",
+            armors: "[{\"NameKey\":\"Bad armor\",\"AutoMagicGroups\":[]}]",
+            weapons: "[{\"NameKey\":\"Good weapon\"}]");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.False(report.Succeeded);
+        Assert.Equal("NotCompared", GetCategory(report, "armors").Status);
+        Assert.Contains(GetCategory(report, "armors").Errors, static issue => issue.Code == "invalid-nested-records");
+        Assert.Equal("Compared", GetCategory(report, "weapons").Status);
+        Assert.Equal(1, GetCategory(report, "weapons").Counts.Unchanged);
+        Assert.Equal("Compared", GetCategory(report, "uniques").Status);
+    }
+
+    [Fact]
+    public async Task MissingWeaponFileFromManifestDoesNotSuppressArmorComparison()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", omitFromManifest: [WeaponPath]);
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.Equal("NotCompared", GetCategory(report, "weapons").Status);
+        Assert.Contains(GetCategory(report, "weapons").Errors, static issue => issue.Code == "file-not-in-manifest");
+        Assert.Equal("Compared", GetCategory(report, "armors").Status);
+        Assert.Equal("Compared", GetCategory(report, "sets").Status);
+    }
+
+    [Fact]
     public async Task DuplicateSetPieceIdentityInvalidatesSetsCategory()
     {
         var oldSnapshot = await CreateSnapshotAsync("old", sets:
@@ -449,6 +659,8 @@ public sealed class SnapshotComparisonTests : IDisposable
         Assert.Contains(GetCategory(report, "uniques").Errors, static issue => issue.Code == "file-not-in-manifest");
         Assert.Equal("Compared", GetCategory(report, "cube-recipes").Status);
         Assert.Equal("Compared", GetCategory(report, "sets").Status);
+        Assert.Equal("Compared", GetCategory(report, "armors").Status);
+        Assert.Equal("Compared", GetCategory(report, "weapons").Status);
         Assert.Empty(report.OldSnapshot.Errors);
     }
 
@@ -633,6 +845,8 @@ public sealed class SnapshotComparisonTests : IDisposable
         string uniques = "[]",
         string sets = "[]",
         string runewords = "[]",
+        string armors = "[]",
+        string weapons = "[]",
         string stepStatus = "Written",
         bool succeeded = true,
         bool complete = true,
@@ -645,7 +859,9 @@ public sealed class SnapshotComparisonTests : IDisposable
             [CubeRecipePath] = cubeRecipes,
             [UniquePath] = uniques,
             [SetPath] = sets,
-            [RunewordPath] = runewords
+            [RunewordPath] = runewords,
+            [ArmorPath] = armors,
+            [WeaponPath] = weapons
         };
         var files = new List<object>();
         foreach (var (relativePath, content) in payloads)

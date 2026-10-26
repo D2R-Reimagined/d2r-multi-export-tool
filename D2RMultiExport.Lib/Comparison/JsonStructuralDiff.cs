@@ -13,11 +13,12 @@ internal static class JsonStructuralDiff
         JsonElement newValue,
         IReadOnlySet<string> ignoredRootFields,
         string? keyedArrayField = null,
-        string? keyedArrayMatchKey = null)
+        string? keyedArrayMatchKey = null,
+        bool keyedArrayOptional = false)
     {
         var changes = new List<FieldChange>();
         CompareAt(oldValue, newValue, "", changes, ignoredRootFields, keyedArrayField, keyedArrayMatchKey,
-            atRoot: true);
+            keyedArrayOptional, atRoot: true);
         return changes;
     }
 
@@ -29,6 +30,7 @@ internal static class JsonStructuralDiff
         IReadOnlySet<string> ignoredRootFields,
         string? keyedArrayField,
         string? keyedArrayMatchKey,
+        bool keyedArrayOptional,
         bool atRoot = false)
     {
         if (oldValue.ValueKind != newValue.ValueKind)
@@ -51,7 +53,15 @@ internal static class JsonStructuralDiff
                 var newHasValue = newValue.TryGetProperty(name, out var newProperty);
                 var childPath = string.IsNullOrEmpty(path) ? name : $"{path}.{name}";
 
-                if (!oldHasValue)
+                if (atRoot && string.Equals(name, keyedArrayField, StringComparison.Ordinal)
+                           && keyedArrayOptional
+                           && IsOptionalArrayValue(oldHasValue, oldProperty)
+                           && IsOptionalArrayValue(newHasValue, newProperty))
+                    CompareKeyedArray(
+                        oldHasValue && oldProperty.ValueKind == JsonValueKind.Array ? oldProperty : null,
+                        newHasValue && newProperty.ValueKind == JsonValueKind.Array ? newProperty : null,
+                        childPath, changes, ignoredRootFields, keyedArrayMatchKey!);
+                else if (!oldHasValue)
                     changes.Add(CreateChange(childPath, "Added", null, newProperty));
                 else if (!newHasValue)
                     changes.Add(CreateChange(childPath, "Removed", oldProperty, null));
@@ -62,7 +72,7 @@ internal static class JsonStructuralDiff
                         keyedArrayMatchKey!);
                 else
                     CompareAt(oldProperty, newProperty, childPath, changes, ignoredRootFields,
-                        keyedArrayField, keyedArrayMatchKey);
+                        keyedArrayField, keyedArrayMatchKey, keyedArrayOptional);
             }
 
             return;
@@ -78,7 +88,7 @@ internal static class JsonStructuralDiff
 
             for (var index = 0; index < oldValue.GetArrayLength(); index++)
                 CompareAt(oldValue[index], newValue[index], $"{path}[{index}]", changes, ignoredRootFields,
-                    keyedArrayField, keyedArrayMatchKey);
+                    keyedArrayField, keyedArrayMatchKey, keyedArrayOptional);
             return;
         }
 
@@ -89,15 +99,19 @@ internal static class JsonStructuralDiff
     }
 
     private static void CompareKeyedArray(
-        JsonElement oldArray,
-        JsonElement newArray,
+        JsonElement? oldArray,
+        JsonElement? newArray,
         string path,
         List<FieldChange> changes,
         IReadOnlySet<string> ignoredRootFields,
         string matchKey)
     {
-        var oldByKey = IndexByKey(oldArray, matchKey);
-        var newByKey = IndexByKey(newArray, matchKey);
+        var oldByKey = oldArray is { ValueKind: JsonValueKind.Array } oldItems
+            ? IndexByKey(oldItems, matchKey)
+            : new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        var newByKey = newArray is { ValueKind: JsonValueKind.Array } newItems
+            ? IndexByKey(newItems, matchKey)
+            : new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         var keys = oldByKey.Keys.Concat(newByKey.Keys).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
         foreach (var key in keys)
         {
@@ -109,9 +123,13 @@ internal static class JsonStructuralDiff
             else if (!hasNew)
                 changes.Add(CreateChange(childPath, "Removed", oldRecord, null));
             else
-                CompareAt(oldRecord, newRecord, childPath, changes, ignoredRootFields, null, null);
+                CompareAt(oldRecord, newRecord, childPath, changes, ignoredRootFields, null, null,
+                    keyedArrayOptional: false);
         }
     }
+
+    private static bool IsOptionalArrayValue(bool hasValue, JsonElement value) =>
+        !hasValue || value.ValueKind is JsonValueKind.Null or JsonValueKind.Array;
 
     private static Dictionary<string, JsonElement> IndexByKey(JsonElement array, string matchKey)
     {

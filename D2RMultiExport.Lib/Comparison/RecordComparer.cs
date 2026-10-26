@@ -13,7 +13,11 @@ internal static class RecordComparer
         new("cube-recipes", "keyed/cube-recipes.json", "Id", "Index", ["Index"]),
         new("uniques", "keyed/uniques.json", "Index"),
         new("sets", "keyed/sets.json", "Index", NestedArrayField: "SetItems", NestedMatchKey: "Index"),
-        new("runewords", "keyed/runewords.json", "Index", VariantArrayField: "Types", VariantMatchKey: "Index")
+        new("runewords", "keyed/runewords.json", "Index", VariantArrayField: "Types", VariantMatchKey: "Index"),
+        new("armors", "keyed/armors.json", "NameKey", NestedArrayField: "AutoMagicGroups",
+            NestedMatchKey: "Code", NestedArrayOptional: true),
+        new("weapons", "keyed/weapons.json", "NameKey", NestedArrayField: "AutoMagicGroups",
+            NestedMatchKey: "Code", NestedArrayOptional: true)
     ];
 
     public static IReadOnlyList<ComparisonDefinition> Categories => Definitions;
@@ -86,7 +90,8 @@ internal static class RecordComparer
                 : CompareNestedRecords(definition, oldRecord, newRecord, nestedCounts!);
             var changes = JsonStructuralDiff.Compare(oldRecord.Value, newRecord.Value,
                 ignoredRootFields, definition.NestedArrayField ?? definition.VariantArrayField,
-                definition.NestedMatchKey ?? definition.VariantMatchKey);
+                definition.NestedMatchKey ?? definition.VariantMatchKey,
+                definition.NestedArrayOptional);
             if (changes.Count == 0)
             {
                 unchanged++;
@@ -336,7 +341,17 @@ internal static class RecordComparer
         List<ComparisonIssue> errors)
     {
         var result = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        if (!parent.TryGetProperty(nestedField, out var nestedArray) || nestedArray.ValueKind != JsonValueKind.Array)
+        if (!parent.TryGetProperty(nestedField, out var nestedArray) || nestedArray.ValueKind == JsonValueKind.Null)
+        {
+            if (definition.NestedArrayOptional) return result;
+
+            errors.Add(Issue("invalid-nested-records",
+                $"The {snapshot} {definition.Category} record '{parentKey}' must contain an array '{nestedField}'.",
+                snapshot));
+            return result;
+        }
+
+        if (nestedArray.ValueKind != JsonValueKind.Array)
         {
             errors.Add(Issue("invalid-nested-records",
                 $"The {snapshot} {definition.Category} record '{parentKey}' must contain an array '{nestedField}'.",
@@ -482,7 +497,8 @@ internal static class RecordComparer
         string? NestedArrayField = null,
         string? NestedMatchKey = null,
         string? VariantArrayField = null,
-        string? VariantMatchKey = null)
+        string? VariantMatchKey = null,
+        bool NestedArrayOptional = false)
     {
         public string[] IgnoredRootFields { get; init; } = IgnoredRootFields ?? [];
     }
