@@ -150,7 +150,7 @@ public sealed class SkillDescriptionImporter(GameData data)
         }
 
         built.Values = [.. tables.Select(Trim)];
-        if (allocationSensitive) built.ValuesCalc = SourceExpressions(layout.Layout, line, slots);
+        if (allocationSensitive) built.ValuesCalc = SourceExpressions(skill, layout.Layout, line, slots, data);
         ApplyDamageScale(skill, built, reads);
 
         if (hardSoftSensitive)
@@ -338,21 +338,32 @@ public sealed class SkillDescriptionImporter(GameData data)
     /// An argument the layout combines from two cells (a divisor or a sum) is not one integer
     /// expression, so it stays null and keeps its solved table. Null when no argument has one.
     /// </summary>
-    private static List<string?>? SourceExpressions(string layout, SkillDescLine line, int slots)
+    private static List<string?>? SourceExpressions(
+        SkillEntry skill,
+        string layout,
+        SkillDescLine line,
+        int slots,
+        GameData data)
     {
         var single = string.IsNullOrWhiteSpace(line.CalcB);
         string?[] calcs = layout switch
         {
-            "singleValue" => [Source(line.CalcA)],
-            "twoValues" => single ? [Source(line.CalcA)] : [Source(line.CalcA), Source(line.CalcB)],
-            "valueWithDivisor" or "sumOfValues" => [single ? Source(line.CalcA) : null],
+            "singleValue" => [Source(line.CalcA, skill, data)],
+            "twoValues" => single
+                ? [Source(line.CalcA, skill, data)]
+                : [Source(line.CalcA, skill, data), Source(line.CalcB, skill, data)],
+            "valueWithDivisor" or "sumOfValues" => [single ? Source(line.CalcA, skill, data) : null],
             _ => []
         };
         return calcs.Length == slots && calcs.Any(static calc => calc is not null) ? [.. calcs] : null;
     }
 
     /// <summary>A calc cell as the evaluator reads it, minus the spreadsheet's quoting.</summary>
-    private static string? Source(string? cell) => cell?.Trim().Trim('"');
+    private static string? Source(string? cell, SkillEntry skill, GameData data)
+    {
+        var expression = cell?.Trim().Trim('"');
+        return expression is null ? null : SkillCalcPointerExpander.Expand(expression, skill, data);
+    }
 
     private static int SlotCount(string layout, SkillDescLine line) => layout switch
     {

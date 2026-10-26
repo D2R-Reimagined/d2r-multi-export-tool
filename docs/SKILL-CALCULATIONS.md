@@ -257,13 +257,23 @@ planner with live ranks shows. The Druid summons' `SynergyCap` is the canonical 
 `min(clc6+(skill('Raven'.clc5)-blvl),pa10)` / `pa10` solves to `0` / `100` at every level,
 because `clc6` sums other skills' `blvl` and the summon's own Raven term cancels the
 `- blvl`. Such a line keeps all of its tables and additionally carries `valuesCalc`: one
-entry per numeric argument, aligned with `values`, holding the `skilldesc.txt` cell that
-argument is solved from (trimmed, spreadsheet quotes removed):
+entry per numeric argument, aligned with `values`, starting from the corresponding
+`skilldesc.txt` cell (trimmed, spreadsheet quotes removed). The example shows that source
+spelling; supported source-column pointers may be expanded before the expression is emitted:
 
 ```jsonc
 { "key": "SynergyCap", "values": [[0],[100]], "values2d": [[[0]],[[100]]],
   "valuesCalc": ["min(clc6+(skill('Raven'.clc5)-blvl),pa10)", "pa10"] }
 ```
+
+The exporter recursively expands supported `pstN`, irregular `ps10`–`ps14`, and `astN`
+aliases from the owning `skills.txt` row, including nested `calcN` and expression-column
+pointers. Expansions are parenthesized. Same-skill levels, Params and formulas remain in the
+describing skill's scope; cross-skill levels/formulas keep the referenced skill scope, while
+cross-skill Params are bound from that referenced row. `cond('Difficulty', …)` is folded to
+the configured `skillDescriptionDifficulty` branch. If a cycle, missing row/cell, unsupported
+condition or unrepresentable dependency is encountered, the original expression is retained
+so the consumer can fall back to the baseline tables.
 
 - The trigger is the evaluator's own: `SkillCalcContext.TryResolveUnallocatedSkill`
   records `CalcLevels.UsedUnallocatedSkill` whenever an evaluation reaches a non-Param
@@ -275,7 +285,8 @@ argument is solved from (trimmed, spreadsheet quotes removed):
   skill's own levels), gear `stat(…accr)` terms and the mastery aggregates.
 - Each entry is evaluated in the **describing** skill's scope, with the same scope and
   grammar as `Calculation.ElementalDamage`: bare `clcN`/`parN` aliases are the
-  describing row's own, and quoted references stay live.
+  describing row's own, and quoted references stay live. Expanded cross-skill formulas
+  retain that skill's `lvl`/`blvl` scope and never borrow the describing row's Params.
 - An argument a layout combines from two cells — `valueWithDivisor` with a divisor
   (fractional-second durations such as Frozen Armor's) or `sumOfValues` with a second
   term — is not one integer BBE expression, so its entry is `null` and its table remains

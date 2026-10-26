@@ -470,7 +470,7 @@ internal sealed class SkillCalcContext : ICalcScope
     /// The expression-valued columns <c>skillcalc.txt</c> aliases. Column name to DTO
     /// property is pure plumbing, so it stays in code rather than in config.
     /// </summary>
-    private static string? ExpressionColumn(Skills row, string column)
+    internal static string? ExpressionColumn(Skills row, string column)
     {
         var lower = column.ToLowerInvariant();
         if (CalcExpression.TryParseIndexed(lower, "calc", 1, 10, out var index))
