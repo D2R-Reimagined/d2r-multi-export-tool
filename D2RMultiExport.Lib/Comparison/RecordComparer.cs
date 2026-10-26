@@ -17,7 +17,11 @@ internal static class RecordComparer
         new("armors", "keyed/armors.json", "NameKey", NestedArrayField: "AutoMagicGroups",
             NestedMatchKey: "Code", NestedArrayOptional: true),
         new("weapons", "keyed/weapons.json", "NameKey", NestedArrayField: "AutoMagicGroups",
-            NestedMatchKey: "Code", NestedArrayOptional: true)
+            NestedMatchKey: "Code", NestedArrayOptional: true),
+        new("magicprefix", "keyed/magicprefix.json", "NameKey", VariantArrayField: "Types",
+            AffixIdentity: true, UnorderedRootArrays: ["Types", "ETypes"]),
+        new("magicsuffix", "keyed/magicsuffix.json", "NameKey", VariantArrayField: "Types",
+            AffixIdentity: true, UnorderedRootArrays: ["Types", "ETypes"])
     ];
 
     public static IReadOnlyList<ComparisonDefinition> Categories => Definitions;
@@ -43,7 +47,17 @@ internal static class RecordComparer
 
         Dictionary<string, RecordData> oldByKey;
         Dictionary<string, RecordData> newByKey;
-        if (definition.VariantArrayField is { } variantArrayField && definition.VariantMatchKey is { } variantMatchKey)
+        if (definition.AffixIdentity)
+        {
+            var affixMatches = MagicAffixMatcher.Match(definition.Category, oldRecords, newRecords);
+            errors.AddRange(affixMatches.Errors);
+            warnings.AddRange(affixMatches.Warnings);
+            if (errors.Count > 0) return NotCompared(definition, errors, warnings, oldHash, newHash);
+            oldByKey = ConvertAffixRecords(affixMatches.OldRecords);
+            newByKey = ConvertAffixRecords(affixMatches.NewRecords);
+        }
+        else if (definition.VariantArrayField is { } variantArrayField &&
+                 definition.VariantMatchKey is { } variantMatchKey)
         {
             var oldVariants =
                 ReadVariantRecords(definition, oldRecords, variantArrayField, variantMatchKey, "old", errors);
@@ -89,9 +103,11 @@ internal static class RecordComparer
                 ? null
                 : CompareNestedRecords(definition, oldRecord, newRecord, nestedCounts!);
             var changes = JsonStructuralDiff.Compare(oldRecord.Value, newRecord.Value,
-                ignoredRootFields, definition.NestedArrayField ?? definition.VariantArrayField,
+                ignoredRootFields,
+                definition.NestedArrayField ?? (definition.AffixIdentity ? null : definition.VariantArrayField),
                 definition.NestedMatchKey ?? definition.VariantMatchKey,
-                definition.NestedArrayOptional);
+                definition.NestedArrayOptional,
+                new HashSet<string>(definition.UnorderedRootArrays, StringComparer.Ordinal));
             if (changes.Count == 0)
             {
                 unchanged++;
@@ -101,6 +117,7 @@ internal static class RecordComparer
             modified.Add(new ModifiedRecord
             {
                 Key = oldRecord.Key,
+                MatchedBy = oldRecord.MatchRule,
                 OldRowIndex = oldRecord.RowIndex,
                 NewRowIndex = newRecord.RowIndex,
                 VariantTypes = oldRecord.VariantTypes,
@@ -206,6 +223,14 @@ internal static class RecordComparer
 
         return result;
     }
+
+    private static Dictionary<string, RecordData> ConvertAffixRecords(
+        Dictionary<string, MagicAffixMatcher.MatchedRecord> records) =>
+        records.ToDictionary(
+            static pair => pair.Key,
+            static pair => new RecordData(pair.Value.Key, null, pair.Value.Value, null,
+                pair.Value.VariantTypes, pair.Value.MatchedBy),
+            StringComparer.Ordinal);
 
     private static List<VariantRecord> ReadVariantRecords(
         ComparisonDefinition definition,
@@ -498,9 +523,12 @@ internal static class RecordComparer
         string? NestedMatchKey = null,
         string? VariantArrayField = null,
         string? VariantMatchKey = null,
-        bool NestedArrayOptional = false)
+        bool NestedArrayOptional = false,
+        bool AffixIdentity = false,
+        string[]? UnorderedRootArrays = null)
     {
         public string[] IgnoredRootFields { get; init; } = IgnoredRootFields ?? [];
+        public string[] UnorderedRootArrays { get; init; } = UnorderedRootArrays ?? [];
     }
 
     private sealed record RecordData(
@@ -508,7 +536,8 @@ internal static class RecordComparer
         int? RowIndex,
         JsonElement Value,
         Dictionary<string, JsonElement>? NestedRecords,
-        List<string>? VariantTypes = null);
+        List<string>? VariantTypes = null,
+        string? MatchRule = null);
 
     private sealed record VariantRecord(string Name, List<string> Types, int Position, JsonElement Value);
 

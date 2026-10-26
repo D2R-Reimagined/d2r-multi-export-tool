@@ -212,7 +212,7 @@ var compareNewOption = new Option<string>("--new")
 };
 var compareOutputOption = new Option<string>("--out", "-o")
 {
-    Description = "Directory where changes.json will be written",
+    Description = "Directory where changes.json and recipe-changes.md will be written",
     Required = true
 };
 var comparePrettyOption = new Option<bool>("--pretty")
@@ -243,7 +243,9 @@ compareCommand.SetAction(async (parseResult, _) =>
         }
 
         var report = await SnapshotComparison.CompareAsync(oldDirectory, newDirectory);
+        var recipeMarkdown = await SnapshotComparison.RenderRecipeChangesAsync(report);
         await SnapshotComparison.WriteAsync(report, outputDirectory, parseResult.GetValue(comparePrettyOption));
+        await SnapshotComparison.WriteRecipeChangesAsync(recipeMarkdown, outputDirectory);
         foreach (var category in report.Categories)
         {
             Console.WriteLine(
@@ -253,9 +255,16 @@ compareCommand.SetAction(async (parseResult, _) =>
                 Console.WriteLine(
                     $"  {category.NestedField} comparison: added {nestedCounts.Added}, removed {nestedCounts.Removed}, modified {nestedCounts.Modified}, unchanged {nestedCounts.Unchanged}.");
             }
+
+            var ambiguousAffixWarnings =
+                category.Warnings.Count(static issue => issue.Code == "ambiguous-affix-identity");
+            if (ambiguousAffixWarnings > 0)
+                Console.WriteLine(
+                    $"  {ambiguousAffixWarnings} ambiguous affix identity warning(s); unresolved variants are additions/removals.");
         }
 
         Console.WriteLine($"Comparison report: '{Path.GetFullPath(outputDirectory)}\\changes.json'.");
+        Console.WriteLine($"Recipe Markdown report: '{Path.GetFullPath(outputDirectory)}\\recipe-changes.md'.");
         if (!report.Succeeded)
         {
             Console.Error.WriteLine("Comparison completed with validation or comparison errors; see changes.json.");

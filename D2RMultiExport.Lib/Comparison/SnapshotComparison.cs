@@ -71,6 +71,17 @@ public static class SnapshotComparison
         return outputs.WriteJsonAsync("changes.json", report, options);
     }
 
+    /// <summary>Renders the cube-recipe changes from an existing report as human-readable Markdown.</summary>
+    public static Task<string> RenderRecipeChangesAsync(ComparisonReport report) =>
+        RecipeChangeMarkdown.RenderAsync(report);
+
+    /// <summary>Writes the recipe Markdown report through the atomic output gateway.</summary>
+    public static Task WriteRecipeChangesAsync(string markdown, string outputDirectory)
+    {
+        var outputs = new ExportOutputs(outputDirectory) { Producer = "snapshot-comparison" };
+        return outputs.WriteTextAsync("recipe-changes.md", markdown);
+    }
+
     private static CategoryComparison CompareCategory(
         RecordComparer.ComparisonDefinition definition,
         SnapshotInfo oldSnapshot,

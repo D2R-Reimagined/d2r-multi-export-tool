@@ -16,9 +16,11 @@ public sealed class SnapshotComparisonTests : IDisposable
     private const string RunewordPath = "keyed/runewords.json";
     private const string ArmorPath = "keyed/armors.json";
     private const string WeaponPath = "keyed/weapons.json";
+    private const string MagicPrefixPath = "keyed/magicprefix.json";
+    private const string MagicSuffixPath = "keyed/magicsuffix.json";
 
     private static readonly string[] CategoryFiles =
-        [CubeRecipePath, UniquePath, SetPath, RunewordPath, ArmorPath, WeaponPath];
+        [CubeRecipePath, UniquePath, SetPath, RunewordPath, ArmorPath, WeaponPath, MagicPrefixPath, MagicSuffixPath];
 
     private readonly string _root = Directory.CreateTempSubdirectory("d2r-snapshot-comparison-").FullName;
 
@@ -828,6 +830,240 @@ public sealed class SnapshotComparisonTests : IDisposable
     }
 
     [Fact]
+    public async Task UniqueNameAffixChangesIncludeStructuralFieldsAndCompleteRecords()
+    {
+        const string oldAffix =
+            "[{\"NameKey\":\"of Power\",\"Level\":12,\"MaxLevel\":20,\"RequiredLevel\":5,\"Group\":3,\"ClassSpecific\":\"\",\"Class\":\"\",\"ClassLevelReq\":0,\"Types\":[\"weap\"],\"ETypes\":[\"swor\"],\"PType\":\"Suffix\",\"Lines\":[{\"key\":\"strDamage\",\"args\":[5,10]}]}]";
+        const string newAffix =
+            "[{\"NameKey\":\"of Power\",\"Level\":14,\"MaxLevel\":22,\"RequiredLevel\":7,\"Group\":4,\"ClassSpecific\":\"Amazon\",\"Class\":\"AmaOnly\",\"ClassLevelReq\":2,\"Types\":[\"weap\"],\"ETypes\":[\"swor\",\"axe\"],\"PType\":\"Suffix\",\"Lines\":[{\"key\":\"strDamage\",\"args\":[6,12]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", magicSuffixes: oldAffix);
+        var newSnapshot = await CreateSnapshotAsync("new", magicSuffixes: newAffix);
+
+        var suffixes = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "magicsuffix");
+        var modified = Assert.Single(suffixes.ModifiedRecords);
+
+        Assert.Equal((0, 0, 1), (suffixes.Counts.Added, suffixes.Counts.Removed, suffixes.Counts.Modified));
+        Assert.Contains("Level", modified.ChangedFields);
+        Assert.Contains("MaxLevel", modified.ChangedFields);
+        Assert.Contains("RequiredLevel", modified.ChangedFields);
+        Assert.Contains("Group", modified.ChangedFields);
+        Assert.Contains("ClassSpecific", modified.ChangedFields);
+        Assert.Contains("Class", modified.ChangedFields);
+        Assert.Contains("ClassLevelReq", modified.ChangedFields);
+        Assert.Contains("ETypes[Value=\"axe\"]", modified.ChangedFields);
+        Assert.Equal("of Power", modified.Old.GetProperty("NameKey").GetString());
+        Assert.Equal(7, modified.New.GetProperty("RequiredLevel").GetInt32());
+    }
+
+    [Fact]
+    public async Task AffixPropertyLineOrderAndPropertyGroupSelectionChangesAreDetected()
+    {
+        const string oldAffix =
+            "[{\"NameKey\":\"Grouped\",\"Level\":4,\"Group\":1,\"Types\":[],\"Lines\":[{\"key\":\"strPropertyGroupsProperty\",\"args\":[{\"pickMode\":\"1\",\"properties\":[{\"code\":\"cold\",\"chance\":10}]}]},{\"key\":\"strOtherProperty\",\"args\":[]}]}]";
+        const string newAffix =
+            "[{\"NameKey\":\"Grouped\",\"Level\":4,\"Group\":1,\"Types\":[],\"Lines\":[{\"key\":\"strPropertyGroupsProperty\",\"args\":[{\"pickMode\":\"2\",\"properties\":[{\"code\":\"cold\",\"chance\":20}]}]},{\"key\":\"strOtherProperty\",\"args\":[]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", magicPrefixes: oldAffix);
+        var newSnapshot = await CreateSnapshotAsync("new", magicPrefixes: newAffix);
+
+        var prefixes = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "magicprefix");
+        var modified = Assert.Single(prefixes.ModifiedRecords);
+
+        Assert.Contains("Lines[0].args[0].pickMode", modified.ChangedFields);
+        Assert.Contains("Lines[0].args[0].properties[0].chance", modified.ChangedFields);
+    }
+
+    [Fact]
+    public async Task AffixPropertyLineReorderingIsReportedAsAChange()
+    {
+        const string oldAffix =
+            "[{\"NameKey\":\"Ordered\",\"Level\":4,\"Group\":1,\"Types\":[],\"Lines\":[{\"key\":\"strFirst\",\"args\":[]},{\"key\":\"strSecond\",\"args\":[]}]}]";
+        const string newAffix =
+            "[{\"NameKey\":\"Ordered\",\"Level\":4,\"Group\":1,\"Types\":[],\"Lines\":[{\"key\":\"strSecond\",\"args\":[]},{\"key\":\"strFirst\",\"args\":[]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", magicPrefixes: oldAffix);
+        var newSnapshot = await CreateSnapshotAsync("new", magicPrefixes: newAffix);
+
+        var prefixes = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "magicprefix");
+
+        Assert.Contains("Lines[0].key", Assert.Single(prefixes.ModifiedRecords).ChangedFields);
+    }
+
+    [Fact]
+    public async Task DuplicateNameAffixesMatchByPropertySignatureAndIgnoreEquipmentTypeOrdering()
+    {
+        const string oldAffixes =
+            "[{\"NameKey\":\"Sharp\",\"Level\":10,\"Group\":2,\"Types\":[\"weap\",\"swor\"],\"ETypes\":[\"axe\",\"swor\"],\"Lines\":[{\"key\":\"strColdDamage\",\"args\":[1,2]}]},{\"NameKey\":\"Sharp\",\"Level\":10,\"Group\":2,\"Types\":[\"weap\",\"swor\"],\"ETypes\":[\"swor\",\"axe\"],\"Lines\":[{\"key\":\"strFireDamage\",\"args\":[3,4]}]}]";
+        const string newAffixes =
+            "[{\"NameKey\":\"Sharp\",\"Level\":10,\"Group\":2,\"Types\":[\"swor\",\"weap\"],\"ETypes\":[\"swor\",\"axe\"],\"Lines\":[{\"key\":\"strFireDamage\",\"args\":[3,4]}]},{\"NameKey\":\"Sharp\",\"Level\":10,\"Group\":2,\"Types\":[\"weap\",\"swor\"],\"ETypes\":[\"axe\",\"swor\"],\"Lines\":[{\"key\":\"strColdDamage\",\"args\":[1,2]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", magicPrefixes: oldAffixes);
+        var newSnapshot = await CreateSnapshotAsync("new", magicPrefixes: newAffixes);
+
+        var prefixes = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "magicprefix");
+
+        Assert.Equal((0, 0, 0, 2),
+            (prefixes.Counts.Added, prefixes.Counts.Removed, prefixes.Counts.Modified, prefixes.Counts.Unchanged));
+        Assert.Empty(prefixes.Warnings);
+    }
+
+    [Fact]
+    public async Task DuplicateNameNumericAffixRollChangesAreModificationsNotIdentityChurn()
+    {
+        const string oldAffixes =
+            "[{\"NameKey\":\"Glowing\",\"Level\":5,\"Group\":1,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strFireDamage\",\"args\":[5]}]},{\"NameKey\":\"Glowing\",\"Level\":5,\"Group\":1,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strColdDamage\",\"args\":[8]}]}]";
+        const string newAffixes =
+            "[{\"NameKey\":\"Glowing\",\"Level\":5,\"Group\":1,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strFireDamage\",\"args\":[6,10]}]},{\"NameKey\":\"Glowing\",\"Level\":5,\"Group\":1,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strColdDamage\",\"args\":[8]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", magicPrefixes: oldAffixes);
+        var newSnapshot = await CreateSnapshotAsync("new", magicPrefixes: newAffixes);
+
+        var prefixes = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "magicprefix");
+
+        Assert.Equal((0, 0, 1, 1),
+            (prefixes.Counts.Added, prefixes.Counts.Removed, prefixes.Counts.Modified, prefixes.Counts.Unchanged));
+        Assert.Equal("strFireDamage", Assert.Single(prefixes.ModifiedRecords).Old.GetProperty("Lines")[0]
+            .GetProperty("key").GetString());
+    }
+
+    [Fact]
+    public async Task DuplicateNameAffixLevelAndEligibleTypeChangesRemainModifications()
+    {
+        const string oldAffixes =
+            "[{\"NameKey\":\"Mystic\",\"Level\":10,\"Group\":2,\"Types\":[\"armo\"],\"ETypes\":[\"helm\"],\"Lines\":[{\"key\":\"strFireDamage\",\"args\":[1]}]},{\"NameKey\":\"Mystic\",\"Level\":11,\"Group\":2,\"Types\":[\"armo\"],\"ETypes\":[\"helm\"],\"Lines\":[{\"key\":\"strColdDamage\",\"args\":[2]}]}]";
+        const string newAffixes =
+            "[{\"NameKey\":\"Mystic\",\"Level\":10,\"Group\":2,\"Types\":[\"armo\",\"shld\"],\"ETypes\":[\"helm\"],\"Lines\":[{\"key\":\"strFireDamage\",\"args\":[1]}]},{\"NameKey\":\"Mystic\",\"Level\":12,\"Group\":2,\"Types\":[\"armo\"],\"ETypes\":[\"helm\"],\"Lines\":[{\"key\":\"strColdDamage\",\"args\":[2]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", magicPrefixes: oldAffixes);
+        var newSnapshot = await CreateSnapshotAsync("new", magicPrefixes: newAffixes);
+
+        var prefixes = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "magicprefix");
+
+        Assert.Equal((0, 0, 2), (prefixes.Counts.Added, prefixes.Counts.Removed, prefixes.Counts.Modified));
+        Assert.Contains(prefixes.ModifiedRecords, static record => record.ChangedFields.Contains("Level"));
+        Assert.Contains(prefixes.ModifiedRecords,
+            static record =>
+                record.ChangedFields.Any(path => path.StartsWith("Types[Value=", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task DuplicateNameAffixVariantsCanBeAddedAndRemovedIndependently()
+    {
+        const string oldAffixes =
+            "[{\"NameKey\":\"Beryl\",\"Level\":8,\"Group\":1,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strFireDamage\",\"args\":[1]}]},{\"NameKey\":\"Beryl\",\"Level\":8,\"Group\":1,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strColdDamage\",\"args\":[2]}]}]";
+        const string newAffixes =
+            "[{\"NameKey\":\"Beryl\",\"Level\":8,\"Group\":1,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strFireDamage\",\"args\":[1]}]},{\"NameKey\":\"Beryl\",\"Level\":8,\"Group\":2,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strLightningDamage\",\"args\":[3]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", magicPrefixes: oldAffixes);
+        var newSnapshot = await CreateSnapshotAsync("new", magicPrefixes: newAffixes);
+
+        var prefixes = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "magicprefix");
+
+        Assert.Equal((1, 1, 0), (prefixes.Counts.Added, prefixes.Counts.Removed, prefixes.Counts.Modified));
+        Assert.Contains("Properties=", Assert.Single(prefixes.RemovedRecords).Key);
+        Assert.Contains("Group=2", Assert.Single(prefixes.AddedRecords).Key);
+    }
+
+    [Fact]
+    public async Task UnresolvedDuplicateNameAffixesAreNotPairedAndWarnAboutAmbiguity()
+    {
+        const string identicalAffixes =
+            "[{\"NameKey\":\"Sapphire\",\"Level\":9,\"Group\":2,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strColdDamage\",\"args\":[2]}]},{\"NameKey\":\"Sapphire\",\"Level\":9,\"Group\":2,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strColdDamage\",\"args\":[2]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", magicPrefixes: identicalAffixes);
+        var newSnapshot = await CreateSnapshotAsync("new", magicPrefixes: identicalAffixes);
+
+        var prefixes = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "magicprefix");
+
+        Assert.Equal((2, 2, 0), (prefixes.Counts.Added, prefixes.Counts.Removed, prefixes.Counts.Modified));
+        var warning = Assert.Single(prefixes.Warnings, static issue => issue.Code == "ambiguous-affix-identity");
+        Assert.Contains("Sapphire", warning.Message);
+        var unresolvedRecords = prefixes.AddedRecords.Concat(prefixes.RemovedRecords).ToList();
+        Assert.Equal(4, unresolvedRecords.Select(static record => record.Key).Distinct(StringComparer.Ordinal).Count());
+        Assert.All(unresolvedRecords, record => Assert.Contains(record.Key, warning.Message, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task DuplicateNamePropertyKeyChangePairsByMetadataAndReportsMatchingRule()
+    {
+        const string oldAffixes =
+            "[{\"NameKey\":\"Frosted\",\"Level\":8,\"Group\":1,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strFireDamage\",\"args\":[1]}]},{\"NameKey\":\"Frosted\",\"Level\":8,\"Group\":1,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strColdDamage\",\"args\":[2]}]}]";
+        const string newAffixes =
+            "[{\"NameKey\":\"Frosted\",\"Level\":8,\"Group\":1,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strFireDamage\",\"args\":[1]}]},{\"NameKey\":\"Frosted\",\"Level\":8,\"Group\":1,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"strLightningDamage\",\"args\":[2]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", magicPrefixes: oldAffixes);
+        var newSnapshot = await CreateSnapshotAsync("new", magicPrefixes: newAffixes);
+
+        var prefixes = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "magicprefix");
+        var modified = Assert.Single(prefixes.ModifiedRecords);
+
+        Assert.Equal("StructuralMetadata", modified.MatchedBy);
+        Assert.Contains("Lines[0].key", modified.ChangedFields);
+    }
+
+    [Fact]
+    public async Task PrefixAndSuffixAffixesAreIndependentAndUnorderedTypesDoNotModifyUniqueAffixes()
+    {
+        const string oldAffix =
+            "[{\"NameKey\":\"Shared Name\",\"Level\":1,\"Group\":1,\"Types\":[\"armo\",\"weap\"],\"ETypes\":[\"helm\",\"swor\"],\"Lines\":[{\"key\":\"strDamage\",\"args\":[1,2]}]}]";
+        const string reorderedAffix =
+            "[{\"NameKey\":\"Shared Name\",\"Level\":1,\"Group\":1,\"Types\":[\"weap\",\"armo\"],\"ETypes\":[\"swor\",\"helm\"],\"Lines\":[{\"key\":\"strDamage\",\"args\":[1,2]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", magicPrefixes: oldAffix, magicSuffixes: oldAffix);
+        var newSnapshot =
+            await CreateSnapshotAsync("new", magicPrefixes: reorderedAffix, magicSuffixes: reorderedAffix);
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.Equal(1, GetCategory(report, "magicprefix").Counts.Unchanged);
+        Assert.Equal(1, GetCategory(report, "magicsuffix").Counts.Unchanged);
+        Assert.Equal(2, report.Counts.Unchanged);
+    }
+
+    [Fact]
+    public async Task MissingAffixManifestEntryDoesNotBlockTheOtherCategory()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old",
+            magicPrefixes: "[{\"NameKey\":\"Valid\",\"Level\":1,\"Group\":1,\"Types\":[],\"Lines\":[]}]",
+            magicSuffixes: "[{\"NameKey\":\"Valid\",\"Level\":1,\"Group\":1,\"Types\":[],\"Lines\":[]}]",
+            omitFromManifest: [MagicPrefixPath]);
+        var newSnapshot = await CreateSnapshotAsync("new",
+            magicPrefixes: "[{\"NameKey\":\"Valid\",\"Level\":1,\"Group\":1,\"Types\":[],\"Lines\":[]}]",
+            magicSuffixes: "[{\"NameKey\":\"Valid\",\"Level\":1,\"Group\":1,\"Types\":[],\"Lines\":[]}] ");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.Equal("NotCompared", GetCategory(report, "magicprefix").Status);
+        Assert.Equal("Compared", GetCategory(report, "magicsuffix").Status);
+        Assert.NotEmpty(GetCategory(report, "magicprefix").Errors);
+    }
+
+    [Fact]
+    public async Task InvalidAffixTypeArrayInvalidatesOnlyItsCategory()
+    {
+        const string validAffix = "[{\"NameKey\":\"Valid\",\"Level\":1,\"Group\":1,\"Types\":[],\"Lines\":[]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", magicPrefixes: validAffix, magicSuffixes: validAffix);
+        var newSnapshot = await CreateSnapshotAsync("new", magicPrefixes: validAffix,
+            magicSuffixes: "[{\"NameKey\":\"Invalid\",\"Level\":1,\"Group\":1,\"Types\":[4],\"Lines\":[]}] ");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.Equal("Compared", GetCategory(report, "magicprefix").Status);
+        Assert.Equal("NotCompared", GetCategory(report, "magicsuffix").Status);
+        Assert.Contains(GetCategory(report, "magicsuffix").Errors,
+            static issue => issue.Code == "invalid-affix-identity");
+    }
+
+    [Fact]
+    public async Task MissingAffixNameKeyInvalidatesOnlyThatCategory()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old",
+            magicPrefixes: "[{\"Level\":1,\"Group\":1,\"Types\":[],\"Lines\":[]}]",
+            magicSuffixes: "[]");
+        var newSnapshot = await CreateSnapshotAsync("new",
+            magicPrefixes: "[{\"Level\":1,\"Group\":1,\"Types\":[],\"Lines\":[]}]",
+            magicSuffixes: "[]");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.Equal("NotCompared", GetCategory(report, "magicprefix").Status);
+        Assert.Contains(GetCategory(report, "magicprefix").Errors,
+            static issue => issue.Code == "missing-record-identity");
+        Assert.Equal("Compared", GetCategory(report, "magicsuffix").Status);
+    }
+
+    [Fact]
     public void OutputDirectoryInsideAnInputSnapshotIsRefused()
     {
         var oldSnapshot = Path.Combine(_root, "old");
@@ -847,6 +1083,8 @@ public sealed class SnapshotComparisonTests : IDisposable
         string runewords = "[]",
         string armors = "[]",
         string weapons = "[]",
+        string magicPrefixes = "[]",
+        string magicSuffixes = "[]",
         string stepStatus = "Written",
         bool succeeded = true,
         bool complete = true,
@@ -861,7 +1099,9 @@ public sealed class SnapshotComparisonTests : IDisposable
             [SetPath] = sets,
             [RunewordPath] = runewords,
             [ArmorPath] = armors,
-            [WeaponPath] = weapons
+            [WeaponPath] = weapons,
+            [MagicPrefixPath] = magicPrefixes,
+            [MagicSuffixPath] = magicSuffixes
         };
         var files = new List<object>();
         foreach (var (relativePath, content) in payloads)

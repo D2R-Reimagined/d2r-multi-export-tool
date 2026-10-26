@@ -17,6 +17,42 @@ input, or a symlink/junction alias into an input. It contains `changes.json`;
 `--pretty` is available and defaults to true. No developer test paths are built
 into the application.
 
+## Recipe change Markdown
+
+The same `compare` invocation also writes `recipe-changes.md` beside
+`changes.json`. It is a human-readable view of the existing `cube-recipes`
+category in the comparison report; it does not run a second comparison or alter
+the schema-2 JSON. The summary identifies both snapshots and their manifest
+hashes, reports validation and category status, counts, and diagnostics. Added,
+removed, and modified entries include recipe IDs, row indexes, readable recipe
+details, changed fields where applicable, and the complete original record JSON.
+Unchanged recipes contribute to the summary count but are not repeated as
+individual records.
+
+English item and property text is used only when that snapshot's
+`strings/enUS.json` is listed as a current-run output of its `strings` manifest
+step, its producer matches, its size and SHA-256 pass the same snapshot checks,
+and the manifest hash still matches the one captured by comparison. The old
+snapshot's bundle is used for old records and the new snapshot's bundle for new
+records. Missing, stale, malformed, or unverified bundles and unresolved or
+unsupported keyed-line templates fall back to the original translation key and
+raw arguments; no English is invented. Keyed-line values are formatted only for
+the small supported placeholder subset, not through a recreation of the
+website's full localization renderer. The complete raw record remains
+available in a collapsible Markdown block in every listed entry.
+
+Recipe `Id` values are derived from ingredients and conditions. An ingredient or
+condition change can therefore become a removal plus an addition rather than a
+modification. The Markdown does not guess replacement pairs; compare the stable
+IDs and full records in both reports during review.
+
+If either snapshot fails validation or the cube category is invalid or
+unavailable, the Markdown explicitly says recipes were not successfully
+compared and does not present empty change sections as zero changes. `changes.json`
+and the existing comparison exit-code behavior remain authoritative; a fatal
+failure while rendering or writing either report follows the existing fatal
+comparison path.
+
 ## Snapshot validation
 
 Each input must contain a readable schema-2 `manifest.json`. For each category,
@@ -35,6 +71,8 @@ The compared files are:
 | `runewords` | `keyed/runewords.json` | String `Index`; same-name variants use the sorted `Types[].Index` identifiers |
 | `armors` | `keyed/armors.json` | String `NameKey`; nested `AutoMagicGroups` use `Code` within each base item |
 | `weapons` | `keyed/weapons.json` | String `NameKey`; nested `AutoMagicGroups` use `Code` within each base item |
+| `magicprefix` | `keyed/magicprefix.json` | `NameKey`; duplicate names use structural metadata and keyed property signatures |
+| `magicsuffix` | `keyed/magicsuffix.json` | `NameKey`; duplicate names use structural metadata and keyed property signatures |
 
 A missing manifest, failed export, invalid manifest, or unsafe snapshot prevents
 all categories from being compared. A missing, skipped/not-written, unlisted,
@@ -62,8 +100,8 @@ authenticate the manifest or prove source/code provenance.
 - `OldSnapshot` and `NewSnapshot`: snapshot identification, manifest integrity
   metadata, `Errors` and `Warnings`.
 - `Categories`: one entry each for `cube-recipes`, `uniques`, `sets`, `runewords`,
-  `armors`, and `weapons`, in that order. Each has `File`, `Status`, `MatchKey`,
-  `IgnoredFields`, verified file hashes, diagnostics, `Counts`, and
+  `armors`, `weapons`, `magicprefix`, and `magicsuffix`, in that order. Each has
+  `File`, `Status`, `MatchKey`, `IgnoredFields`, verified file hashes, diagnostics, `Counts`, and
   `AddedRecords`, `RemovedRecords`, and `ModifiedRecords` arrays.
 - `Counts`: aggregate added/removed/modified/unchanged records and `Reindexed`
   count across categories whose status is `Compared`. Set-piece counts are kept
@@ -77,6 +115,8 @@ old/new row indexes, sorted `ChangedFields`, `Changes` (`Path`, `Kind`, `OldValu
 `NewValue`), and complete `Old`/`New` record JSON. The cube category uses the
 numeric `Index` only as `RowIndex`; it is not an identity. Index-only shifts are
 excluded from gameplay field changes and counted by `Reindexed`.
+Affix modifications also include optional `MatchedBy`, identifying the matching
+pass; it is omitted for all other categories.
 
 For sets, `NestedField` is `SetItems`, `NestedMatchKey` is `Index`, and
 `NestedCounts` counts child records only within sets matched by the parent set
@@ -116,6 +156,34 @@ their `Key`, are reported as additions/removals, and produce an
 `ambiguous-variant-identity` category warning. Invalid `Types` identity data
 invalidates only the runeword category.
 
+For `magicprefix` and `magicsuffix`, each category is matched independently.
+Affixes with a unique `NameKey` on both sides pair by name, so every changed
+exported field (including level, group, class restrictions, equipment eligibility,
+property lines, and property-group selection data) is reported as a modification.
+Duplicate names are paired only when a projection is unique on both remaining
+sides, in this order: `Group` + `Level` + sorted `Types` + property signature;
+`Group` + `Level` + sorted `Types`; `Group` + sorted `Types` + property signature;
+then `Group` + `Level` + property signature. The property signature preserves
+line order and uses each line's nonnumeric JSON content (including property keys
+and nonnumeric arguments), but omits numeric values so changed numeric rolls are
+diffed as modifications instead of changing identity. The report's `MatchedBy`
+values are `PropertySignature`, `StructuralMetadata`, `PropertiesWithoutLevel`,
+or `PropertiesWithoutTypes` for those passes, and `NameKey` for direct name matches.
+
+Affix record keys show the name, group, level, and ordinal-sorted `Types`; when
+that structural identity collides within either snapshot, the key also contains
+the property signature. Remaining duplicate candidates that cannot be uniquely
+paired are emitted as additions/removals with `#old-N`/`#new-N` disambiguators
+and an `ambiguous-affix-identity` warning listing the candidates. `Types` and
+`ETypes` ordering is non-semantic, while the order of `Lines` is meaningful.
+`ETypes` is compared as data, not used for identity.
+
+This strategy is intentionally bounded: numeric-only properties do not separate
+variants, and two otherwise indistinguishable duplicate rows cannot be
+reconciled across snapshots. Such candidates are not paired, even if their
+positions happen to correspond. The comparator reports an ambiguity warning
+rather than guessing; no exporter identity field is added for this limitation.
+
 All identities use ordinal string matching. Missing identity values, duplicate
 identities in categories that require unique keys, non-object records, malformed
 category arrays, or malformed `SetItems`/present `AutoMagicGroups` invalidate
@@ -144,7 +212,7 @@ replacement matching is intentionally not guessed.
 ## Exit codes
 
 - `0`: report written and validation/comparison succeeded. A `Complete: false`
-  snapshot can still yield this code if all six selected category files are
+  snapshot can still yield this code if all eight selected category files are
   verified; the report retains the incompleteness warning.
 - `1`: `changes.json` was written, but validation or category comparison errors
   prevented a successful result.

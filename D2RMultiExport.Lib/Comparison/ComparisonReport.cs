@@ -163,6 +163,9 @@ public sealed class ModifiedRecord
     /// <summary>Stable record identity shared by both snapshots.</summary>
     public string Key { get; init; } = "";
 
+    /// <summary>Identity pass used to pair a magic affix, when applicable.</summary>
+    public string? MatchedBy { get; init; }
+
     /// <summary>Sorted variant identifiers when the record belongs to a same-name variant group.</summary>
     public List<string>? VariantTypes { get; init; }
 

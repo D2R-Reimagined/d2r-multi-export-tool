@@ -14,11 +14,12 @@ internal static class JsonStructuralDiff
         IReadOnlySet<string> ignoredRootFields,
         string? keyedArrayField = null,
         string? keyedArrayMatchKey = null,
-        bool keyedArrayOptional = false)
+        bool keyedArrayOptional = false,
+        IReadOnlySet<string>? unorderedRootArrays = null)
     {
         var changes = new List<FieldChange>();
         CompareAt(oldValue, newValue, "", changes, ignoredRootFields, keyedArrayField, keyedArrayMatchKey,
-            keyedArrayOptional, atRoot: true);
+            keyedArrayOptional, unorderedRootArrays, atRoot: true);
         return changes;
     }
 
@@ -31,6 +32,7 @@ internal static class JsonStructuralDiff
         string? keyedArrayField,
         string? keyedArrayMatchKey,
         bool keyedArrayOptional,
+        IReadOnlySet<string>? unorderedRootArrays,
         bool atRoot = false)
     {
         if (oldValue.ValueKind != newValue.ValueKind)
@@ -70,9 +72,15 @@ internal static class JsonStructuralDiff
                                 newProperty.ValueKind == JsonValueKind.Array)
                     CompareKeyedArray(oldProperty, newProperty, childPath, changes, ignoredRootFields,
                         keyedArrayMatchKey!);
+                else if (atRoot && unorderedRootArrays?.Contains(name) == true
+                                && oldHasValue && newHasValue
+                                && oldProperty.ValueKind == JsonValueKind.Array
+                                && newProperty.ValueKind == JsonValueKind.Array
+                                && TryCompareUnorderedStringArrays(oldProperty, newProperty, childPath, changes))
+                    continue;
                 else
                     CompareAt(oldProperty, newProperty, childPath, changes, ignoredRootFields,
-                        keyedArrayField, keyedArrayMatchKey, keyedArrayOptional);
+                        keyedArrayField, keyedArrayMatchKey, keyedArrayOptional, unorderedRootArrays);
             }
 
             return;
@@ -88,7 +96,7 @@ internal static class JsonStructuralDiff
 
             for (var index = 0; index < oldValue.GetArrayLength(); index++)
                 CompareAt(oldValue[index], newValue[index], $"{path}[{index}]", changes, ignoredRootFields,
-                    keyedArrayField, keyedArrayMatchKey, keyedArrayOptional);
+                    keyedArrayField, keyedArrayMatchKey, keyedArrayOptional, unorderedRootArrays);
             return;
         }
 
@@ -124,12 +132,59 @@ internal static class JsonStructuralDiff
                 changes.Add(CreateChange(childPath, "Removed", oldRecord, null));
             else
                 CompareAt(oldRecord, newRecord, childPath, changes, ignoredRootFields, null, null,
-                    keyedArrayOptional: false);
+                    keyedArrayOptional: false, unorderedRootArrays: null);
         }
     }
 
     private static bool IsOptionalArrayValue(bool hasValue, JsonElement value) =>
         !hasValue || value.ValueKind is JsonValueKind.Null or JsonValueKind.Array;
+
+    private static bool TryCompareUnorderedStringArrays(
+        JsonElement oldArray,
+        JsonElement newArray,
+        string path,
+        List<FieldChange> changes)
+    {
+        if (oldArray.EnumerateArray().Any(static value => value.ValueKind != JsonValueKind.String) ||
+            newArray.EnumerateArray().Any(static value => value.ValueKind != JsonValueKind.String))
+            return false;
+
+        var oldCounts = CountStrings(oldArray);
+        var newCounts = CountStrings(newArray);
+        foreach (var value in oldCounts.Keys.Concat(newCounts.Keys).Distinct(StringComparer.Ordinal)
+                     .Order(StringComparer.Ordinal))
+        {
+            var difference = newCounts.GetValueOrDefault(value) - oldCounts.GetValueOrDefault(value);
+            var kind = difference > 0 ? "Added" : "Removed";
+            for (var occurrence = 0; occurrence < Math.Abs(difference); occurrence++)
+            {
+                var oldValue = difference < 0 ? CreateStringValue(value) : (JsonElement?)null;
+                var newValue = difference > 0 ? CreateStringValue(value) : (JsonElement?)null;
+                changes.Add(CreateChange($"{path}[Value=\"{EscapePathValue(value)}\"]", kind,
+                    oldValue, newValue));
+            }
+        }
+
+        return true;
+    }
+
+    private static Dictionary<string, int> CountStrings(JsonElement array)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var value in array.EnumerateArray())
+        {
+            var text = value.GetString() ?? "";
+            counts[text] = counts.GetValueOrDefault(text) + 1;
+        }
+
+        return counts;
+    }
+
+    private static JsonElement CreateStringValue(string value)
+    {
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(value));
+        return document.RootElement.Clone();
+    }
 
     private static Dictionary<string, JsonElement> IndexByKey(JsonElement array, string matchKey)
     {

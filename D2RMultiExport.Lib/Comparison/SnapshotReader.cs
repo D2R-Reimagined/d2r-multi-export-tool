@@ -32,7 +32,7 @@ internal sealed class SnapshotReader
         return reader;
     }
 
-    public async Task<SnapshotFileResult> ReadFileAsync(string relativePath)
+    public async Task<SnapshotFileResult> ReadFileAsync(string relativePath, string requiredProducer = RequiredProducer)
     {
         var errors = new List<ComparisonIssue>();
         var warnings = new List<ComparisonIssue>();
@@ -45,13 +45,13 @@ internal sealed class SnapshotReader
 
         if (!_manifestValid || Info.Succeeded != true) return new SnapshotFileResult(null, errors, warnings);
 
-        var matchingSteps = _steps.Where(static step => step.Producer == RequiredProducer).ToList();
+        var matchingSteps = _steps.Where(step => step.Producer == requiredProducer).ToList();
         if (matchingSteps.Count != 1)
         {
             AddFileError(matchingSteps.Count == 0 ? "missing-export-step" : "duplicate-export-step",
                 matchingSteps.Count == 0
-                    ? $"Manifest has no '{RequiredProducer}' export step for '{relativePath}'."
-                    : $"Manifest has more than one '{RequiredProducer}' export step for '{relativePath}'.");
+                    ? $"Manifest has no '{requiredProducer}' export step for '{relativePath}'."
+                    : $"Manifest has more than one '{requiredProducer}' export step for '{relativePath}'.");
             return new SnapshotFileResult(null, errors, warnings);
         }
 
@@ -85,7 +85,7 @@ internal sealed class SnapshotReader
         if (!outputListed)
         {
             AddFileError("file-not-in-export-step",
-                $"'{relativePath}' is not listed as an output of the '{RequiredProducer}' step.");
+                $"'{relativePath}' is not listed as an output of the '{requiredProducer}' step.");
             return new SnapshotFileResult(null, errors, warnings);
         }
 
