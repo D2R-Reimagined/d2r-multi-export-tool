@@ -13,7 +13,8 @@ public sealed class SnapshotComparisonTests : IDisposable
     private const string CubeRecipePath = "keyed/cube-recipes.json";
     private const string UniquePath = "keyed/uniques.json";
     private const string SetPath = "keyed/sets.json";
-    private static readonly string[] CategoryFiles = [CubeRecipePath, UniquePath, SetPath];
+    private const string RunewordPath = "keyed/runewords.json";
+    private static readonly string[] CategoryFiles = [CubeRecipePath, UniquePath, SetPath, RunewordPath];
     private readonly string _root = Directory.CreateTempSubdirectory("d2r-snapshot-comparison-").FullName;
 
     public void Dispose()
@@ -154,6 +155,169 @@ public sealed class SnapshotComparisonTests : IDisposable
 
         Assert.Equal("NotCompared", GetCategory(report, "uniques").Status);
         Assert.Contains(GetCategory(report, "uniques").Errors, static issue => issue.Code == "missing-record-identity");
+    }
+
+    [Fact]
+    public async Task UniqueRunewordModificationUsesIndexAndPreservesStructuralChanges()
+    {
+        const string oldRunewords =
+            "[{\"Index\":\"Solo\",\"Vanilla\":\"N\",\"Enabled\":true,\"Rarity\":1,\"ItemLevel\":8,\"RequiredLevel\":12,\"Code\":\"\",\"Runes\":[{\"NameKey\":\"Tal\"}],\"Types\":[{\"Index\":\"sword\"}],\"Qualifiers\":[\"weapon\"],\"Lines\":[{\"key\":\"strDamage\",\"args\":[10,20]}]}]";
+        const string newRunewords =
+            "[{\"Index\":\"Solo\",\"Vanilla\":\"Y\",\"Enabled\":false,\"Rarity\":2,\"ItemLevel\":9,\"RequiredLevel\":15,\"Code\":\"\",\"Runes\":[{\"NameKey\":\"Ral\"}],\"Types\":[{\"Index\":\"sword\"},{\"Index\":\"polearm\"}],\"Qualifiers\":[\"armor\"],\"Lines\":[{\"key\":\"strDamage\",\"args\":[10,25]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", runewords: oldRunewords);
+        var newSnapshot = await CreateSnapshotAsync("new", runewords: newRunewords);
+
+        var runewords = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "runewords");
+        var modified = Assert.Single(runewords.ModifiedRecords);
+
+        Assert.Equal("Compared", runewords.Status);
+        Assert.Equal("Index", runewords.MatchKey);
+        Assert.Equal("Types", runewords.VariantField);
+        Assert.Equal("Index", runewords.VariantMatchKey);
+        Assert.Equal(1, runewords.Counts.Modified);
+        Assert.Contains(modified.ChangedFields, static path => path == "Enabled");
+        Assert.Contains(modified.ChangedFields, static path => path == "RequiredLevel");
+        Assert.Contains(modified.ChangedFields, static path => path == "Runes[0].NameKey");
+        Assert.Contains(modified.ChangedFields, static path => path == "Qualifiers[0]");
+        Assert.Contains(modified.ChangedFields, static path => path == "Lines[0].args[1]");
+        Assert.Contains(modified.Changes,
+            static change => change.Path == "Types[Index=\"polearm\"]" && change.Kind == "Added");
+        Assert.Equal("Tal", modified.Old.GetProperty("Runes")[0].GetProperty("NameKey").GetString());
+        Assert.Equal("Ral", modified.New.GetProperty("Runes")[0].GetProperty("NameKey").GetString());
+    }
+
+    [Fact]
+    public async Task FourKnownDuplicateRunewordNamesMatchByTypeIdentifiers()
+    {
+        var oldRows = new object[]
+        {
+            CreateRuneword("Leaf", ["Tir", "Ral"], ["sword", "polearm"]),
+            CreateRuneword("Leaf", ["Tir", "Ral"], ["bow"]),
+            CreateRuneword("Spark", ["Nef", "Tir"], ["sword", "axe"]),
+            CreateRuneword("Spark", ["Nef", "Tir"], ["staff"]),
+            CreateRuneword("Snowdrop", ["Tal", "Eth"], ["armor"]),
+            CreateRuneword("Snowdrop", ["Tal", "Eth"], ["shield"]),
+            CreateRuneword("Doom1", ["Hel", "Ohm"], ["sword"]),
+            CreateRuneword("Doom1", ["Hel", "Ohm"], ["polearm"])
+        };
+        var newRows = new object[]
+        {
+            CreateRuneword("Leaf", ["Tir", "Ral"], ["polearm", "sword"]),
+            CreateRuneword("Leaf", ["Tir", "Ral"], ["bow"]),
+            CreateRuneword("Spark", ["Nef", "Tir"], ["sword", "axe"]),
+            CreateRuneword("Spark", ["Nef", "Tir"], ["staff"]),
+            CreateRuneword("Snowdrop", ["Tal", "Eth"], ["armor"]),
+            CreateRuneword("Snowdrop", ["Tal", "Eth"], ["shield"]),
+            CreateRuneword("Doom1", ["Hel", "Ohm"], ["sword"]),
+            CreateRuneword("Doom1", ["Hel", "Ohm"], ["polearm"])
+        };
+        var oldSnapshot = await CreateSnapshotAsync("old", runewords: JsonSerializer.Serialize(oldRows));
+        var newSnapshot = await CreateSnapshotAsync("new", runewords: JsonSerializer.Serialize(newRows));
+
+        var runewords = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "runewords");
+
+        Assert.Equal((0, 0, 0, 8),
+            (runewords.Counts.Added, runewords.Counts.Removed, runewords.Counts.Modified, runewords.Counts.Unchanged));
+        Assert.Empty(runewords.Warnings);
+    }
+
+    [Fact]
+    public async Task DuplicateRunewordEligibilityChangesAreAdditionsAndRemovals()
+    {
+        var oldRows = new object[]
+        {
+            CreateRuneword("Shared Runes", ["Tal", "Eth"], ["sword"]),
+            CreateRuneword("Shared Runes", ["Tal", "Eth"], ["staff"])
+        };
+        var newRows = new object[]
+        {
+            CreateRuneword("Shared Runes", ["Tal", "Eth"], ["sword"]),
+            CreateRuneword("Shared Runes", ["Tal", "Eth"], ["shield"])
+        };
+        var oldSnapshot = await CreateSnapshotAsync("old", runewords: JsonSerializer.Serialize(oldRows));
+        var newSnapshot = await CreateSnapshotAsync("new", runewords: JsonSerializer.Serialize(newRows));
+
+        var runewords = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "runewords");
+
+        Assert.Equal((1, 1, 0, 1),
+            (runewords.Counts.Added, runewords.Counts.Removed, runewords.Counts.Modified, runewords.Counts.Unchanged));
+        Assert.Equal(new[] { "shield" }, Assert.Single(runewords.AddedRecords).VariantTypes);
+        Assert.Equal(new[] { "staff" }, Assert.Single(runewords.RemovedRecords).VariantTypes);
+    }
+
+    [Fact]
+    public async Task RunewordRuneSequenceOrderingIsMeaningful()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", runewords:
+            "[{\"Index\":\"Ordered\",\"Runes\":[{\"NameKey\":\"Tal\"},{\"NameKey\":\"Eth\"}],\"Types\":[{\"Index\":\"sword\"}]}]");
+        var newSnapshot = await CreateSnapshotAsync("new", runewords:
+            "[{\"Index\":\"Ordered\",\"Runes\":[{\"NameKey\":\"Eth\"},{\"NameKey\":\"Tal\"}],\"Types\":[{\"Index\":\"sword\"}]}]");
+
+        var runewords = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "runewords");
+        var modified = Assert.Single(runewords.ModifiedRecords);
+
+        Assert.Equal(1, runewords.Counts.Modified);
+        Assert.Contains(modified.ChangedFields, static path => path == "Runes[0].NameKey");
+        Assert.Contains(modified.ChangedFields, static path => path == "Runes[1].NameKey");
+    }
+
+    [Fact]
+    public async Task AmbiguousRunewordVariantsAreNotPaired()
+    {
+        var oldRows = new object[]
+        {
+            CreateRuneword("Ambiguous", ["Tal"], ["sword"]),
+            CreateRuneword("Ambiguous", ["Eth"], ["sword"])
+        };
+        var newRows = new object[] { CreateRuneword("Ambiguous", ["Ral"], ["sword"]) };
+        var oldSnapshot = await CreateSnapshotAsync("old", runewords: JsonSerializer.Serialize(oldRows));
+        var newSnapshot = await CreateSnapshotAsync("new", runewords: JsonSerializer.Serialize(newRows));
+
+        var runewords = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "runewords");
+
+        Assert.Equal((1, 2, 0),
+            (runewords.Counts.Added, runewords.Counts.Removed, runewords.Counts.Modified));
+        Assert.Single(runewords.Warnings, static issue => issue.Code == "ambiguous-variant-identity");
+        Assert.Equal(3, runewords.AddedRecords.Select(static record => record.Key)
+            .Concat(runewords.RemovedRecords.Select(static record => record.Key)).Distinct(StringComparer.Ordinal)
+            .Count());
+        Assert.All(runewords.AddedRecords.Concat(runewords.RemovedRecords),
+            static record => Assert.Equal(new[] { "sword" }, record.VariantTypes));
+    }
+
+    [Fact]
+    public async Task MissingRunewordFileFromManifestDoesNotSuppressOtherCategories()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", omitFromManifest: [RunewordPath]);
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.Equal("NotCompared", GetCategory(report, "runewords").Status);
+        Assert.Contains(GetCategory(report, "runewords").Errors, static issue => issue.Code == "file-not-in-manifest");
+        Assert.Equal("Compared", GetCategory(report, "cube-recipes").Status);
+        Assert.Equal("Compared", GetCategory(report, "uniques").Status);
+        Assert.Equal("Compared", GetCategory(report, "sets").Status);
+    }
+
+    [Theory]
+    [InlineData("[{\"Index\":\"Missing Types\"}]", "invalid-variant-identity")]
+    [InlineData("[{\"Index\":\"Missing Type Index\",\"Types\":[{}]}]", "invalid-variant-identity")]
+    [InlineData("[{\"Index\":\"Duplicate Type\",\"Types\":[{\"Index\":\"sword\"},{\"Index\":\"sword\"}]}]",
+        "invalid-variant-identity")]
+    [InlineData("[{\"Types\":[]}]", "missing-record-identity")]
+    public async Task InvalidRunewordIdentityInvalidatesOnlyRunewordCategory(string runewordsPayload, string errorCode)
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", runewords: runewordsPayload);
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.Equal("NotCompared", GetCategory(report, "runewords").Status);
+        Assert.Contains(GetCategory(report, "runewords").Errors, issue => issue.Code == errorCode);
+        Assert.Equal("Compared", GetCategory(report, "cube-recipes").Status);
+        Assert.Equal("Compared", GetCategory(report, "uniques").Status);
+        Assert.Equal("Compared", GetCategory(report, "sets").Status);
     }
 
     [Fact]
@@ -420,13 +584,15 @@ public sealed class SnapshotComparisonTests : IDisposable
     public async Task AggregateCountsSumComparedCategories()
     {
         var oldSnapshot = await CreateSnapshotAsync("old", uniques: "[{\"Index\":\"Unique\",\"Enabled\":false}]",
-            sets: "[{\"Index\":\"Set\",\"SetItems\":[]}]");
+            sets: "[{\"Index\":\"Set\",\"SetItems\":[]}]",
+            runewords: "[{\"Index\":\"Rune\",\"Enabled\":false,\"Types\":[{\"Index\":\"sword\"}]}]");
         var newSnapshot = await CreateSnapshotAsync("new", cubeRecipes: "[{\"Id\":\"Recipe\"}]",
-            uniques: "[{\"Index\":\"Unique\",\"Enabled\":true}]", sets: "[{\"Index\":\"Set\",\"SetItems\":[]}]");
+            uniques: "[{\"Index\":\"Unique\",\"Enabled\":true}]", sets: "[{\"Index\":\"Set\",\"SetItems\":[]}]",
+            runewords: "[{\"Index\":\"Rune\",\"Enabled\":true,\"Types\":[{\"Index\":\"sword\"}]}]");
 
         var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
 
-        Assert.Equal((1, 0, 1, 1),
+        Assert.Equal((1, 0, 2, 1),
             (report.Counts.Added, report.Counts.Removed, report.Counts.Modified, report.Counts.Unchanged));
     }
 
@@ -466,6 +632,7 @@ public sealed class SnapshotComparisonTests : IDisposable
         string cubeRecipes = "[]",
         string uniques = "[]",
         string sets = "[]",
+        string runewords = "[]",
         string stepStatus = "Written",
         bool succeeded = true,
         bool complete = true,
@@ -477,7 +644,8 @@ public sealed class SnapshotComparisonTests : IDisposable
         {
             [CubeRecipePath] = cubeRecipes,
             [UniquePath] = uniques,
-            [SetPath] = sets
+            [SetPath] = sets,
+            [RunewordPath] = runewords
         };
         var files = new List<object>();
         foreach (var (relativePath, content) in payloads)
@@ -512,4 +680,13 @@ public sealed class SnapshotComparisonTests : IDisposable
 
     private static CategoryComparison GetCategory(ComparisonReport report, string category) =>
         Assert.Single(report.Categories, result => result.Category == category);
+
+    private static object CreateRuneword(string index, string[] runes, string[] types) => new
+    {
+        Index = index,
+        Enabled = true,
+        Runes = runes.Select(static nameKey => new { NameKey = nameKey }).ToArray(),
+        Types = types.Select(static type => new { Index = type }).ToArray(),
+        Lines = Array.Empty<object>()
+    };
 }

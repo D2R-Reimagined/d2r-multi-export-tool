@@ -12,7 +12,8 @@ internal static class RecordComparer
     [
         new("cube-recipes", "keyed/cube-recipes.json", "Id", "Index", ["Index"]),
         new("uniques", "keyed/uniques.json", "Index"),
-        new("sets", "keyed/sets.json", "Index", NestedArrayField: "SetItems", NestedMatchKey: "Index")
+        new("sets", "keyed/sets.json", "Index", NestedArrayField: "SetItems", NestedMatchKey: "Index"),
+        new("runewords", "keyed/runewords.json", "Index", VariantArrayField: "Types", VariantMatchKey: "Index")
     ];
 
     public static IReadOnlyList<ComparisonDefinition> Categories => Definitions;
@@ -36,8 +37,24 @@ internal static class RecordComparer
             return NotCompared(definition, errors, warnings, oldHash, newHash);
         }
 
-        var oldByKey = ReadRecords(definition, oldRecords, "old", errors, warnings);
-        var newByKey = ReadRecords(definition, newRecords, "new", errors, warnings);
+        Dictionary<string, RecordData> oldByKey;
+        Dictionary<string, RecordData> newByKey;
+        if (definition.VariantArrayField is { } variantArrayField && definition.VariantMatchKey is { } variantMatchKey)
+        {
+            var oldVariants =
+                ReadVariantRecords(definition, oldRecords, variantArrayField, variantMatchKey, "old", errors);
+            var newVariants =
+                ReadVariantRecords(definition, newRecords, variantArrayField, variantMatchKey, "new", errors);
+            if (errors.Count > 0) return NotCompared(definition, errors, warnings, oldHash, newHash);
+            oldByKey = BuildVariantRecords(oldVariants, newVariants, "old", warnings);
+            newByKey = BuildVariantRecords(newVariants, oldVariants, "new", warnings);
+        }
+        else
+        {
+            oldByKey = ReadRecords(definition, oldRecords, "old", errors, warnings);
+            newByKey = ReadRecords(definition, newRecords, "new", errors, warnings);
+        }
+
         if (errors.Count > 0) return NotCompared(definition, errors, warnings, oldHash, newHash);
 
         var added = newByKey.Values.Where(record => !oldByKey.ContainsKey(record.Key))
@@ -68,7 +85,8 @@ internal static class RecordComparer
                 ? null
                 : CompareNestedRecords(definition, oldRecord, newRecord, nestedCounts!);
             var changes = JsonStructuralDiff.Compare(oldRecord.Value, newRecord.Value,
-                ignoredRootFields, definition.NestedArrayField, definition.NestedMatchKey);
+                ignoredRootFields, definition.NestedArrayField ?? definition.VariantArrayField,
+                definition.NestedMatchKey ?? definition.VariantMatchKey);
             if (changes.Count == 0)
             {
                 unchanged++;
@@ -80,6 +98,7 @@ internal static class RecordComparer
                 Key = oldRecord.Key,
                 OldRowIndex = oldRecord.RowIndex,
                 NewRowIndex = newRecord.RowIndex,
+                VariantTypes = oldRecord.VariantTypes,
                 ChangedFields = changes.Select(static change => change.Path).ToList(),
                 Changes = changes,
                 NestedChanges = nestedChanges,
@@ -103,6 +122,8 @@ internal static class RecordComparer
             File = definition.File,
             Status = "Compared",
             MatchKey = definition.MatchKey,
+            VariantField = definition.VariantArrayField,
+            VariantMatchKey = definition.VariantMatchKey,
             IgnoredFields = [.. definition.IgnoredRootFields],
             OldFileSha256 = oldHash,
             NewFileSha256 = newHash,
@@ -180,6 +201,130 @@ internal static class RecordComparer
 
         return result;
     }
+
+    private static List<VariantRecord> ReadVariantRecords(
+        ComparisonDefinition definition,
+        JsonElement records,
+        string variantArrayField,
+        string variantMatchKey,
+        string snapshot,
+        List<ComparisonIssue> errors)
+    {
+        var result = new List<VariantRecord>();
+        var position = 0;
+        foreach (var record in records.EnumerateArray())
+        {
+            var currentPosition = position++;
+            if (record.ValueKind != JsonValueKind.Object)
+            {
+                errors.Add(Issue("invalid-record",
+                    $"The {snapshot} {definition.Category} record at array position {currentPosition} is not a JSON object.",
+                    snapshot));
+                continue;
+            }
+
+            if (!TryReadIdentity(record, definition.MatchKey, out var key))
+            {
+                errors.Add(Issue("missing-record-identity",
+                    $"The {snapshot} {definition.Category} record at array position {currentPosition} has no non-empty string {definition.MatchKey}.",
+                    snapshot));
+                continue;
+            }
+
+            if (!record.TryGetProperty(variantArrayField, out var variants) ||
+                variants.ValueKind != JsonValueKind.Array)
+            {
+                errors.Add(Issue("invalid-variant-identity",
+                    $"The {snapshot} {definition.Category} record '{key}' at array position {currentPosition} must contain an array '{variantArrayField}'.",
+                    snapshot));
+                continue;
+            }
+
+            var variantTypes = new List<string>();
+            var seenTypes = new HashSet<string>(StringComparer.Ordinal);
+            var invalidTypes = false;
+            foreach (var variant in variants.EnumerateArray())
+            {
+                if (variant.ValueKind != JsonValueKind.Object ||
+                    !TryReadIdentity(variant, variantMatchKey, out var typeKey))
+                {
+                    invalidTypes = true;
+                    break;
+                }
+
+                if (!seenTypes.Add(typeKey))
+                {
+                    invalidTypes = true;
+                    break;
+                }
+
+                variantTypes.Add(typeKey);
+            }
+
+            if (invalidTypes)
+            {
+                errors.Add(Issue("invalid-variant-identity",
+                    $"The {snapshot} {definition.Category} record '{key}' at array position {currentPosition} contains a non-object, missing, empty, or duplicate '{variantMatchKey}' in '{variantArrayField}'.",
+                    snapshot));
+                continue;
+            }
+
+            variantTypes.Sort(StringComparer.Ordinal);
+            result.Add(new VariantRecord(key, variantTypes, currentPosition, record.Clone()));
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, RecordData> BuildVariantRecords(
+        List<VariantRecord> records,
+        List<VariantRecord> oppositeRecords,
+        string snapshot,
+        List<ComparisonIssue> warnings)
+    {
+        var counts = records.GroupBy(static record => record.Name, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
+        var oppositeCounts = oppositeRecords.GroupBy(static record => record.Name, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
+        var ambiguousSignatures = new HashSet<string>(StringComparer.Ordinal);
+        var signatures = records.Concat(oppositeRecords)
+            .GroupBy(static record => CreateVariantKey(record.Name, record.Types), StringComparer.Ordinal);
+
+        foreach (var signature in signatures)
+        {
+            var oldCount = records.Count(record => string.Equals(
+                CreateVariantKey(record.Name, record.Types), signature.Key, StringComparison.Ordinal));
+            var newCount = oppositeRecords.Count(record => string.Equals(
+                CreateVariantKey(record.Name, record.Types), signature.Key, StringComparison.Ordinal));
+            if (oldCount <= 1 && newCount <= 1) continue;
+
+            ambiguousSignatures.Add(signature.Key);
+            if (snapshot == "old")
+            {
+                warnings.Add(new ComparisonIssue
+                {
+                    Code = "ambiguous-variant-identity",
+                    Message =
+                        $"Runeword variant identity {signature.Key} occurs more than once in at least one snapshot; its records are reported as additions/removals rather than paired."
+                });
+            }
+        }
+
+        var result = new Dictionary<string, RecordData>(StringComparer.Ordinal);
+        foreach (var record in records)
+        {
+            var isVariant = counts.GetValueOrDefault(record.Name) > 1 ||
+                            oppositeCounts.GetValueOrDefault(record.Name) > 1;
+            var key = isVariant ? CreateVariantKey(record.Name, record.Types) : record.Name;
+            if (isVariant && ambiguousSignatures.Contains(key)) key = $"{key}#{snapshot}-{record.Position}";
+            result.Add(key, new RecordData(key, null, record.Value, null, isVariant ? record.Types : null));
+        }
+
+        return result;
+    }
+
+    private static string CreateVariantKey(string name, IReadOnlyList<string> types) =>
+        $"{JsonSerializer.Serialize(name)}[Types={JsonSerializer.Serialize(types)}]";
 
     private static Dictionary<string, JsonElement> ReadNestedRecords(
         ComparisonDefinition definition,
@@ -295,6 +440,7 @@ internal static class RecordComparer
     {
         Key = record.Key,
         RowIndex = record.RowIndex,
+        VariantTypes = record.VariantTypes,
         Record = record.Value.Clone()
     };
 
@@ -309,6 +455,8 @@ internal static class RecordComparer
         File = definition.File,
         Status = "NotCompared",
         MatchKey = definition.MatchKey,
+        VariantField = definition.VariantArrayField,
+        VariantMatchKey = definition.VariantMatchKey,
         IgnoredFields = [.. definition.IgnoredRootFields],
         OldFileSha256 = oldHash,
         NewFileSha256 = newHash,
@@ -332,7 +480,9 @@ internal static class RecordComparer
         string? RowIndexField = null,
         string[]? IgnoredRootFields = null,
         string? NestedArrayField = null,
-        string? NestedMatchKey = null)
+        string? NestedMatchKey = null,
+        string? VariantArrayField = null,
+        string? VariantMatchKey = null)
     {
         public string[] IgnoredRootFields { get; init; } = IgnoredRootFields ?? [];
     }
@@ -341,7 +491,10 @@ internal static class RecordComparer
         string Key,
         int? RowIndex,
         JsonElement Value,
-        Dictionary<string, JsonElement>? NestedRecords);
+        Dictionary<string, JsonElement>? NestedRecords,
+        List<string>? VariantTypes = null);
+
+    private sealed record VariantRecord(string Name, List<string> Types, int Position, JsonElement Value);
 
     private sealed class ComparisonCountsBuilder
     {

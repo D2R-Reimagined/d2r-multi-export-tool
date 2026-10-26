@@ -32,6 +32,7 @@ The compared files are:
 | `cube-recipes` | `keyed/cube-recipes.json` | Stable `Id` |
 | `uniques` | `keyed/uniques.json` | String `Index` |
 | `sets` | `keyed/sets.json` | String `Index`; nested `SetItems` use their string `Index` within each set |
+| `runewords` | `keyed/runewords.json` | String `Index`; same-name variants use the sorted `Types[].Index` identifiers |
 
 A missing manifest, failed export, invalid manifest, or unsafe snapshot prevents
 all categories from being compared. A missing, skipped/not-written, unlisted,
@@ -58,8 +59,8 @@ authenticate the manifest or prove source/code provenance.
 - `Succeeded`: false if snapshot validation or any category comparison has errors.
 - `OldSnapshot` and `NewSnapshot`: snapshot identification, manifest integrity
   metadata, `Errors` and `Warnings`.
-- `Categories`: one entry each for `cube-recipes`, `uniques`, and `sets`, in that
-  order. Each has `File`, `Status`, `MatchKey`, `IgnoredFields`, verified file
+- `Categories`: one entry each for `cube-recipes`, `uniques`, `sets`, and
+  `runewords`, in that order. Each has `File`, `Status`, `MatchKey`, `IgnoredFields`, verified file
   hashes, diagnostics, `Counts`, and `AddedRecords`, `RemovedRecords`, and
   `ModifiedRecords` arrays.
 - `Counts`: aggregate added/removed/modified/unchanged records and `Reindexed`
@@ -81,11 +82,30 @@ changes and complete before/after JSON. Parent set additions/removals already
 contain all pieces in their full `Record`, so those pieces are not repeated in
 `NestedCounts`.
 
-All identities use ordinal string matching. Missing or duplicate `Id`/`Index`
-values, non-object records, malformed category arrays, or malformed `SetItems`
-invalidate only that category and produce no partial diff for it. Unique and set
-`Index` values are strings (translation identities), never numeric row positions.
-Set pieces are matched within their parent set, not globally.
+For runewords, `MatchKey` is `Index`, while `VariantField` is `Types` and
+`VariantMatchKey` is `Index`. A name occurring once in each snapshot is matched
+by `Index`, so changes to its rune sequence or eligible types are modifications.
+When a name is duplicated on either side, variants are matched by the name plus
+the ordinal-sorted `Types[].Index` set. `Types` ordering is non-semantic, while
+`Runes` ordering is meaningful. Added, removed, and modified runeword records
+include `VariantTypes` when the name is a variant group; their `Key` includes the
+name and type identifiers, and complete original record JSON remains in
+`Record`, or in `Old`/`New` for modifications.
+
+If the same name/type identity appears more than once on either side, pairing it
+would be ambiguous. Those records receive side-specific occurrence suffixes in
+their `Key`, are reported as additions/removals, and produce an
+`ambiguous-variant-identity` category warning. Invalid `Types` identity data
+invalidates only the runeword category.
+
+All identities use ordinal string matching. Missing identity values, duplicate
+identities in categories that require unique keys, non-object records, malformed
+category arrays, or malformed `SetItems` invalidate only that category and
+produce no partial diff for it. Duplicate runeword names are allowed when their
+type identities distinguish the variants; duplicate name/type identities are
+reported as ambiguous instead. Unique and set `Index` values are strings
+(translation identities), never numeric row positions. Set pieces are matched
+within their parent set, not globally.
 
 Object property ordering and JSON whitespace are ignored. Ordinary arrays are
 compared element-by-element when lengths match and as one whole-array change when
@@ -96,16 +116,15 @@ change. Structural paths use dots, array indexes, and keyed set-piece selectors,
 for example `Lines[0].args[1]` or `SetItems[Index="Civerb's Ward"].Lines[0]`.
 
 Categories and records are emitted deterministically: categories use the order
-above; cube records sort by row index then `Id`; uniques, sets, and nested set
-pieces sort by ordinal identity. Object fields in field changes are sorted by
-ordinal property name. A changed identity appears as a removal plus an addition;
-replacement matching is intentionally not guessed. Runewords and all other export
-categories are not compared by this version.
+above; cube records sort by row index then `Id`; uniques, sets, nested set pieces,
+and runewords sort by ordinal identity. Object fields in field changes are sorted
+by ordinal property name. A changed identity appears as a removal plus an
+addition; replacement matching is intentionally not guessed.
 
 ## Exit codes
 
 - `0`: report written and validation/comparison succeeded. A `Complete: false`
-  snapshot can still yield this code if all three selected category files are
+  snapshot can still yield this code if all four selected category files are
   verified; the report retains the incompleteness warning.
 - `1`: `changes.json` was written, but validation or category comparison errors
   prevented a successful result.

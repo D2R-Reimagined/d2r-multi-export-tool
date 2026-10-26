@@ -79,6 +79,12 @@ public sealed class CategoryComparison
     /// <summary>Field used to associate records between snapshots.</summary>
     public string MatchKey { get; init; } = "";
 
+    /// <summary>Array field whose identifiers distinguish same-name variants.</summary>
+    public string? VariantField { get; init; }
+
+    /// <summary>Field within <see cref="VariantField"/> used for variant identity.</summary>
+    public string? VariantMatchKey { get; init; }
+
     /// <summary>Fields excluded from gameplay change detection.</summary>
     public List<string> IgnoredFields { get; init; } = [];
 
@@ -141,6 +147,9 @@ public sealed class RecordEntry
     /// <summary>Stable record identity from the category's match-key field.</summary>
     public string Key { get; init; } = "";
 
+    /// <summary>Sorted variant identifiers when the record belongs to a same-name variant group.</summary>
+    public List<string>? VariantTypes { get; init; }
+
     /// <summary>Source row index, when the category has a separate integer row-index field.</summary>
     public int? RowIndex { get; init; }
 
@@ -153,6 +162,9 @@ public sealed class ModifiedRecord
 {
     /// <summary>Stable record identity shared by both snapshots.</summary>
     public string Key { get; init; } = "";
+
+    /// <summary>Sorted variant identifiers when the record belongs to a same-name variant group.</summary>
+    public List<string>? VariantTypes { get; init; }
 
     /// <summary>Old source row index, when available.</summary>
     public int? OldRowIndex { get; init; }
