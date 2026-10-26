@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Security.Cryptography;
 using System.Text;
@@ -7,10 +7,13 @@ using D2RMultiExport.Lib.Comparison;
 
 namespace D2RMultiExport.Tests;
 
-/// <summary>Manifest validation and cube-recipe snapshot comparison regressions.</summary>
+/// <summary>Manifest validation and keyed snapshot comparison regressions.</summary>
 public sealed class SnapshotComparisonTests : IDisposable
 {
     private const string CubeRecipePath = "keyed/cube-recipes.json";
+    private const string UniquePath = "keyed/uniques.json";
+    private const string SetPath = "keyed/sets.json";
+    private static readonly string[] CategoryFiles = [CubeRecipePath, UniquePath, SetPath];
     private readonly string _root = Directory.CreateTempSubdirectory("d2r-snapshot-comparison-").FullName;
 
     public void Dispose()
@@ -19,219 +22,435 @@ public sealed class SnapshotComparisonTests : IDisposable
     }
 
     [Fact]
-    public async Task AddedRecipeIncludesItsCompleteJson()
+    public async Task CubeRecipesStillMatchByStableIdAndIgnoreRowIndexShifts()
     {
-        var oldSnapshot = await CreateSnapshotAsync("old", "[]");
+        var oldSnapshot =
+            await CreateSnapshotAsync("old", cubeRecipes: "[{\"Id\":\"same\",\"Index\":1,\"Enabled\":true}]");
         var newSnapshot =
-            await CreateSnapshotAsync("new", "[{\"Id\":\"cr-new\",\"Index\":4,\"Description\":\"New recipe\"}]");
+            await CreateSnapshotAsync("new", cubeRecipes: "[{\"Id\":\"same\",\"Index\":7,\"Enabled\":true}]");
 
         var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
-        var category = Assert.Single(report.Categories);
+        var cube = GetCategory(report, "cube-recipes");
 
         Assert.True(report.Succeeded);
-        Assert.Equal(1, category.Counts.Added);
-        Assert.Equal("cr-new", Assert.Single(category.AddedRecipes).Id);
-        Assert.Equal("New recipe", category.AddedRecipes[0].Recipe.GetProperty("Description").GetString());
+        Assert.Equal(1, cube.Counts.Unchanged);
+        Assert.Equal(1, cube.Counts.Reindexed);
+        Assert.Equal(0, cube.Counts.Modified);
     }
 
     [Fact]
-    public async Task RemovedRecipeIsReportedWithItsCompleteJson()
-    {
-        var recipe = "[{\"Id\":\"cr-old\",\"Index\":2,\"Description\":\"Old recipe\"}]";
-        var oldSnapshot = await CreateSnapshotAsync("old", recipe);
-        var newSnapshot = await CreateSnapshotAsync("new", "[]");
-
-        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
-        var category = Assert.Single(report.Categories);
-
-        Assert.Equal(1, category.Counts.Removed);
-        Assert.Equal("Old recipe",
-            Assert.Single(category.RemovedRecipes).Recipe.GetProperty("Description").GetString());
-    }
-
-    [Fact]
-    public async Task ModifiedRecipeIncludesChangedPathsAndBeforeAfterValues()
+    public async Task CubeRecipeAddRemoveAndStructuralModificationArePreserved()
     {
         var oldSnapshot = await CreateSnapshotAsync("old",
-            "[{\"Id\":\"cr-same\",\"Index\":1,\"Outputs\":{\"A\":{\"Quantity\":1}}}]");
+            cubeRecipes:
+            "[{\"Id\":\"removed\",\"Index\":1},{\"Id\":\"changed\",\"Outputs\":{\"A\":{\"Quantity\":1}}}]");
         var newSnapshot = await CreateSnapshotAsync("new",
-            "[{\"Id\":\"cr-same\",\"Index\":1,\"Outputs\":{\"A\":{\"Quantity\":2}}}]");
+            cubeRecipes: "[{\"Id\":\"added\",\"Index\":4},{\"Id\":\"changed\",\"Outputs\":{\"A\":{\"Quantity\":2}}}]");
 
         var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
-        var category = Assert.Single(report.Categories);
-        var modified = Assert.Single(category.ModifiedRecipes);
-        var change = Assert.Single(modified.Changes);
+        var cube = GetCategory(report, "cube-recipes");
 
-        Assert.Equal(1, category.Counts.Modified);
-        Assert.Equal("Outputs.A.Quantity", change.Path);
-        Assert.Equal(["Outputs.A.Quantity"], modified.ChangedFields);
-        Assert.Equal(1, change.OldValue!.Value.GetInt32());
-        Assert.Equal(2, change.NewValue!.Value.GetInt32());
-        Assert.Equal(1, modified.Old.GetProperty("Outputs").GetProperty("A").GetProperty("Quantity").GetInt32());
-        Assert.Equal(2, modified.New.GetProperty("Outputs").GetProperty("A").GetProperty("Quantity").GetInt32());
+        Assert.Equal((1, 1, 1), (cube.Counts.Added, cube.Counts.Removed, cube.Counts.Modified));
+        Assert.Equal("added", Assert.Single(cube.AddedRecords).Key);
+        Assert.Equal("removed", Assert.Single(cube.RemovedRecords).Key);
+        Assert.Equal("Outputs.A.Quantity", Assert.Single(Assert.Single(cube.ModifiedRecords).Changes).Path);
     }
 
     [Fact]
-    public async Task UnchangedRecipeIsCountedAsUnchanged()
+    public async Task CubeFormattingAndObjectPropertyOrderDoNotCreateChanges()
     {
-        const string recipe = "[{\"Id\":\"cr-same\",\"Index\":1,\"Enabled\":true}]";
-        var oldSnapshot = await CreateSnapshotAsync("old", recipe);
-        var newSnapshot = await CreateSnapshotAsync("new", recipe);
+        const string oldRecipes =
+            "[{\"Id\":\"same\",\"Index\":1,\"Enabled\":true,\"Outputs\":{\"A\":{\"Quantity\":2,\"Name\":\"item\"}}}]";
+        const string newRecipes =
+            "[ { \"Outputs\": { \"A\": { \"Name\": \"item\", \"Quantity\": 2.0 } }, \"Enabled\": true, \"Index\": 1, \"Id\": \"same\" } ]";
+        var oldSnapshot = await CreateSnapshotAsync("old", cubeRecipes: oldRecipes);
+        var newSnapshot = await CreateSnapshotAsync("new", cubeRecipes: newRecipes);
 
-        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
-        var counts = Assert.Single(report.Categories).Counts;
+        var cube = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "cube-recipes");
 
-        Assert.Equal(1, counts.Unchanged);
-        Assert.Equal(0, counts.Modified);
+        Assert.Equal(0, cube.Counts.Modified);
+        Assert.Equal(1, cube.Counts.Unchanged);
     }
 
     [Fact]
-    public async Task RowIndexShiftDoesNotCreateGameplayModification()
+    public async Task UniqueAddRemoveAndUnchangedUseStringIndexIdentity()
     {
-        var oldSnapshot = await CreateSnapshotAsync("old", "[{\"Id\":\"cr-same\",\"Index\":1,\"Enabled\":true}]");
-        var newSnapshot = await CreateSnapshotAsync("new", "[{\"Id\":\"cr-same\",\"Index\":7,\"Enabled\":true}]");
+        var oldSnapshot = await CreateSnapshotAsync("old", uniques:
+            "[{\"Index\":\"Old Unique\",\"Code\":\"old\"},{\"Index\":\"Kept Unique\",\"Enabled\":true}]");
+        var newSnapshot = await CreateSnapshotAsync("new", uniques:
+            "[{\"Index\":\"New Unique\",\"Code\":\"new\"},{\"Index\":\"Kept Unique\",\"Enabled\":true}]");
 
         var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
-        var counts = Assert.Single(report.Categories).Counts;
+        var uniques = GetCategory(report, "uniques");
 
-        Assert.Equal(0, counts.Modified);
-        Assert.Equal(1, counts.Unchanged);
-        Assert.Equal(1, counts.Reindexed);
+        Assert.Equal((1, 1, 0, 1),
+            (uniques.Counts.Added, uniques.Counts.Removed, uniques.Counts.Modified, uniques.Counts.Unchanged));
+        Assert.Equal("New Unique", Assert.Single(uniques.AddedRecords).Key);
+        Assert.Equal("Old Unique", Assert.Single(uniques.RemovedRecords).Key);
+        Assert.Equal("old", Assert.Single(uniques.RemovedRecords).Record.GetProperty("Code").GetString());
     }
 
     [Fact]
-    public async Task FormattingAndObjectPropertyOrderDoNotCreateChanges()
+    public async Task UniquePropertyAndNumericRangeChangesIncludeFieldDiffAndBeforeAfterRecords()
     {
-        const string oldRecipe =
-            "[{\"Id\":\"cr-same\",\"Index\":1,\"Enabled\":true,\"Outputs\":{\"A\":{\"Quantity\":2,\"Name\":\"item\"}}}]";
-        const string newRecipe =
-            "[ { \"Outputs\": { \"A\": { \"Name\": \"item\", \"Quantity\": 2.0 } }, \"Enabled\": true, \"Index\": 1, \"Id\": \"cr-same\" } ]";
-        var oldSnapshot = await CreateSnapshotAsync("old", oldRecipe);
-        var newSnapshot = await CreateSnapshotAsync("new", newRecipe);
+        const string oldUniques =
+            "[{\"Index\":\"Unique\",\"Lines\":[{\"key\":\"strDamage\",\"args\":[10,20]}],\"Equipment\":{\"NormCode\":\"abc\"}}]";
+        const string newUniques =
+            "[{\"Index\":\"Unique\",\"Lines\":[{\"key\":\"strEnhancedDamage\",\"args\":[10,25]}],\"Equipment\":{\"NormCode\":\"def\"}}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", uniques: oldUniques);
+        var newSnapshot = await CreateSnapshotAsync("new", uniques: newUniques);
 
         var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var uniques = GetCategory(report, "uniques");
+        var modified = Assert.Single(uniques.ModifiedRecords);
 
-        Assert.Equal(0, Assert.Single(report.Categories).Counts.Modified);
+        Assert.Equal(1, uniques.Counts.Modified);
+        Assert.Contains(modified.Changes, static change => change.Path == "Lines[0].key");
+        var rangeChange = Assert.Single(modified.Changes, static change => change.Path == "Lines[0].args[1]");
+        Assert.Equal(20, rangeChange.OldValue!.Value.GetInt32());
+        Assert.Equal(25, rangeChange.NewValue!.Value.GetInt32());
+        Assert.Equal("abc", modified.Old.GetProperty("Equipment").GetProperty("NormCode").GetString());
+        Assert.Equal("def", modified.New.GetProperty("Equipment").GetProperty("NormCode").GetString());
     }
 
     [Fact]
-    public async Task IdenticalSnapshotsProduceNoChanges()
+    public async Task UniquePropertyLineReorderingIsReportedAsAChange()
     {
-        const string recipes = "[{\"Id\":\"cr-1\",\"Index\":0,\"Enabled\":true}]";
-        var oldSnapshot = await CreateSnapshotAsync("old", recipes);
-        var newSnapshot = await CreateSnapshotAsync("new", recipes);
+        var oldSnapshot = await CreateSnapshotAsync("old", uniques:
+            "[{\"Index\":\"Unique\",\"Lines\":[{\"key\":\"strFirst\"},{\"key\":\"strSecond\"}]}]");
+        var newSnapshot = await CreateSnapshotAsync("new", uniques:
+            "[{\"Index\":\"Unique\",\"Lines\":[{\"key\":\"strSecond\"},{\"key\":\"strFirst\"}]}]");
 
-        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var uniques = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "uniques");
 
-        Assert.True(report.Succeeded);
-        Assert.Equal(0, report.Counts.Added);
-        Assert.Equal(0, report.Counts.Removed);
-        Assert.Equal(0, report.Counts.Modified);
-        Assert.Equal(1, report.Counts.Unchanged);
-        Assert.Equal(0, report.Counts.Reindexed);
+        Assert.Equal(1, uniques.Counts.Modified);
+        Assert.Contains(Assert.Single(uniques.ModifiedRecords).ChangedFields, static path => path == "Lines[0].key");
     }
 
     [Fact]
-    public async Task MissingManifestPreventsComparison()
+    public async Task DuplicateUniqueIdentityInvalidatesOnlyUniqueCategory()
+    {
+        var oldSnapshot =
+            await CreateSnapshotAsync("old", uniques: "[{\"Index\":\"Duplicate\"},{\"Index\":\"Duplicate\"}]");
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.False(report.Succeeded);
+        Assert.Equal("NotCompared", GetCategory(report, "uniques").Status);
+        Assert.Contains(GetCategory(report, "uniques").Errors,
+            static issue => issue.Code == "duplicate-record-identity");
+        Assert.Equal("Compared", GetCategory(report, "cube-recipes").Status);
+        Assert.Equal("Compared", GetCategory(report, "sets").Status);
+    }
+
+    [Fact]
+    public async Task MissingUniqueIdentityInvalidatesCategory()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", uniques: "[{\"Code\":\"no-index\"}]");
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.Equal("NotCompared", GetCategory(report, "uniques").Status);
+        Assert.Contains(GetCategory(report, "uniques").Errors, static issue => issue.Code == "missing-record-identity");
+    }
+
+    [Fact]
+    public async Task DuplicateSetIdentityInvalidatesSetsCategory()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", sets:
+            "[{\"Index\":\"Duplicate\",\"SetItems\":[]},{\"Index\":\"Duplicate\",\"SetItems\":[]}]");
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var sets = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "sets");
+
+        Assert.Equal("NotCompared", sets.Status);
+        Assert.Contains(sets.Errors, static issue => issue.Code == "duplicate-record-identity");
+    }
+
+    [Fact]
+    public async Task MissingSetIdentityInvalidatesSetsCategory()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", sets: "[{\"SetItems\":[]}]");
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var sets = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "sets");
+
+        Assert.Equal("NotCompared", sets.Status);
+        Assert.Contains(sets.Errors, static issue => issue.Code == "missing-record-identity");
+    }
+
+    [Fact]
+    public async Task AddedAndRemovedSetsUseStringIndexIdentity()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", sets:
+            "[{\"Index\":\"Removed Set\",\"SetItems\":[]},{\"Index\":\"Kept Set\",\"SetItems\":[]}]");
+        var newSnapshot = await CreateSnapshotAsync("new", sets:
+            "[{\"Index\":\"Added Set\",\"SetItems\":[]},{\"Index\":\"Kept Set\",\"SetItems\":[]}]");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var sets = GetCategory(report, "sets");
+
+        Assert.Equal((1, 1, 0, 1),
+            (sets.Counts.Added, sets.Counts.Removed, sets.Counts.Modified, sets.Counts.Unchanged));
+        Assert.Equal("Added Set", Assert.Single(sets.AddedRecords).Key);
+        Assert.Equal("Removed Set", Assert.Single(sets.RemovedRecords).Key);
+        Assert.Equal("Index", sets.NestedMatchKey);
+        Assert.Equal("SetItems", sets.NestedField);
+    }
+
+    [Fact]
+    public async Task SetPieceChangesAndSharedBonusesAreReportedByPieceIdentity()
+    {
+        const string oldSets =
+            "[{\"Index\":\"Set\",\"PartialBonuses\":[{\"key\":\"strPartial\",\"args\":[2]}],\"FullBonuses\":[{\"key\":\"strFull\",\"args\":[5]}],\"SetItems\":[{\"Index\":\"Hat\",\"Lines\":[{\"key\":\"strPiece\",\"args\":[1,10]}],\"SetBonuses\":[[{\"key\":\"strPieceBonus\",\"args\":[10]}]]},{\"Index\":\"Removed Piece\",\"Lines\":[]}]}]";
+        const string newSets =
+            "[{\"Index\":\"Set\",\"PartialBonuses\":[{\"key\":\"strPartial\",\"args\":[3]}],\"FullBonuses\":[{\"key\":\"strFull\",\"args\":[6]}],\"SetItems\":[{\"Index\":\"Hat\",\"Lines\":[{\"key\":\"strPiece\",\"args\":[1,15]}],\"SetBonuses\":[[{\"key\":\"strPieceBonus\",\"args\":[15]}]]},{\"Index\":\"Added Piece\",\"Lines\":[]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", sets: oldSets);
+        var newSnapshot = await CreateSnapshotAsync("new", sets: newSets);
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var sets = GetCategory(report, "sets");
+        var modified = Assert.Single(sets.ModifiedRecords);
+        var nestedChanges = Assert.IsType<NestedRecordChanges>(modified.NestedChanges);
+
+        Assert.Equal(1, sets.Counts.Modified);
+        Assert.Equal((1, 1, 1), (sets.NestedCounts!.Added, sets.NestedCounts.Removed, sets.NestedCounts.Modified));
+        Assert.Equal("Added Piece", Assert.Single(nestedChanges.Added).Key);
+        Assert.Equal("Removed Piece", Assert.Single(nestedChanges.Removed).Key);
+        Assert.Contains(Assert.Single(nestedChanges.Modified).ChangedFields, static path => path == "Lines[0].args[1]");
+        Assert.Contains(modified.ChangedFields, static path => path == "PartialBonuses[0].args[0]");
+        Assert.Contains(modified.ChangedFields, static path => path == "FullBonuses[0].args[0]");
+        Assert.Contains(Assert.Single(nestedChanges.Modified).ChangedFields,
+            static path => path == "SetBonuses[0][0].args[0]");
+        Assert.Contains(modified.Changes,
+            static change => change.Path == "SetItems[Index=\"Added Piece\"]" && change.Kind == "Added");
+    }
+
+    [Fact]
+    public async Task ReorderingSetPiecesDoesNotCreateGameplayChanges()
+    {
+        const string oldSets =
+            "[{\"Index\":\"Set\",\"SetItems\":[{\"Index\":\"Hat\",\"Lines\":[]},{\"Index\":\"Boots\",\"Lines\":[]}]}]";
+        const string newSets =
+            "[{\"Index\":\"Set\",\"SetItems\":[{\"Index\":\"Boots\",\"Lines\":[]},{\"Index\":\"Hat\",\"Lines\":[]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", sets: oldSets);
+        var newSnapshot = await CreateSnapshotAsync("new", sets: newSets);
+
+        var sets = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "sets");
+
+        Assert.Equal(0, sets.Counts.Modified);
+        Assert.Equal(1, sets.Counts.Unchanged);
+        Assert.Equal(2, sets.NestedCounts!.Unchanged);
+    }
+
+    [Fact]
+    public async Task DuplicateSetPieceIdentityInvalidatesSetsCategory()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", sets:
+            "[{\"Index\":\"Set\",\"SetItems\":[{\"Index\":\"Piece\"},{\"Index\":\"Piece\"}]}]");
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var sets = GetCategory(report, "sets");
+
+        Assert.Equal("NotCompared", sets.Status);
+        Assert.Contains(sets.Errors, static issue => issue.Code == "duplicate-nested-record-identity");
+    }
+
+    [Fact]
+    public async Task MissingSetPieceIdentityInvalidatesSetsCategory()
+    {
+        var oldSnapshot =
+            await CreateSnapshotAsync("old", sets: "[{\"Index\":\"Set\",\"SetItems\":[{\"Code\":\"no-index\"}]}]");
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var sets = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "sets");
+
+        Assert.Equal("NotCompared", sets.Status);
+        Assert.Contains(sets.Errors, static issue => issue.Code == "missing-nested-record-identity");
+    }
+
+    [Fact]
+    public async Task MissingCategoryFileFromManifestIsIsolatedFromOtherCategories()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", omitFromManifest: [UniquePath]);
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.False(report.Succeeded);
+        Assert.Equal("NotCompared", GetCategory(report, "uniques").Status);
+        Assert.Contains(GetCategory(report, "uniques").Errors, static issue => issue.Code == "file-not-in-manifest");
+        Assert.Equal("Compared", GetCategory(report, "cube-recipes").Status);
+        Assert.Equal("Compared", GetCategory(report, "sets").Status);
+        Assert.Empty(report.OldSnapshot.Errors);
+    }
+
+    [Fact]
+    public async Task InvalidCategoryJsonDoesNotSuppressOtherCategories()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", uniques: "{");
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.Equal("NotCompared", GetCategory(report, "uniques").Status);
+        Assert.Contains(GetCategory(report, "uniques").Errors, static issue => issue.Code == "invalid-category-json");
+        Assert.Equal("old", Assert.Single(GetCategory(report, "uniques").Errors).Snapshot);
+        Assert.Equal("Compared", GetCategory(report, "cube-recipes").Status);
+        Assert.Equal("Compared", GetCategory(report, "sets").Status);
+    }
+
+    [Fact]
+    public async Task HashMismatchIsCategorySpecific()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old");
+        var newSnapshot = await CreateSnapshotAsync("new", hashOverrides: new Dictionary<string, string>
+        {
+            [SetPath] = new string('0', 64)
+        });
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.Equal("NotCompared", GetCategory(report, "sets").Status);
+        Assert.Contains(GetCategory(report, "sets").Errors,
+            static issue => issue.Code == "snapshot-file-hash-mismatch");
+        Assert.Equal("Compared", GetCategory(report, "cube-recipes").Status);
+        Assert.Equal("Compared", GetCategory(report, "uniques").Status);
+    }
+
+    [Fact]
+    public async Task MissingManifestPreventsAllCategoriesFromBeingCompared()
     {
         var oldSnapshot = Directory.CreateDirectory(Path.Combine(_root, "old")).FullName;
-        var newSnapshot = await CreateSnapshotAsync("new", "[]");
-
-        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
-        var category = Assert.Single(report.Categories);
-
-        Assert.False(report.Succeeded);
-        Assert.Equal("NotCompared", category.Status);
-        Assert.Contains(category.Errors, static error => error.Code == "manifest-unreadable");
-        Assert.Empty(category.AddedRecipes);
-        Assert.Empty(category.RemovedRecipes);
-    }
-
-    [Fact]
-    public async Task StaleFileFromSkippedStepIsNotTreatedAsDeletedRecipes()
-    {
-        var oldSnapshot = await CreateSnapshotAsync("old", "[]", stepStatus: "Skipped", complete: false);
-        var newSnapshot = await CreateSnapshotAsync("new", "[{\"Id\":\"cr-new\"}]");
-
-        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
-        var category = Assert.Single(report.Categories);
-
-        Assert.False(report.Succeeded);
-        Assert.Equal("NotCompared", category.Status);
-        Assert.Contains(category.Errors, static error => error.Code == "export-step-not-written");
-        Assert.Empty(category.RemovedRecipes);
-    }
-
-    [Fact]
-    public async Task FileMissingFromManifestIsNotTrustedEvenWhenPresentOnDisk()
-    {
-        var oldSnapshot = await CreateSnapshotAsync("old", "[]", includeFileInManifest: false);
-        var newSnapshot = await CreateSnapshotAsync("new", "[]");
-
-        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
-        var category = Assert.Single(report.Categories);
-
-        Assert.Equal("NotCompared", category.Status);
-        Assert.Contains(category.Errors, static error => error.Code == "file-not-in-manifest");
-    }
-
-    [Fact]
-    public async Task FailedSnapshotIsNotCompared()
-    {
-        var oldSnapshot = await CreateSnapshotAsync("old", "[]", succeeded: false, complete: false);
-        var newSnapshot = await CreateSnapshotAsync("new", "[]");
+        var newSnapshot = await CreateSnapshotAsync("new");
 
         var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
 
         Assert.False(report.Succeeded);
-        Assert.Equal("NotCompared", Assert.Single(report.Categories).Status);
-        Assert.Contains(report.OldSnapshot.Errors, static error => error.Code == "snapshot-failed");
+        Assert.All(report.Categories, category => Assert.Equal("NotCompared", category.Status));
+        Assert.All(report.Categories,
+            category => Assert.Contains(category.Errors, static issue => issue.Code == "manifest-unreadable"));
     }
 
     [Fact]
-    public async Task IncompleteSnapshotWarnsButAllowsVerifiedCategoryComparison()
+    public async Task FailedSnapshotPreventsAllCategoriesFromBeingCompared()
     {
-        const string recipes = "[{\"Id\":\"cr-same\",\"Index\":1}]";
-        var oldSnapshot = await CreateSnapshotAsync("old", recipes, complete: false);
-        var newSnapshot = await CreateSnapshotAsync("new", recipes);
+        var oldSnapshot = await CreateSnapshotAsync("old", succeeded: false);
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.False(report.Succeeded);
+        Assert.All(report.Categories, category => Assert.Equal("NotCompared", category.Status));
+        Assert.All(report.Categories,
+            category => Assert.Contains(category.Errors, static issue => issue.Code == "snapshot-failed"));
+    }
+
+    [Fact]
+    public async Task IncompleteSnapshotWarnsButVerifiedCategoryFilesCanBeCompared()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", complete: false);
+        var newSnapshot = await CreateSnapshotAsync("new");
 
         var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
 
         Assert.True(report.Succeeded);
-        Assert.False(report.OldSnapshot.Complete);
-        Assert.Equal("Compared", Assert.Single(report.Categories).Status);
-        Assert.Contains(report.OldSnapshot.Warnings, static warning => warning.Code == "snapshot-incomplete");
+        Assert.All(report.Categories, category => Assert.Equal("Compared", category.Status));
+        Assert.All(report.Categories,
+            category => Assert.Contains(category.Warnings, static issue => issue.Code == "snapshot-incomplete"));
     }
 
     [Fact]
-    public async Task HashMismatchPreventsComparison()
+    public async Task SkippedCubeOutputIsNotTreatedAsDeletedRecipes()
     {
-        var oldSnapshot = await CreateSnapshotAsync("old", "[]", hashOverride: new string('0', 64));
-        var newSnapshot = await CreateSnapshotAsync("new", "[]");
+        var oldSnapshot = await CreateSnapshotAsync("old", cubeRecipes: "[]", stepStatus: "Skipped", complete: false);
+        var newSnapshot = await CreateSnapshotAsync("new", cubeRecipes: "[{\"Id\":\"current\"}]");
+
+        var cube = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "cube-recipes");
+
+        Assert.Equal("NotCompared", cube.Status);
+        Assert.Contains(cube.Errors, static issue => issue.Code == "export-step-not-written");
+        Assert.Empty(cube.RemovedRecords);
+    }
+
+    [Fact]
+    public async Task DuplicateCubeIdsRemainInvalid()
+    {
+        var duplicate = "[{\"Id\":\"same\"},{\"Id\":\"same\"}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", cubeRecipes: duplicate);
+        var newSnapshot = await CreateSnapshotAsync("new", cubeRecipes: duplicate);
+
+        var cube = GetCategory(await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot), "cube-recipes");
+
+        Assert.Equal("NotCompared", cube.Status);
+        Assert.Contains(cube.Errors, static issue => issue.Code == "duplicate-record-identity");
+    }
+
+    [Fact]
+    public async Task IdenticalSnapshotsProduceNoChangesAndDeterministicReports()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old",
+            cubeRecipes: "[{\"Id\":\"cr\",\"Index\":0,\"Enabled\":true}]",
+            uniques: "[{\"Index\":\"Unique\",\"Lines\":[]}]",
+            sets: "[{\"Index\":\"Set\",\"SetItems\":[{\"Index\":\"Piece\",\"Lines\":[]}]}]");
+        var newSnapshot = await CreateSnapshotAsync("new",
+            cubeRecipes: "[{\"Id\":\"cr\",\"Index\":0,\"Enabled\":true}]",
+            uniques: "[{\"Index\":\"Unique\",\"Lines\":[]}]",
+            sets: "[{\"Index\":\"Set\",\"SetItems\":[{\"Index\":\"Piece\",\"Lines\":[]}]}]");
+        var first = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var second = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var firstOutput = Path.Combine(_root, "comparison-one");
+        var secondOutput = Path.Combine(_root, "comparison-two");
+
+        await SnapshotComparison.WriteAsync(first, firstOutput);
+        await SnapshotComparison.WriteAsync(second, secondOutput);
+
+        Assert.True(first.Succeeded);
+        Assert.Equal(2, first.SchemaVersion);
+        Assert.Equal(0, first.Counts.Added + first.Counts.Removed + first.Counts.Modified);
+        Assert.Equal(3, first.Counts.Unchanged);
+        Assert.Equal(await File.ReadAllBytesAsync(Path.Combine(firstOutput, "changes.json")),
+            await File.ReadAllBytesAsync(Path.Combine(secondOutput, "changes.json")));
+    }
+
+    [Fact]
+    public async Task AggregateCountsSumComparedCategories()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", uniques: "[{\"Index\":\"Unique\",\"Enabled\":false}]",
+            sets: "[{\"Index\":\"Set\",\"SetItems\":[]}]");
+        var newSnapshot = await CreateSnapshotAsync("new", cubeRecipes: "[{\"Id\":\"Recipe\"}]",
+            uniques: "[{\"Index\":\"Unique\",\"Enabled\":true}]", sets: "[{\"Index\":\"Set\",\"SetItems\":[]}]");
 
         var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
 
-        Assert.False(report.Succeeded);
-        Assert.Equal("NotCompared", Assert.Single(report.Categories).Status);
-        Assert.Contains(report.OldSnapshot.Errors, static error => error.Code == "snapshot-file-hash-mismatch");
+        Assert.Equal((1, 0, 1, 1),
+            (report.Counts.Added, report.Counts.Removed, report.Counts.Modified, report.Counts.Unchanged));
     }
 
     [Fact]
-    public async Task DuplicateRecipeIdsMakeCategoryInvalid()
+    public async Task WritingComparisonDoesNotModifyInputSnapshots()
     {
-        const string recipes = "[{\"Id\":\"duplicate\"},{\"Id\":\"duplicate\"}]";
-        var oldSnapshot = await CreateSnapshotAsync("old", recipes);
-        var newSnapshot = await CreateSnapshotAsync("new", recipes);
-
+        var oldSnapshot = await CreateSnapshotAsync("old", uniques: "[{\"Index\":\"Old\"}]");
+        var newSnapshot = await CreateSnapshotAsync("new", uniques: "[{\"Index\":\"New\"}]");
+        var before = new[] { oldSnapshot, newSnapshot }
+            .SelectMany(snapshot => CategoryFiles.Prepend("manifest.json")
+                .Select(path => (Path: Path.Combine(snapshot, path),
+                    Bytes: File.ReadAllBytes(Path.Combine(snapshot, path)))))
+            .ToList();
         var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var outputDirectory = Path.Combine(_root, "comparison");
 
-        Assert.False(report.Succeeded);
-        Assert.Equal("NotCompared", Assert.Single(report.Categories).Status);
-        Assert.Contains(Assert.Single(report.Categories).Errors, static error => error.Code == "duplicate-recipe-id");
+        await SnapshotComparison.WriteAsync(report, outputDirectory);
+
+        Assert.True(File.Exists(Path.Combine(outputDirectory, "changes.json")));
+        foreach (var file in before) Assert.Equal(file.Bytes, await File.ReadAllBytesAsync(file.Path));
     }
 
     [Fact]
-    public void OutputInsideEitherInputSnapshotIsRefused()
+    public void OutputDirectoryInsideAnInputSnapshotIsRefused()
     {
         var oldSnapshot = Path.Combine(_root, "old");
         var newSnapshot = Path.Combine(_root, "new");
@@ -242,100 +461,55 @@ public sealed class SnapshotComparisonTests : IDisposable
         Assert.Null(SnapshotComparison.FindOutputConflict(oldSnapshot, newSnapshot, Path.Combine(_root, "comparison")));
     }
 
-    [Fact]
-    public async Task OutputDirectoryLinkIntoInputSnapshotIsRefused()
-    {
-        var oldSnapshot = await CreateSnapshotAsync("old", "[]");
-        var newSnapshot = await CreateSnapshotAsync("new", "[]");
-        var linkedOutput = Path.Combine(_root, "comparison-link");
-        Assert.True(await TryCreateDirectoryLinkAsync(linkedOutput, oldSnapshot));
-
-        try
-        {
-            Assert.NotNull(SnapshotComparison.FindOutputConflict(oldSnapshot, newSnapshot, linkedOutput));
-        }
-        finally
-        {
-            Directory.Delete(linkedOutput);
-        }
-    }
-
-    [Fact]
-    public async Task WritingChangesJsonDoesNotModifyInputSnapshots()
-    {
-        var oldSnapshot = await CreateSnapshotAsync("old", "[]");
-        var newSnapshot = await CreateSnapshotAsync("new", "[]");
-        var oldBytes = await File.ReadAllBytesAsync(Path.Combine(oldSnapshot, "manifest.json"));
-        var newBytes = await File.ReadAllBytesAsync(Path.Combine(newSnapshot, "keyed", "cube-recipes.json"));
-        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
-        var outputDirectory = Path.Combine(_root, "comparison");
-
-        await SnapshotComparison.WriteAsync(report, outputDirectory);
-
-        Assert.True(File.Exists(Path.Combine(outputDirectory, "changes.json")));
-        Assert.Equal(oldBytes, await File.ReadAllBytesAsync(Path.Combine(oldSnapshot, "manifest.json")));
-        Assert.Equal(newBytes, await File.ReadAllBytesAsync(Path.Combine(newSnapshot, "keyed", "cube-recipes.json")));
-        using var changes =
-            JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(outputDirectory, "changes.json")));
-        Assert.Equal(1, changes.RootElement.GetProperty("SchemaVersion").GetInt32());
-    }
-
     private async Task<string> CreateSnapshotAsync(
         string name,
-        string recipes,
+        string cubeRecipes = "[]",
+        string uniques = "[]",
+        string sets = "[]",
         string stepStatus = "Written",
         bool succeeded = true,
         bool complete = true,
-        bool includeFileInManifest = true,
-        string? hashOverride = null)
+        IReadOnlyCollection<string>? omitFromManifest = null,
+        IReadOnlyDictionary<string, string>? hashOverrides = null)
     {
         var snapshot = Directory.CreateDirectory(Path.Combine(_root, name)).FullName;
-        var cubeDirectory = Directory.CreateDirectory(Path.Combine(snapshot, "keyed")).FullName;
-        var cubePath = Path.Combine(cubeDirectory, "cube-recipes.json");
-        var bytes = Encoding.UTF8.GetBytes(recipes);
-        await File.WriteAllBytesAsync(cubePath, bytes);
-        var hash = hashOverride ?? Convert.ToHexStringLower(SHA256.HashData(bytes));
-        var outputs = stepStatus == "Written" ? new[] { CubeRecipePath } : Array.Empty<string>();
-        var notWritten = stepStatus == "Written" ? Array.Empty<string>() : new[] { CubeRecipePath };
-        var files = includeFileInManifest && stepStatus == "Written"
-            ? new[] { new { Path = CubeRecipePath, Bytes = bytes.LongLength, Sha256 = hash, Producer = "keyed-core" } }
-            : Array.Empty<object>();
-        var steps = new[]
+        var payloads = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            new { Producer = "keyed-core", Status = stepStatus, Outputs = outputs, NotWritten = notWritten }
+            [CubeRecipePath] = cubeRecipes,
+            [UniquePath] = uniques,
+            [SetPath] = sets
         };
+        var files = new List<object>();
+        foreach (var (relativePath, content) in payloads)
+        {
+            var path = Path.Combine(snapshot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var bytes = Encoding.UTF8.GetBytes(content);
+            await File.WriteAllBytesAsync(path, bytes);
+            if (stepStatus != "Written" ||
+                omitFromManifest?.Contains(relativePath, StringComparer.Ordinal) == true) continue;
+            var hash = hashOverrides?.GetValueOrDefault(relativePath) ??
+                       Convert.ToHexStringLower(SHA256.HashData(bytes));
+            files.Add(new { Path = relativePath, Bytes = bytes.LongLength, Sha256 = hash, Producer = "keyed-core" });
+        }
+
+        var outputs = stepStatus == "Written" ? CategoryFiles : [];
+        var notWritten = stepStatus == "Written" ? Array.Empty<string>() : CategoryFiles;
         var manifest = new
         {
             SchemaVersion = 2,
             Succeeded = succeeded,
             Complete = complete,
-            Steps = steps,
+            Steps = new[]
+            {
+                new { Producer = "keyed-core", Status = stepStatus, Outputs = outputs, NotWritten = notWritten }
+            },
             Files = files
         };
         await File.WriteAllTextAsync(Path.Combine(snapshot, "manifest.json"), JsonSerializer.Serialize(manifest));
         return snapshot;
     }
 
-    private static async Task<bool> TryCreateDirectoryLinkAsync(string link, string target)
-    {
-        try
-        {
-            Directory.CreateSymbolicLink(link, target);
-            return true;
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            if (!OperatingSystem.IsWindows()) return false;
-            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
-                "cmd.exe",
-                $"/c mklink /J \"{link}\" \"{target}\"")
-            {
-                CreateNoWindow = true,
-                UseShellExecute = false
-            });
-            if (process is null) return false;
-            await process.WaitForExitAsync();
-            return process.ExitCode == 0;
-        }
-    }
+    private static CategoryComparison GetCategory(ComparisonReport report, string category) =>
+        Assert.Single(report.Categories, result => result.Category == category);
 }

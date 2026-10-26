@@ -8,7 +8,7 @@ namespace D2RMultiExport.Lib.Comparison;
 public sealed class ComparisonReport
 {
     /// <summary>Version of this comparison report contract.</summary>
-    public int SchemaVersion { get; init; } = 1;
+    public int SchemaVersion { get; init; } = 2;
 
     /// <summary>True when the comparison completed without validation or comparison errors.</summary>
     public bool Succeeded { get; init; }
@@ -59,9 +59,12 @@ public sealed class ComparisonIssue
 
     /// <summary>Human-readable diagnostic detail.</summary>
     public string Message { get; init; } = "";
+
+    /// <summary>Snapshot side associated with this diagnostic, when applicable.</summary>
+    public string? Snapshot { get; init; }
 }
 
-/// <summary>Comparison outcome and recipe changes for one export category.</summary>
+/// <summary>Comparison outcome and record changes for one export category.</summary>
 public sealed class CategoryComparison
 {
     /// <summary>Stable category identifier.</summary>
@@ -91,17 +94,26 @@ public sealed class CategoryComparison
     /// <summary>Category-specific warnings.</summary>
     public List<ComparisonIssue> Warnings { get; init; } = [];
 
-    /// <summary>Counts for added, removed, modified, unchanged, and reindexed recipes.</summary>
+    /// <summary>Counts for added, removed, modified, unchanged, and reindexed records.</summary>
     public ComparisonCounts Counts { get; init; } = new();
 
-    /// <summary>Recipes present only in the new snapshot, including their full source JSON.</summary>
-    public List<RecipeEntry> AddedRecipes { get; init; } = [];
+    /// <summary>Parent field containing keyed child records.</summary>
+    public string? NestedField { get; init; }
 
-    /// <summary>Recipes present only in the old snapshot, including their full source JSON.</summary>
-    public List<RecipeEntry> RemovedRecipes { get; init; } = [];
+    /// <summary>Field used to match nested child records.</summary>
+    public string? NestedMatchKey { get; init; }
 
-    /// <summary>Recipes with changed gameplay data, including full before and after JSON.</summary>
-    public List<ModifiedRecipe> ModifiedRecipes { get; init; } = [];
+    /// <summary>Change counts for keyed child records, when present.</summary>
+    public ComparisonCounts? NestedCounts { get; init; }
+
+    /// <summary>Records present only in the new snapshot, including their full source JSON.</summary>
+    public List<RecordEntry> AddedRecords { get; init; } = [];
+
+    /// <summary>Records present only in the old snapshot, including their full source JSON.</summary>
+    public List<RecordEntry> RemovedRecords { get; init; } = [];
+
+    /// <summary>Matched records with changed data, including complete before and after JSON.</summary>
+    public List<ModifiedRecord> ModifiedRecords { get; init; } = [];
 }
 
 /// <summary>Counts of changes found in a snapshot comparison.</summary>
@@ -113,40 +125,40 @@ public sealed class ComparisonCounts
     /// <summary>Number of removed records.</summary>
     public int Removed { get; init; }
 
-    /// <summary>Number of records with changed non-index data.</summary>
+    /// <summary>Number of records with changed data.</summary>
     public int Modified { get; init; }
 
-    /// <summary>Number of matched records with identical non-index data.</summary>
+    /// <summary>Number of matched records with identical data.</summary>
     public int Unchanged { get; init; }
 
     /// <summary>Number of matched records whose row index changed, regardless of other changes.</summary>
     public int Reindexed { get; init; }
 }
 
-/// <summary>A complete recipe record included in the comparison result.</summary>
-public sealed class RecipeEntry
+/// <summary>A complete keyed record included in the comparison result.</summary>
+public sealed class RecordEntry
 {
-    /// <summary>Stable recipe identity.</summary>
-    public string Id { get; init; } = "";
+    /// <summary>Stable record identity from the category's match-key field.</summary>
+    public string Key { get; init; } = "";
 
-    /// <summary>Source row index, when present and valid.</summary>
-    public int? Index { get; init; }
+    /// <summary>Source row index, when the category has a separate integer row-index field.</summary>
+    public int? RowIndex { get; init; }
 
-    /// <summary>Complete original recipe object from the export.</summary>
-    public JsonElement Recipe { get; init; }
+    /// <summary>Complete original record object from the export.</summary>
+    public JsonElement Record { get; init; }
 }
 
-/// <summary>A matched recipe whose gameplay data differs between snapshots.</summary>
-public sealed class ModifiedRecipe
+/// <summary>A matched record whose exported data differs between snapshots.</summary>
+public sealed class ModifiedRecord
 {
-    /// <summary>Stable recipe identity shared by both snapshots.</summary>
-    public string Id { get; init; } = "";
+    /// <summary>Stable record identity shared by both snapshots.</summary>
+    public string Key { get; init; } = "";
 
-    /// <summary>Old source row index, when present and valid.</summary>
-    public int? OldIndex { get; init; }
+    /// <summary>Old source row index, when available.</summary>
+    public int? OldRowIndex { get; init; }
 
-    /// <summary>New source row index, when present and valid.</summary>
-    public int? NewIndex { get; init; }
+    /// <summary>New source row index, when available.</summary>
+    public int? NewRowIndex { get; init; }
 
     /// <summary>Paths of all changed fields, in deterministic order.</summary>
     public List<string> ChangedFields { get; init; } = [];
@@ -154,25 +166,47 @@ public sealed class ModifiedRecipe
     /// <summary>Old and new values for every changed field path.</summary>
     public List<FieldChange> Changes { get; init; } = [];
 
-    /// <summary>Complete original recipe object from the old export.</summary>
+    /// <summary>Explicit keyed child-record changes, such as pieces in a set.</summary>
+    public NestedRecordChanges? NestedChanges { get; init; }
+
+    /// <summary>Complete original record object from the old export.</summary>
     public JsonElement Old { get; init; }
 
-    /// <summary>Complete original recipe object from the new export.</summary>
+    /// <summary>Complete original record object from the new export.</summary>
     public JsonElement New { get; init; }
 }
 
-/// <summary>One structural JSON value change at a recipe field path.</summary>
+/// <summary>Added, removed, and modified records within a keyed child collection.</summary>
+public sealed class NestedRecordChanges
+{
+    /// <summary>Parent field containing the child records.</summary>
+    public string Field { get; init; } = "";
+
+    /// <summary>Child field used to match records.</summary>
+    public string MatchKey { get; init; } = "";
+
+    /// <summary>Child records only in the new parent.</summary>
+    public List<RecordEntry> Added { get; init; } = [];
+
+    /// <summary>Child records only in the old parent.</summary>
+    public List<RecordEntry> Removed { get; init; } = [];
+
+    /// <summary>Matched child records with changed fields.</summary>
+    public List<ModifiedRecord> Modified { get; init; } = [];
+}
+
+/// <summary>One structural JSON value change at a record field path.</summary>
 public sealed class FieldChange
 {
-    /// <summary>Dot and array-index path to the changed value.</summary>
+    /// <summary>Dot and array-index or keyed-record path to the changed value.</summary>
     public string Path { get; init; } = "";
 
     /// <summary>One of <c>Added</c>, <c>Removed</c>, or <c>Changed</c>.</summary>
     public string Kind { get; init; } = "Changed";
 
-    /// <summary>Old value; null when the field did not exist in the old recipe.</summary>
+    /// <summary>Old value; null when the field did not exist in the old record.</summary>
     public JsonElement? OldValue { get; init; }
 
-    /// <summary>New value; null when the field does not exist in the new recipe.</summary>
+    /// <summary>New value; null when the field does not exist in the new record.</summary>
     public JsonElement? NewValue { get; init; }
 }

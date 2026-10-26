@@ -206,11 +206,15 @@ dotnet run --project .\D2RMultiExport.Console -- compare `
 ```
 
 This writes `changes.json` in the comparison output directory. That directory must
-not be either snapshot or a directory inside either snapshot. The initial comparison
-supports only `keyed/cube-recipes.json`; it validates schema-2 manifest provenance,
-checks recorded byte lengths and hashes when available, and will not treat skipped,
-unwritten, stale or failed snapshot data as recipe deletions. See
-[Export comparison](docs/EXPORT-COMPARISON.md) for report fields and exit codes.
+not be either snapshot or a directory inside either snapshot. The comparison covers
+`keyed/cube-recipes.json` (matched by stable `Id`), `keyed/uniques.json` (matched by
+string `Index`), and `keyed/sets.json` (matched by set `Index`, with set pieces
+matched by `SetItems.Index`). It validates schema-2 manifest provenance, checks
+recorded byte lengths and hashes when available, and will not treat skipped,
+unwritten, stale or failed snapshot data as gameplay deletions. Category-file
+validation failures are reported separately so other verified categories can still
+be compared. See [Export comparison](docs/EXPORT-COMPARISON.md) for schema 2,
+report fields, identity rules and exit codes.
 
 ### Migrating from the old CLI arguments
 

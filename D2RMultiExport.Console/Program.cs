@@ -244,9 +244,17 @@ compareCommand.SetAction(async (parseResult, _) =>
 
         var report = await SnapshotComparison.CompareAsync(oldDirectory, newDirectory);
         await SnapshotComparison.WriteAsync(report, outputDirectory, parseResult.GetValue(comparePrettyOption));
-        var category = report.Categories.Single();
-        Console.WriteLine(
-            $"Cube recipe comparison: {category.Status}; added {category.Counts.Added}, removed {category.Counts.Removed}, modified {category.Counts.Modified}, unchanged {category.Counts.Unchanged}.");
+        foreach (var category in report.Categories)
+        {
+            Console.WriteLine(
+                $"{category.Category} comparison: {category.Status}; added {category.Counts.Added}, removed {category.Counts.Removed}, modified {category.Counts.Modified}, unchanged {category.Counts.Unchanged}.");
+            if (category.NestedCounts is { } nestedCounts)
+            {
+                Console.WriteLine(
+                    $"  {category.NestedField} comparison: added {nestedCounts.Added}, removed {nestedCounts.Removed}, modified {nestedCounts.Modified}, unchanged {nestedCounts.Unchanged}.");
+            }
+        }
+
         Console.WriteLine($"Comparison report: '{Path.GetFullPath(outputDirectory)}\\changes.json'.");
         if (!report.Succeeded)
         {

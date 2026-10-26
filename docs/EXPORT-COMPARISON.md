@@ -1,8 +1,9 @@
-# Export snapshot comparison
+﻿# Export snapshot comparison
 
-The `compare` CLI command compares two existing export directories and writes a
-versioned JSON change report. It does not run an export, alter either input, or
-infer changes from files that the manifests do not vouch for.
+The `compare` CLI command compares supported categories in two existing export
+directories and writes a versioned JSON change report. It does not run an export,
+alter either input, or infer changes from files that their manifests do not vouch
+for.
 
 ```powershell
 dotnet run --project .\D2RMultiExport.Console -- compare `
@@ -13,74 +14,99 @@ dotnet run --project .\D2RMultiExport.Console -- compare `
 
 The comparison output may not be either input directory, a directory inside an
 input, or a symlink/junction alias into an input. It contains `changes.json`;
-`--pretty` is available and defaults to true.
-No developer test paths are built into the application.
+`--pretty` is available and defaults to true. No developer test paths are built
+into the application.
 
 ## Snapshot validation
 
-Each input must contain a readable schema-2 `manifest.json`. The comparison reads
-only `keyed/cube-recipes.json`, and only when all of the following are true:
+Each input must contain a readable schema-2 `manifest.json`. For each category,
+the comparison reads its file only when the manifest records `Succeeded: true`,
+the `keyed-core` step is `Written` and lists the file as an output, and the
+matching `Files[]` entry names the same producer. Recorded byte length and SHA-256
+are checked when available.
 
-- The manifest records `Succeeded: true`.
-- Its `keyed-core` step is `Written` and lists `keyed/cube-recipes.json` as an
-  output.
-- The file is listed in `Files[]` with the matching producer and exists under
-  the snapshot root.
-- The recorded byte length and SHA-256 match when those values are available.
+The compared files are:
 
-An absent manifest, failed export, skipped/not-written cube output, missing
-`Files[]` entry, invalid payload or integrity mismatch prevents that category from
-being compared. A physical file left by an earlier run is never treated as current
-data or as proof of a recipe deletion. When the manifest has `Complete: false`, the
-report warns; comparison is still allowed only if the cube file independently
-passes the current-run and integrity checks above. Missing integrity metadata is
-also reported as a warning.
+| Category | File | Record identity |
+|---|---|---|
+| `cube-recipes` | `keyed/cube-recipes.json` | Stable `Id` |
+| `uniques` | `keyed/uniques.json` | String `Index` |
+| `sets` | `keyed/sets.json` | String `Index`; nested `SetItems` use their string `Index` within each set |
+
+A missing manifest, failed export, invalid manifest, or unsafe snapshot prevents
+all categories from being compared. A missing, skipped/not-written, unlisted,
+unreadable, malformed, or integrity-mismatched category file prevents only that
+category from being compared when the snapshot manifest itself is valid. A
+physical file left by an earlier run is never treated as current data or proof of
+a deletion. When the manifest has `Complete: false`, the report warns; a category
+can still be compared if its file independently passes current-run and integrity
+checks. Missing integrity metadata is also reported as a warning.
 
 The report records each snapshot's absolute path, manifest schema version,
-success/completeness flags, manifest SHA-256 and validation diagnostics. The
+success/completeness flags, manifest SHA-256 and validation diagnostics. Category
+diagnostics identify their `Snapshot` side (`old` or `new`) when applicable. The
 manifest is unsigned: its hash detects later payload mismatch but does not
 authenticate the manifest or prove source/code provenance.
 
-## Report schema version 1
+## Report schema version 2
 
 `changes.json` uses PascalCase property names and contains:
 
-- `SchemaVersion`: currently `1` for this comparison-report contract.
-- `Succeeded`: false if snapshot or category validation/comparison errors occurred.
+- `SchemaVersion`: `2` for this comparison-report contract. Version 2 generalizes
+  recipe-specific record fields to `RecordEntry`/`ModifiedRecord`-style fields and
+  adds set-piece changes; consumers of schema 1 must update.
+- `Succeeded`: false if snapshot validation or any category comparison has errors.
 - `OldSnapshot` and `NewSnapshot`: snapshot identification, manifest integrity
   metadata, `Errors` and `Warnings`.
-- `Categories`: one `cube-recipes` entry with `File`, `Status`, `MatchKey`,
-  `IgnoredFields`, verified file hashes, category diagnostics, counts, and the
-  added/removed/modified recipe lists.
-- `Counts`: aggregate `Added`, `Removed`, `Modified`, `Unchanged` and `Reindexed`
-  counts for categories that were compared.
+- `Categories`: one entry each for `cube-recipes`, `uniques`, and `sets`, in that
+  order. Each has `File`, `Status`, `MatchKey`, `IgnoredFields`, verified file
+  hashes, diagnostics, `Counts`, and `AddedRecords`, `RemovedRecords`, and
+  `ModifiedRecords` arrays.
+- `Counts`: aggregate added/removed/modified/unchanged records and `Reindexed`
+  count across categories whose status is `Compared`. Set-piece counts are kept
+  separate in that category's `NestedCounts` and do not double-count set records.
 
-Recipes match by their stable `Id`, using ordinal string comparison. Row `Index`
-is excluded from gameplay-change detection; matched recipes whose `Index` differs
-contribute to `Reindexed`. Additions and removals include `Id`, `Index` and a
-complete `Recipe` JSON value. A modified recipe includes its identity and old/new
-indexes, sorted `ChangedFields`, `Changes` entries (`Path`, `Kind`, `OldValue`,
-`NewValue`), and complete `Old` and `New` recipe values. A missing side of a field
-change is omitted; an explicitly present JSON `null` remains a JSON null value.
+An added or removed record contains `Key`, optional `RowIndex`, and its complete
+original `Record` JSON. A modified record contains the identity `Key`, applicable
+old/new row indexes, sorted `ChangedFields`, `Changes` (`Path`, `Kind`, `OldValue`,
+`NewValue`), and complete `Old`/`New` record JSON. The cube category uses the
+numeric `Index` only as `RowIndex`; it is not an identity. Index-only shifts are
+excluded from gameplay field changes and counted by `Reindexed`.
 
-Object property ordering and JSON whitespace are ignored. Objects are compared by
-property name; equal-length arrays are compared element-by-element and arrays of
-different lengths are reported as one change at the array path. Paths use dots for
-object properties and brackets for array positions, for example
-`Outputs.A.Lines[0].args[0]`. Added and removed recipe arrays are ordered by index
-then `Id`; matched records are processed by old index then `Id`.
+For sets, `NestedField` is `SetItems`, `NestedMatchKey` is `Index`, and
+`NestedCounts` counts child records only within sets matched by the parent set
+identity. A changed set's optional `NestedChanges` identifies the field and key,
+and includes full added/removed piece records plus modified pieces with field
+changes and complete before/after JSON. Parent set additions/removals already
+contain all pieces in their full `Record`, so those pieces are not repeated in
+`NestedCounts`.
 
-Missing or duplicate recipe `Id` values, or non-object array entries, invalidate
-the whole category rather than generating a partial diff. A recipe whose stable
-`Id` changes appears as a removal and an addition; replacement matching is
-intentionally not guessed. This first version compares no categories other than
-cube recipes.
+All identities use ordinal string matching. Missing or duplicate `Id`/`Index`
+values, non-object records, malformed category arrays, or malformed `SetItems`
+invalidate only that category and produce no partial diff for it. Unique and set
+`Index` values are strings (translation identities), never numeric row positions.
+Set pieces are matched within their parent set, not globally.
+
+Object property ordering and JSON whitespace are ignored. Ordinary arrays are
+compared element-by-element when lengths match and as one whole-array change when
+lengths differ. Their ordering remains meaningful, including unique property
+`Lines` and set bonus arrays. The set `SetItems` array is the exception: it is
+matched by piece `Index`, so reordering pieces is not reported as a gameplay
+change. Structural paths use dots, array indexes, and keyed set-piece selectors,
+for example `Lines[0].args[1]` or `SetItems[Index="Civerb's Ward"].Lines[0]`.
+
+Categories and records are emitted deterministically: categories use the order
+above; cube records sort by row index then `Id`; uniques, sets, and nested set
+pieces sort by ordinal identity. Object fields in field changes are sorted by
+ordinal property name. A changed identity appears as a removal plus an addition;
+replacement matching is intentionally not guessed. Runewords and all other export
+categories are not compared by this version.
 
 ## Exit codes
 
 - `0`: report written and validation/comparison succeeded. A `Complete: false`
-  snapshot can still yield this code if the selected category file is verified;
-  the report retains the incompleteness warning.
+  snapshot can still yield this code if all three selected category files are
+  verified; the report retains the incompleteness warning.
 - `1`: `changes.json` was written, but validation or category comparison errors
   prevented a successful result.
 - `2`: fatal comparison or report-write failure.

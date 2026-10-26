@@ -32,18 +32,27 @@ internal sealed class SnapshotReader
         return reader;
     }
 
-    public async Task<SnapshotPayload?> ReadFileAsync(string relativePath)
+    public async Task<SnapshotFileResult> ReadFileAsync(string relativePath)
     {
-        if (!_manifestValid || Info.Succeeded != true) return null;
+        var errors = new List<ComparisonIssue>();
+        var warnings = new List<ComparisonIssue>();
+
+        void AddFileError(string code, string message) =>
+            errors.Add(new ComparisonIssue { Code = code, Message = message });
+
+        void AddFileWarning(string code, string message) =>
+            warnings.Add(new ComparisonIssue { Code = code, Message = message });
+
+        if (!_manifestValid || Info.Succeeded != true) return new SnapshotFileResult(null, errors, warnings);
 
         var matchingSteps = _steps.Where(static step => step.Producer == RequiredProducer).ToList();
         if (matchingSteps.Count != 1)
         {
-            AddError(matchingSteps.Count == 0 ? "missing-export-step" : "duplicate-export-step",
+            AddFileError(matchingSteps.Count == 0 ? "missing-export-step" : "duplicate-export-step",
                 matchingSteps.Count == 0
                     ? $"Manifest has no '{RequiredProducer}' export step for '{relativePath}'."
                     : $"Manifest has more than one '{RequiredProducer}' export step for '{relativePath}'.");
-            return null;
+            return new SnapshotFileResult(null, errors, warnings);
         }
 
         var step = matchingSteps[0];
@@ -53,50 +62,50 @@ internal sealed class SnapshotReader
             var detail = step.NotWritten.Contains(relativePath, StringComparer.Ordinal)
                 ? "The file was declared but not written during this run; any on-disk copy is stale."
                 : $"The exporter step status is '{step.Status}', so this file is not trusted as a current-run output.";
-            AddError("export-step-not-written", $"'{relativePath}' cannot be used. {detail}");
-            return null;
+            AddFileError("export-step-not-written", $"'{relativePath}' cannot be used. {detail}");
+            return new SnapshotFileResult(null, errors, warnings);
         }
 
         var outputListed = step.Outputs.Contains(relativePath, StringComparer.Ordinal);
         var notWritten = step.NotWritten.Contains(relativePath, StringComparer.Ordinal);
         if (outputListed && notWritten)
         {
-            AddError("file-marked-not-written",
+            AddFileError("file-marked-not-written",
                 $"'{relativePath}' appears in both the step outputs and NotWritten lists.");
-            return null;
+            return new SnapshotFileResult(null, errors, warnings);
         }
 
         if (notWritten)
         {
-            AddError("export-file-not-written",
+            AddFileError("export-file-not-written",
                 $"'{relativePath}' was not written during this run; any on-disk copy is stale.");
-            return null;
+            return new SnapshotFileResult(null, errors, warnings);
         }
 
         if (!outputListed)
         {
-            AddError("file-not-in-export-step",
+            AddFileError("file-not-in-export-step",
                 $"'{relativePath}' is not listed as an output of the '{RequiredProducer}' step.");
-            return null;
+            return new SnapshotFileResult(null, errors, warnings);
         }
 
         var matchingFiles = _files.Where(file => string.Equals(file.Path, relativePath, StringComparison.Ordinal))
             .ToList();
         if (matchingFiles.Count != 1)
         {
-            AddError(matchingFiles.Count == 0 ? "file-not-in-manifest" : "duplicate-file-manifest-entry",
+            AddFileError(matchingFiles.Count == 0 ? "file-not-in-manifest" : "duplicate-file-manifest-entry",
                 matchingFiles.Count == 0
                     ? $"'{relativePath}' is not in manifest Files[]; an on-disk copy is not proof that this run produced it."
                     : $"Manifest Files[] contains more than one entry for '{relativePath}'.");
-            return null;
+            return new SnapshotFileResult(null, errors, warnings);
         }
 
         var file = matchingFiles[0];
         if (!string.Equals(file.Producer, step.Producer, StringComparison.Ordinal))
         {
-            AddError("file-producer-mismatch",
+            AddFileError("file-producer-mismatch",
                 $"Manifest lists '{relativePath}' under producer '{file.Producer}', not '{step.Producer}'.");
-            return null;
+            return new SnapshotFileResult(null, errors, warnings);
         }
 
         string path;
@@ -106,8 +115,8 @@ internal sealed class SnapshotReader
         }
         catch (InvalidOperationException ex)
         {
-            AddError("unsafe-snapshot-path", $"Cannot safely read '{relativePath}': {ex.Message}");
-            return null;
+            AddFileError("unsafe-snapshot-path", $"Cannot safely read '{relativePath}': {ex.Message}");
+            return new SnapshotFileResult(null, errors, warnings);
         }
 
         byte[] bytes;
@@ -117,52 +126,45 @@ internal sealed class SnapshotReader
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            AddError("snapshot-file-unreadable", $"Cannot read current-run file '{relativePath}': {ex.Message}");
-            return null;
+            AddFileError("snapshot-file-unreadable", $"Cannot read current-run file '{relativePath}': {ex.Message}");
+            return new SnapshotFileResult(null, errors, warnings);
         }
 
         if (file.Bytes is { } expectedBytes && bytes.LongLength != expectedBytes)
         {
-            AddError("snapshot-file-size-mismatch",
+            AddFileError("snapshot-file-size-mismatch",
                 $"'{relativePath}' has {bytes.LongLength} bytes but the manifest records {expectedBytes}.");
-            return null;
+            return new SnapshotFileResult(null, errors, warnings);
         }
 
         if (file.Bytes is null)
-            Info.Warnings.Add(new ComparisonIssue
-            {
-                Code = "file-size-unavailable",
-                Message =
-                    $"Manifest has no byte length for '{relativePath}'; only available integrity metadata can be checked."
-            });
+            AddFileWarning("file-size-unavailable",
+                $"Manifest has no byte length for '{relativePath}'; only available integrity metadata can be checked.");
 
         string? verifiedHash = null;
         if (file.Sha256 is { Length: > 0 } expectedHash)
         {
             if (expectedHash.Length != 64 || !expectedHash.All(Uri.IsHexDigit))
             {
-                AddError("invalid-file-hash", $"Manifest has an invalid SHA-256 value for '{relativePath}'.");
-                return null;
+                AddFileError("invalid-file-hash", $"Manifest has an invalid SHA-256 value for '{relativePath}'.");
+                return new SnapshotFileResult(null, errors, warnings);
             }
 
             verifiedHash = Convert.ToHexStringLower(SHA256.HashData(bytes));
             if (!string.Equals(verifiedHash, expectedHash, StringComparison.OrdinalIgnoreCase))
             {
-                AddError("snapshot-file-hash-mismatch",
+                AddFileError("snapshot-file-hash-mismatch",
                     $"SHA-256 mismatch for '{relativePath}'; the snapshot payload may have changed.");
-                return null;
+                return new SnapshotFileResult(null, errors, warnings);
             }
         }
         else
         {
-            Info.Warnings.Add(new ComparisonIssue
-            {
-                Code = "file-hash-unavailable",
-                Message = $"Manifest has no SHA-256 for '{relativePath}'; the file cannot be verified against a hash."
-            });
+            AddFileWarning("file-hash-unavailable",
+                $"Manifest has no SHA-256 for '{relativePath}'; the file cannot be verified against a hash.");
         }
 
-        return new SnapshotPayload(bytes, verifiedHash);
+        return new SnapshotFileResult(new SnapshotPayload(bytes, verifiedHash), errors, warnings);
     }
 
     private async Task LoadManifestAsync()
@@ -407,3 +409,8 @@ internal sealed class SnapshotReader
 }
 
 internal sealed record SnapshotPayload(byte[] Bytes, string? Sha256);
+
+internal sealed record SnapshotFileResult(
+    SnapshotPayload? Payload,
+    List<ComparisonIssue> Errors,
+    List<ComparisonIssue> Warnings);

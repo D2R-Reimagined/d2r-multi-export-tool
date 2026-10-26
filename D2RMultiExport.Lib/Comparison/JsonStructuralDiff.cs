@@ -8,11 +8,16 @@ namespace D2RMultiExport.Lib.Comparison;
 /// <summary>Builds deterministic field-level differences between JSON objects.</summary>
 internal static class JsonStructuralDiff
 {
-    public static List<FieldChange> Compare(JsonElement oldValue, JsonElement newValue,
-        IReadOnlySet<string> ignoredRootFields)
+    public static List<FieldChange> Compare(
+        JsonElement oldValue,
+        JsonElement newValue,
+        IReadOnlySet<string> ignoredRootFields,
+        string? keyedArrayField = null,
+        string? keyedArrayMatchKey = null)
     {
         var changes = new List<FieldChange>();
-        CompareAt(oldValue, newValue, "", changes, ignoredRootFields, atRoot: true);
+        CompareAt(oldValue, newValue, "", changes, ignoredRootFields, keyedArrayField, keyedArrayMatchKey,
+            atRoot: true);
         return changes;
     }
 
@@ -22,6 +27,8 @@ internal static class JsonStructuralDiff
         string path,
         List<FieldChange> changes,
         IReadOnlySet<string> ignoredRootFields,
+        string? keyedArrayField,
+        string? keyedArrayMatchKey,
         bool atRoot = false)
     {
         if (oldValue.ValueKind != newValue.ValueKind)
@@ -48,8 +55,14 @@ internal static class JsonStructuralDiff
                     changes.Add(CreateChange(childPath, "Added", null, newProperty));
                 else if (!newHasValue)
                     changes.Add(CreateChange(childPath, "Removed", oldProperty, null));
+                else if (atRoot && string.Equals(name, keyedArrayField, StringComparison.Ordinal)
+                                && oldProperty.ValueKind == JsonValueKind.Array &&
+                                newProperty.ValueKind == JsonValueKind.Array)
+                    CompareKeyedArray(oldProperty, newProperty, childPath, changes, ignoredRootFields,
+                        keyedArrayMatchKey!);
                 else
-                    CompareAt(oldProperty, newProperty, childPath, changes, ignoredRootFields);
+                    CompareAt(oldProperty, newProperty, childPath, changes, ignoredRootFields,
+                        keyedArrayField, keyedArrayMatchKey);
             }
 
             return;
@@ -64,7 +77,8 @@ internal static class JsonStructuralDiff
             }
 
             for (var index = 0; index < oldValue.GetArrayLength(); index++)
-                CompareAt(oldValue[index], newValue[index], $"{path}[{index}]", changes, ignoredRootFields);
+                CompareAt(oldValue[index], newValue[index], $"{path}[{index}]", changes, ignoredRootFields,
+                    keyedArrayField, keyedArrayMatchKey);
             return;
         }
 
@@ -73,6 +87,43 @@ internal static class JsonStructuralDiff
         if (!JsonNode.DeepEquals(oldNode, newNode))
             changes.Add(CreateChange(path, "Changed", oldValue, newValue));
     }
+
+    private static void CompareKeyedArray(
+        JsonElement oldArray,
+        JsonElement newArray,
+        string path,
+        List<FieldChange> changes,
+        IReadOnlySet<string> ignoredRootFields,
+        string matchKey)
+    {
+        var oldByKey = IndexByKey(oldArray, matchKey);
+        var newByKey = IndexByKey(newArray, matchKey);
+        var keys = oldByKey.Keys.Concat(newByKey.Keys).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
+        foreach (var key in keys)
+        {
+            var childPath = $"{path}[{matchKey}=\"{EscapePathValue(key)}\"]";
+            var hasOld = oldByKey.TryGetValue(key, out var oldRecord);
+            var hasNew = newByKey.TryGetValue(key, out var newRecord);
+            if (!hasOld)
+                changes.Add(CreateChange(childPath, "Added", null, newRecord));
+            else if (!hasNew)
+                changes.Add(CreateChange(childPath, "Removed", oldRecord, null));
+            else
+                CompareAt(oldRecord, newRecord, childPath, changes, ignoredRootFields, null, null);
+        }
+    }
+
+    private static Dictionary<string, JsonElement> IndexByKey(JsonElement array, string matchKey)
+    {
+        var result = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var item in array.EnumerateArray())
+            result.Add(item.GetProperty(matchKey).GetString()!, item);
+        return result;
+    }
+
+    private static string EscapePathValue(string value) => value
+        .Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace("\"", "\\\"", StringComparison.Ordinal);
 
     private static FieldChange CreateChange(string path, string kind, JsonElement? oldValue, JsonElement? newValue) =>
         new()

@@ -10,42 +10,38 @@ namespace D2RMultiExport.Lib.Comparison;
 /// <summary>Validates and compares existing export snapshots without modifying them.</summary>
 public static class SnapshotComparison
 {
-    private const string CubeRecipeFile = "keyed/cube-recipes.json";
-
-    /// <summary>Creates a structured comparison report for the cube recipes in two export snapshots.</summary>
+    /// <summary>Creates a structured comparison report for supported records in two export snapshots.</summary>
     public static async Task<ComparisonReport> CompareAsync(string oldDirectory, string newDirectory)
     {
         var oldSnapshot = await SnapshotReader.LoadAsync(oldDirectory);
         var newSnapshot = await SnapshotReader.LoadAsync(newDirectory);
-        var oldPayload = await oldSnapshot.ReadFileAsync(CubeRecipeFile);
-        var newPayload = await newSnapshot.ReadFileAsync(CubeRecipeFile);
-        CategoryComparison category;
-
-        if (oldPayload is null || newPayload is null)
+        var categories = new List<CategoryComparison>(RecordComparer.Categories.Count);
+        foreach (var definition in RecordComparer.Categories)
         {
-            category = NotCompared(
-                [.. oldSnapshot.Info.Errors, .. newSnapshot.Info.Errors],
-                [.. oldSnapshot.Info.Warnings, .. newSnapshot.Info.Warnings],
-                oldPayload?.Sha256,
-                newPayload?.Sha256);
-        }
-        else
-        {
-            category = ComparePayloads(oldPayload, newPayload);
-            category = CopySnapshotWarnings(category, oldSnapshot.Info.Warnings, newSnapshot.Info.Warnings);
+            var oldFile = await oldSnapshot.ReadFileAsync(definition.File);
+            var newFile = await newSnapshot.ReadFileAsync(definition.File);
+            categories.Add(CompareCategory(definition, oldSnapshot.Info, newSnapshot.Info, oldFile, newFile));
         }
 
         var succeeded = oldSnapshot.Info.Errors.Count == 0
                         && newSnapshot.Info.Errors.Count == 0
-                        && category.Errors.Count == 0;
+                        && categories.All(static category => category.Errors.Count == 0);
+        var comparedCategories = categories.Where(static category => category.Status == "Compared").ToList();
 
         return new ComparisonReport
         {
             Succeeded = succeeded,
             OldSnapshot = oldSnapshot.Info,
             NewSnapshot = newSnapshot.Info,
-            Categories = [category],
-            Counts = category.Status == "Compared" ? category.Counts : new ComparisonCounts()
+            Categories = categories,
+            Counts = new ComparisonCounts
+            {
+                Added = comparedCategories.Sum(static category => category.Counts.Added),
+                Removed = comparedCategories.Sum(static category => category.Counts.Removed),
+                Modified = comparedCategories.Sum(static category => category.Counts.Modified),
+                Unchanged = comparedCategories.Sum(static category => category.Counts.Unchanged),
+                Reindexed = comparedCategories.Sum(static category => category.Counts.Reindexed)
+            }
         };
     }
 
@@ -75,36 +71,96 @@ public static class SnapshotComparison
         return outputs.WriteJsonAsync("changes.json", report, options);
     }
 
-    private static CategoryComparison ComparePayloads(SnapshotPayload oldPayload, SnapshotPayload newPayload)
+    private static CategoryComparison CompareCategory(
+        RecordComparer.ComparisonDefinition definition,
+        SnapshotInfo oldSnapshot,
+        SnapshotInfo newSnapshot,
+        SnapshotFileResult oldFile,
+        SnapshotFileResult newFile)
     {
+        CategoryComparison category;
+        if (oldFile.Payload is null || newFile.Payload is null)
+        {
+            category = NotCompared(
+                definition,
+                [
+                    .. WithSnapshot(oldSnapshot.Errors, "old"), .. WithSnapshot(newSnapshot.Errors, "new"),
+                    .. WithSnapshot(oldFile.Errors, "old"), .. WithSnapshot(newFile.Errors, "new")
+                ],
+                [],
+                oldFile.Payload?.Sha256,
+                newFile.Payload?.Sha256);
+        }
+        else
+            category = ComparePayloads(definition, oldFile.Payload, newFile.Payload);
+
+        return CopySnapshotDiagnostics(category, oldSnapshot, newSnapshot, oldFile, newFile);
+    }
+
+    private static CategoryComparison ComparePayloads(
+        RecordComparer.ComparisonDefinition definition,
+        SnapshotPayload oldPayload,
+        SnapshotPayload newPayload)
+    {
+        JsonDocument oldDocument;
         try
         {
-            using var oldDocument = JsonDocument.Parse(oldPayload.Bytes);
-            using var newDocument = JsonDocument.Parse(newPayload.Bytes);
-            return CubeRecipeComparer.Compare(oldDocument.RootElement, newDocument.RootElement, oldPayload.Sha256,
-                newPayload.Sha256);
+            oldDocument = JsonDocument.Parse(oldPayload.Bytes);
         }
         catch (JsonException ex)
         {
             return NotCompared(
+                definition,
                 [
                     new ComparisonIssue
                     {
-                        Code = "invalid-cube-recipes-json", Message = $"Cannot parse '{CubeRecipeFile}': {ex.Message}"
+                        Code = "invalid-category-json",
+                        Message = $"Cannot parse old '{definition.File}': {ex.Message}",
+                        Snapshot = "old"
                     }
                 ],
                 [],
                 oldPayload.Sha256,
                 newPayload.Sha256);
         }
+
+        using (oldDocument)
+        {
+            JsonDocument newDocument;
+            try
+            {
+                newDocument = JsonDocument.Parse(newPayload.Bytes);
+            }
+            catch (JsonException ex)
+            {
+                return NotCompared(
+                    definition,
+                    [
+                        new ComparisonIssue
+                        {
+                            Code = "invalid-category-json",
+                            Message = $"Cannot parse new '{definition.File}': {ex.Message}",
+                            Snapshot = "new"
+                        }
+                    ],
+                    [],
+                    oldPayload.Sha256,
+                    newPayload.Sha256);
+            }
+
+            using (newDocument)
+                return RecordComparer.Compare(definition, oldDocument.RootElement, newDocument.RootElement,
+                    oldPayload.Sha256, newPayload.Sha256);
+        }
     }
 
-    private static CategoryComparison CopySnapshotWarnings(
+    private static CategoryComparison CopySnapshotDiagnostics(
         CategoryComparison category,
-        IReadOnlyCollection<ComparisonIssue> oldWarnings,
-        IReadOnlyCollection<ComparisonIssue> newWarnings)
+        SnapshotInfo oldSnapshot,
+        SnapshotInfo newSnapshot,
+        SnapshotFileResult oldFile,
+        SnapshotFileResult newFile)
     {
-        if (oldWarnings.Count == 0 && newWarnings.Count == 0) return category;
         return new CategoryComparison
         {
             Category = category.Category,
@@ -115,30 +171,49 @@ public static class SnapshotComparison
             OldFileSha256 = category.OldFileSha256,
             NewFileSha256 = category.NewFileSha256,
             Errors = category.Errors,
-            Warnings = [.. category.Warnings, .. oldWarnings, .. newWarnings],
+            Warnings =
+            [
+                .. category.Warnings, .. WithSnapshot(oldSnapshot.Warnings, "old"),
+                .. WithSnapshot(newSnapshot.Warnings, "new"), .. WithSnapshot(oldFile.Warnings, "old"),
+                .. WithSnapshot(newFile.Warnings, "new")
+            ],
             Counts = category.Counts,
-            AddedRecipes = category.AddedRecipes,
-            RemovedRecipes = category.RemovedRecipes,
-            ModifiedRecipes = category.ModifiedRecipes
+            NestedField = category.NestedField,
+            NestedMatchKey = category.NestedMatchKey,
+            NestedCounts = category.NestedCounts,
+            AddedRecords = category.AddedRecords,
+            RemovedRecords = category.RemovedRecords,
+            ModifiedRecords = category.ModifiedRecords
         };
     }
 
     private static CategoryComparison NotCompared(
+        RecordComparer.ComparisonDefinition definition,
         List<ComparisonIssue> errors,
         List<ComparisonIssue> warnings,
         string? oldHash,
         string? newHash) => new()
     {
-        Category = "cube-recipes",
-        File = CubeRecipeFile,
+        Category = definition.Category,
+        File = definition.File,
         Status = "NotCompared",
-        MatchKey = "Id",
-        IgnoredFields = ["Index"],
+        MatchKey = definition.MatchKey,
+        IgnoredFields = [.. definition.IgnoredRootFields],
         OldFileSha256 = oldHash,
         NewFileSha256 = newHash,
         Errors = errors,
-        Warnings = warnings
+        Warnings = warnings,
+        NestedField = definition.NestedArrayField,
+        NestedMatchKey = definition.NestedMatchKey
     };
+
+    private static IEnumerable<ComparisonIssue> WithSnapshot(IEnumerable<ComparisonIssue> issues, string snapshot) =>
+        issues.Select(issue => new ComparisonIssue
+        {
+            Code = issue.Code,
+            Message = issue.Message,
+            Snapshot = snapshot
+        });
 
     private static bool IsSameOrInside(string candidate, string root)
     {
