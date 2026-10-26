@@ -47,6 +47,18 @@ for skills; a future selector needs an explicit contract change.
 
 ## Names, properties and assets
 
+### Item levels
+
+`ItemLevel` and `RequiredLevel` are separate source values. Base rows in
+`keyed/armors.json` and `keyed/weapons.json` expose `Equipment.ItemLevel` from
+`armor.txt` / `weapons.txt` `level`, and `Equipment.RequiredLevel` from
+`levelreq`. Unique rows expose top-level `ItemLevel` from
+`uniqueitems.txt` `lvl` and `RequiredLevel` from `lvl req`; individual set
+items use the same top-level fields from `setitems.txt`. Their nested slim
+`Equipment` objects intentionally omit `ItemLevel`. Set parent objects retain
+the legacy `ItemLevel: 1`: `sets.txt` has no `lvl` column, so no source level is
+available for the parent.
+
 ### Property roll preservation
 
 Property `key`/`args` remain the display contract. A genuine roll uses two
