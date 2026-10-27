@@ -19,6 +19,16 @@ input, or a symlink/junction alias into an input. It contains `changes.json`,
 `--pretty` is available and defaults to true. No developer test paths are built
 into the application.
 
+`changes.json`, `recipe-changes.md`, and `item-changes.md` are developer-facing
+review reports: they show identities, row indexes, validation and comparison
+diagnostics, original keys and arguments for text that cannot be rendered, and
+complete record JSON. `item-patch-notes.md` and `recipe-patch-notes.md` are
+player-facing summaries derived from the same report. They show only readable
+changes, omit record identities, row indexes, record JSON, and diagnostics,
+render text only from verified English strings (with the limited name fallbacks
+described below), and are not the authoritative record of a change; the
+developer-facing reports are.
+
 ## Recipe change Markdown
 
 The same `compare` invocation also writes `recipe-changes.md` beside
@@ -107,8 +117,24 @@ lines also changed.
 Set-piece and shared-bonus changes remain distinct within each affected set,
 runeword rune order is retained, and automagic notes identify eligible affixes
 that can roll but are not guaranteed on every item. Unavailable categories are
-labeled unavailable, and untranslated values retain their original key and
-arguments for review.
+labeled unavailable in the change-count table and in their section rather than
+shown as zero changes.
+
+Player-facing text comes only from each snapshot's manifest-verified English
+strings; keyed-line keys and arguments that cannot be rendered, and comparison
+diagnostics, are not displayed. A property line is rendered only when its
+template exists and is supported and every argument and annotation (class
+restriction, qualifier, per-level suffix) can be rendered. A template without
+placeholders that receives arguments is rendered only as a verified fixed flag
+or verified trailing value, identified from the snapshot's manifest-verified
+`keyed/item-stat-presentation.json`. Any other property description is
+unverified and is omitted rather than displayed as a diagnostic placeholder; when
+only the new side of a paired line can be rendered, it appears as `Changed: …`
+without a previous value. Metadata values that cannot be translated, such as
+item-type or code fields, are likewise omitted. Record names fall back to the
+record's exported `Name`, `Index`, or `Code`, and equipment-type headings to the
+exported type code, when no English string exists. Omitted values remain in
+`changes.json` and `item-changes.md`.
 
 ## Player-facing recipe patch notes
 
@@ -121,20 +147,20 @@ visible in the expanded recipe. Records without notes, or whose primary note
 cannot be translated, appear under `Other recipes`. Modified recipes use the new
 record's notes for placement; removed recipes use the old record's notes.
 
-Each note category has one Wiki.js-compatible `<details>` section. Within it,
-each non-empty change type has a nested `<details>` section whose summary retains
-the existing label and record count: `Confirmed matched modifications`, `Added
-recipe definitions`, or `Removed recipe definitions`. Individual recipe headings
-and their properties remain ordinary expanded Markdown, not collapsible
-sections. The summary table and category headings retain their counts; snapshot
-paths, manifest hashes, recipe IDs, row indexes, and routine comparison
-diagnostics are not shown. Each recipe still has an HTML comment linking its
-record to `changes.json` for traceability. Within `Item Enchantment Recipe`,
-affected definitions remain grouped in collapsible sections by the first
-ingredient's translated keyed item type; each equipment type contains its own
-non-empty change-type sections using the same summaries and counts.
-Unavailable recipe comparisons remain explicitly labeled unavailable instead of
-being represented as zero changes.
+Each note category has one Wiki.js-compatible `<details>` section whose summary
+gives its modified, added, and removed counts. Within it, each non-empty change
+type has a nested `<details>` section whose summary gives the label and record
+count: `Modified recipes`, `Added recipes`, or `Removed recipes`. Individual
+recipe headings and their properties remain ordinary expanded Markdown, not
+collapsible sections. The summary table and category headings retain their
+counts; snapshot paths, manifest hashes, recipe IDs, row indexes, record JSON,
+and comparison diagnostics are not shown, and the notes contain no HTML
+comments. Within `Item Enchantment Recipe`, affected recipes remain grouped in
+collapsible sections by the first ingredient's translated keyed item type; each
+equipment type contains its own non-empty change-type sections using the same
+summaries and counts. Unavailable recipe comparisons remain explicitly labeled
+unavailable instead of being represented as zero changes, while a successful
+recipe comparison without visible changes states `No recipe changes.`
 
 Instruction-style headings show ingredients and results without `1 ×` prefixes;
 larger quantities remain visible. Translated quality and socket restrictions are
@@ -148,23 +174,32 @@ property labels, and do not repeat a complete ingredient list below an
 instruction-style heading. When a changed forced magic prefix has no reliable
 player-facing name, the notes state that it changed without exposing selector IDs.
 
-Unverified operation or property-selection conditions are not explained or
-rendered as raw values. A confirmed modification limited to unsupported
-conditions is described neutrally as a changed recipe condition, with the full
-technical values retained in the detailed comparison. Identical visible recipe
-headings that may differ by technical conditions carry the same neutral caveat.
-Unmatched definitions retain the identity/restructuring caveat and are not
-assumed to be genuine deletions and additions. The one exception is the verified
-unique-jewel ingredient migration from base item code `jew` to item-type code
-`jewl` (`"jew,uni…"` → `"jewl,uni…"`, name key `jew` → `jewlitype`): a removed
-and an added recipe that are identical apart from `Id`, `Index`, and that
-ingredient's code and name key, and that are the only removed/added records with
-that content, are omitted from `recipe-patch-notes.md` and its counts; a category
-left without changes is omitted. Quantities, qualifiers, other ingredients,
-outputs, and properties must match exactly, and `jew` and `jewl` are not treated
-as equivalent anywhere else. Untranslated or unsupported
-properties use one concise fallback pointing to the detailed comparison;
-`changes.json` and `recipe-changes.md` retain their complete technical details.
+Added, removed, and modified recipes are listed as the comparison reports them.
+Because recipe IDs are content-derived, an ingredient or condition change can
+appear as one removed and one added recipe; the notes neither pair such records
+nor add identity or restructuring caveats. Operation and property-selection
+conditions (`Op`, `Param`, `Value`) are not rendered: a modified recipe whose
+only changes are such conditions keeps its heading without change lines, and
+recipes with identical visible headings that differ only by those conditions
+appear as separate entries without explanatory messages. The only pairing the
+notes perform is for the verified unique-jewel ingredient migration from base
+item code `jew` to item-type code `jewl` (`"jew,uni…"` → `"jewl,uni…"`, name
+key `jew` → `jewlitype`): a removed and an added recipe that are identical apart
+from `Id`, `Index`, and that ingredient's code and name key, and that are the
+only removed/added records with that content, are omitted from
+`recipe-patch-notes.md` and its counts; a category left without changes is
+omitted. Quantities, qualifiers, other ingredients, outputs, and properties must
+match exactly, and `jew` and `jewl` are not treated as equivalent anywhere else.
+
+Recipe property lines follow the same verified-English rules as the item patch
+notes, so unverified property descriptions are omitted. Qualifiers and notes
+that cannot be translated are omitted, as are description, class, note,
+quantity, chance, and qualifier changes whose old or new value cannot be
+rendered; no placeholder or reference to the detailed comparison is shown in
+their place. An item name that cannot be translated appears as `Unknown item`,
+and a record whose primary note cannot be translated is placed under
+`Other recipes`. `changes.json` and `recipe-changes.md` retain the complete
+technical details, including omitted values.
 
 ## Snapshot validation
 
