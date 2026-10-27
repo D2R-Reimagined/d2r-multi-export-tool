@@ -14,6 +14,15 @@ internal static class RecipePatchNotesMarkdown
     private const string OtherRecipesCategory = "Other recipes";
     private static readonly string[] OutputSlots = ["A", "B", "C"];
 
+    /// <summary>
+    /// Verified from misc.txt: rvs is Rejuvenation Potion although its enUS value is the malformed template "35%".
+    /// </summary>
+    private static readonly Dictionary<string, (string EnglishValue, string DisplayName)> VerifiedItemNameFallbacks =
+        new(StringComparer.Ordinal)
+        {
+            ["rvs"] = ("35%", "Rejuvenation Potion")
+        };
+
     public static async Task<string> RenderAsync(ComparisonReport report)
     {
         var oldTranslations = await RecipeTranslations.LoadAsync(report.OldSnapshot);
@@ -31,6 +40,14 @@ internal static class RecipePatchNotesMarkdown
         markdown.AppendLine("# Recipe patch notes");
         markdown.AppendLine();
         AppendSummary(markdown, report, category, entries, oldTranslations, newTranslations);
+        if (entries.Any(entry => HasForcedAffixQualifier(entry.OldRecord) ||
+                                 HasForcedAffixQualifier(entry.NewRecord)))
+        {
+            markdown.AppendLine(
+                "Forced affix names are shown generically because the keyed affix snapshot does not preserve source row IDs; array positions are not engine row IDs.");
+            markdown.AppendLine();
+        }
+
         markdown.AppendLine("## Recipe identity and unmatched definitions");
         markdown.AppendLine();
         markdown.AppendLine(
@@ -469,8 +486,27 @@ internal static class RecipePatchNotesMarkdown
     private static string RenderItemName(JsonElement item, RecipeTranslations translations, RenderContext context)
     {
         if (!TryGet(item, "Name", out var name)) return "item";
+        var nameKey = GetKey(name);
+        if (nameKey is not null && VerifiedItemNameFallbacks.TryGetValue(nameKey, out var fallback) &&
+            translations.TryGet(nameKey, out var englishValue) && englishValue == fallback.EnglishValue)
+            return fallback.DisplayName;
+
         var rendered = RenderValue(name, translations, context);
-        return rendered == "Translation unavailable; see detailed comparison." ? "Untranslated item" : rendered;
+        if (rendered == "Translation unavailable; see detailed comparison.") return "Untranslated item";
+        return RemoveRedundantRuneIndex(rendered, nameKey);
+    }
+
+    private static string RemoveRedundantRuneIndex(string name, string? nameKey)
+    {
+        if (nameKey is not { Length: 3 } || nameKey[0] != 'r' ||
+            !int.TryParse(nameKey.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out var runeIndex) ||
+            runeIndex is < 1 or > 33)
+            return name;
+
+        var suffix = $" (#{runeIndex.ToString(CultureInfo.InvariantCulture)})";
+        return name.EndsWith(" Rune" + suffix, StringComparison.OrdinalIgnoreCase)
+            ? name[..^suffix.Length]
+            : name;
     }
 
     private static string RenderQualifiers(
@@ -596,7 +632,8 @@ internal static class RecipePatchNotesMarkdown
         foreach (var line in lines.EnumerateArray())
         {
             var lineBefore = context.PropertyState.UntranslatedValues;
-            var rendered = ItemPatchNotesMarkdown.RenderPropertyLineText(line, translations, context.PropertyState);
+            var rendered = ItemPatchNotesMarkdown.RenderPropertyLineText(
+                line, translations, context.PropertyState, translations.VerifiedFlagKeys);
             if (context.PropertyState.UntranslatedValues > lineBefore &&
                 rendered.Contains("Property description unavailable; see detailed comparison.",
                     StringComparison.Ordinal))
@@ -997,6 +1034,19 @@ internal static class RecipePatchNotesMarkdown
         return rendered.Length > 0;
     }
 
+    private static bool HasForcedAffixQualifier(JsonElement record)
+    {
+        if (record.ValueKind != JsonValueKind.Object) return false;
+        if (GetArray(record, "Inputs").Any(HasForcedAffixQualifierOnItem)) return true;
+        if (!TryGet(record, "Outputs", out var outputs) || outputs.ValueKind != JsonValueKind.Object) return false;
+        return outputs.EnumerateObject().Any(property => HasForcedAffixQualifierOnItem(property.Value));
+    }
+
+    private static bool HasForcedAffixQualifierOnItem(JsonElement item) =>
+        GetQualifiers(item).Any(qualifier => GetKey(qualifier) is
+            SyntheticStringRegistry.Keys.CubeQualifierForcePrefixN or
+            SyntheticStringRegistry.Keys.CubeQualifierForceSuffixN);
+
     private static string RenderQualifiersInline(
         JsonElement record,
         RecipeTranslations translations,
@@ -1239,7 +1289,8 @@ internal static class RecipePatchNotesMarkdown
         {
             var cacheKey = ItemPatchNotesMarkdown.CanonicalJson(value);
             if (context.RenderedLines.TryGetValue((translations, cacheKey), out var cached)) return cached;
-            var rendered = ItemPatchNotesMarkdown.RenderPropertyLineText(value, translations, context.PropertyState);
+            var rendered = ItemPatchNotesMarkdown.RenderPropertyLineText(
+                value, translations, context.PropertyState, translations.VerifiedFlagKeys);
             if (rendered == "Property description unavailable; see detailed comparison.")
                 rendered = "Translation unavailable; see detailed comparison.";
 

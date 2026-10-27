@@ -7,13 +7,33 @@ namespace D2RMultiExport.Lib.Comparison;
 /// <summary>Manifest-verified English strings used only while rendering comparison Markdown.</summary>
 internal sealed class RecipeTranslations
 {
-    private RecipeTranslations(Dictionary<string, string> values, string status)
+    private const string ItemStatPresentationPath = "keyed/item-stat-presentation.json";
+    private const string ItemStatPresentationProducer = "item-stat-presentation.json";
+
+    /// <summary>ItemStatCost key columns that can reference a localized stat description.</summary>
+    private static readonly string[] PresentationKeyFields = ["PositiveKey", "NegativeKey", "SecondaryKey"];
+
+    /// <summary>
+    /// The ethereal marker uses a fixed keyed display override rather than an ItemStatCost row.
+    /// </summary>
+    private static readonly HashSet<string> VerifiedFlagKeyExceptions = new(StringComparer.Ordinal)
+    {
+        "strethereal"
+    };
+
+    private RecipeTranslations(
+        Dictionary<string, string> values,
+        HashSet<string> verifiedFlagKeys,
+        string status)
     {
         Values = values;
+        VerifiedFlagKeys = verifiedFlagKeys;
         Status = status;
     }
 
     public Dictionary<string, string> Values { get; }
+
+    public IReadOnlySet<string> VerifiedFlagKeys { get; }
 
     public string Status { get; }
 
@@ -71,7 +91,8 @@ internal sealed class RecipeTranslations
             var status = reader.Info.Warnings.Count == 0
                 ? "available (manifest-verified)"
                 : "available (manifest-verified; snapshot has warnings)";
-            return new RecipeTranslations(values, status);
+            var verifiedFlagKeys = await LoadVerifiedFlagKeysAsync(reader, values);
+            return new RecipeTranslations(values, verifiedFlagKeys, status);
         }
         catch (JsonException ex)
         {
@@ -79,6 +100,62 @@ internal sealed class RecipeTranslations
         }
     }
 
+    private static async Task<HashSet<string>> LoadVerifiedFlagKeysAsync(
+        SnapshotReader reader,
+        IReadOnlyDictionary<string, string> translations)
+    {
+        var verifiedKeys = new HashSet<string>(VerifiedFlagKeyExceptions, StringComparer.Ordinal);
+        var file = await reader.ReadFileAsync(ItemStatPresentationPath, ItemStatPresentationProducer);
+        if (file.Payload is null || file.Payload.Sha256 is null || file.Errors.Count > 0 || file.Warnings.Count > 0)
+            return verifiedKeys;
+
+        try
+        {
+            using var document = JsonDocument.Parse(file.Payload.Bytes);
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("Stats", out var stats) ||
+                stats.ValueKind != JsonValueKind.Object)
+                return verifiedKeys;
+
+            var references = new Dictionary<string, bool>(StringComparer.Ordinal);
+            foreach (var stat in stats.EnumerateObject())
+            {
+                if (stat.Value.ValueKind != JsonValueKind.Object) continue;
+                var isFixedFunction = stat.Value.TryGetProperty("Function", out var function) &&
+                                      function.ValueKind == JsonValueKind.Number &&
+                                      function.TryGetInt32(out var functionNumber) && functionNumber == 19;
+                foreach (var field in PresentationKeyFields)
+                {
+                    if (!stat.Value.TryGetProperty(field, out var keyValue) ||
+                        keyValue.ValueKind != JsonValueKind.String ||
+                        string.IsNullOrEmpty(keyValue.GetString()))
+                        continue;
+
+                    var key = keyValue.GetString()!;
+                    if (references.TryGetValue(key, out var existing))
+                        references[key] = existing && isFixedFunction;
+                    else
+                        references.Add(key, isFixedFunction);
+                }
+            }
+
+            foreach (var (key, isFixedFunction) in references)
+            {
+                if (isFixedFunction && translations.TryGetValue(key, out var template) &&
+                    !string.IsNullOrWhiteSpace(template) &&
+                    !template.Contains('%'))
+                    verifiedKeys.Add(key);
+            }
+        }
+        catch (JsonException)
+        {
+            // This optional presentation file cannot justify suppressing any warning if malformed.
+        }
+
+        return verifiedKeys;
+    }
+
     private static RecipeTranslations Unavailable(string reason) =>
-        new(new Dictionary<string, string>(StringComparer.Ordinal), $"unavailable: {reason}");
+        new(new Dictionary<string, string>(StringComparer.Ordinal),
+            new HashSet<string>(VerifiedFlagKeyExceptions, StringComparer.Ordinal), $"unavailable: {reason}");
 }

@@ -815,7 +815,11 @@ internal static class ItemPatchNotesMarkdown
         return true;
     }
 
-    internal static string RenderPropertyLineText(JsonElement line, RecipeTranslations translations, RenderState state)
+    internal static string RenderPropertyLineText(
+        JsonElement line,
+        RecipeTranslations translations,
+        RenderState state,
+        IReadOnlySet<string>? verifiedFlagKeys = null)
     {
         if (line.ValueKind != JsonValueKind.Object) return RenderValue(line, "", translations, state);
         var key = TryGetString(line, "key");
@@ -834,8 +838,11 @@ internal static class ItemPatchNotesMarkdown
             rendered = formatted;
         else if (state.ConciseRecipeText && hasTemplate && !template.Contains('%'))
         {
-            state.UntranslatedValues++;
-            rendered = template + (args.Length > 0 ? " (value unverified)" : "");
+            var isVerifiedFixedFlag = verifiedFlagKeys?.Contains(key) == true && args.Length == 1 &&
+                                      args[0].ValueKind == JsonValueKind.Number &&
+                                      args[0].TryGetInt32(out var flagValue) && flagValue == 1;
+            if (!isVerifiedFixedFlag) state.UntranslatedValues++;
+            rendered = template + (args.Length > 0 && !isVerifiedFixedFlag ? " (value unverified)" : "");
         }
         else if (state.ConciseRecipeText)
         {

@@ -244,6 +244,96 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
     }
 
     [Fact]
+    public async Task RejuvenationPotionUsesVerifiedMiscNameWhenEnglishStringIsMalformedTemplate()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", Translations);
+        var newSnapshot = await CreateSnapshotAsync("new", RecipeWithId("rejuvenation", "", "rvs", 1), Translations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
+
+        Assert.Contains("Rejuvenation Potion", markdown);
+        Assert.DoesNotContain("Untranslated item", markdown);
+    }
+
+    [Fact]
+    public async Task VerifiedFixedFlagPropertiesOmitWarningButOtherNumericValuesRetainIt()
+    {
+        const string verifiedProperties =
+            "[{\"key\":\"ModStr1y\",\"args\":[1]},{\"key\":\"ModStr3y\",\"args\":[1]}," +
+            "{\"key\":\"ModStr4b\",\"args\":[1]},{\"key\":\"ModStr5z\",\"args\":[1]}," +
+            "{\"key\":\"ModStre9s\",\"args\":[1]},{\"key\":\"strethereal\",\"args\":[1]}]";
+        const string presentation =
+            "{\"Stats\":{\"indestructible\":{\"Function\":19,\"PositiveKey\":\"ModStr1y\",\"NegativeKey\":\"ModStr1y\"}," +
+            "\"cannotbefrozen\":{\"Function\":19,\"PositiveKey\":\"ModStr3y\",\"NegativeKey\":\"ModStr3y\"}," +
+            "\"knockback\":{\"Function\":19,\"PositiveKey\":\"ModStr4b\",\"NegativeKey\":\"ModStr4b\"}," +
+            "\"ignoretargetac\":{\"Function\":19,\"PositiveKey\":\"ModStr5z\",\"NegativeKey\":\"ModStr5z\"}," +
+            "\"half_freeze\":{\"Function\":19,\"PositiveKey\":\"ModStre9s\",\"NegativeKey\":\"ModStre9s\"}," +
+            "\"item_stupidity\":{\"Function\":12,\"PositiveKey\":\"ModStr6d\",\"NegativeKey\":\"ModStr6d\"}}}";
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", Translations,
+            itemStatPresentation: presentation);
+        var newSnapshot = await CreateSnapshotAsync("new", RecipeWithProperties("flags", verifiedProperties),
+            Translations,
+            itemStatPresentation: presentation);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
+
+        Assert.Contains("Indestructible", markdown);
+        Assert.Contains("Cannot Be Frozen", markdown);
+        Assert.Contains("Knockback", markdown);
+        Assert.Contains("Ignore Target's Defense", markdown);
+        Assert.Contains("Half Freeze Duration", markdown);
+        Assert.Contains("Ethereal (Cannot be Repaired)", markdown);
+        Assert.DoesNotContain("(value unverified)", markdown);
+
+        var fallbackOldSnapshot = await CreateSnapshotAsync("fallback-old", "[]", Translations,
+            itemStatPresentation: presentation);
+        var fallbackNewSnapshot = await CreateSnapshotAsync("fallback-new", RecipeWithProperties("fallback-flags",
+                "[{\"key\":\"ModStr6d\",\"args\":[10]},{\"key\":\"ModStr1y\",\"args\":[2]}]"), Translations,
+            itemStatPresentation: presentation);
+        var fallbackReport = await SnapshotComparison.CompareAsync(fallbackOldSnapshot, fallbackNewSnapshot);
+        var fallbackMarkdown = await SnapshotComparison.RenderRecipePatchNotesAsync(fallbackReport);
+
+        Assert.Contains("Hit Blinds Target (value unverified)", fallbackMarkdown);
+        Assert.Contains("Indestructible (value unverified)", fallbackMarkdown);
+    }
+
+    [Fact]
+    public async Task ForcedAffixSelectorStaysGenericWhenSnapshotDoesNotPreserveSourceRowIds()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", Translations);
+        var recipes = CombineRecipes(RecipeWithForcePrefix(365), RecipeWithForceSuffix(101));
+        var newSnapshot = await CreateSnapshotAsync("new", recipes, Translations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
+
+        Assert.Contains("Magic Ring (Forced prefix)", markdown);
+        Assert.Contains("Magic Ring (Forced suffix)", markdown);
+        Assert.Contains(
+            "Forced affix names are shown generically because the keyed affix snapshot does not preserve source row IDs; array positions are not engine row IDs.",
+            markdown);
+        Assert.DoesNotContain("guaranteed Coral prefix", markdown);
+        Assert.DoesNotContain("guaranteed of the Leech suffix", markdown);
+    }
+
+    [Fact]
+    public async Task RuneIndexSuffixIsRemovedWithoutChangingQuantityOrSocketCount()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", Translations);
+        var newSnapshot = await CreateSnapshotAsync("new", RecipeWithRuneAndSocket(), Translations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
+
+        Assert.Contains("2 × Ohm Rune", markdown);
+        Assert.Contains("Dem Rune (#38)", markdown);
+        Assert.Contains("3 sockets", markdown);
+        Assert.DoesNotContain("Ohm Rune (#27)", markdown);
+    }
+
+    [Fact]
     public async Task HiddenQualifierArgumentChangesUseNeutralConditionWording()
     {
         var oldSnapshot = await CreateSnapshotAsync("old", RecipeWithForcePrefix(373), Translations);
@@ -282,7 +372,8 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         string name,
         string cubeRecipes,
         string translations,
-        bool includeCube = true)
+        bool includeCube = true,
+        string? itemStatPresentation = null)
     {
         var snapshot = Directory.CreateDirectory(Path.Combine(_root, name)).FullName;
         var includedCategoryFiles = CategoryFiles.Where(path => includeCube || path != "keyed/cube-recipes.json")
@@ -304,6 +395,23 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
             });
         }
 
+        if (itemStatPresentation is not null)
+        {
+            const string presentationPath = "keyed/item-stat-presentation.json";
+            var presentationFilePath =
+                Path.Combine(snapshot, presentationPath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(presentationFilePath)!);
+            var presentationBytes = Encoding.UTF8.GetBytes(itemStatPresentation);
+            await File.WriteAllBytesAsync(presentationFilePath, presentationBytes);
+            files.Add(new
+            {
+                Path = presentationPath,
+                Bytes = presentationBytes.LongLength,
+                Sha256 = Sha256(presentationBytes),
+                Producer = "item-stat-presentation.json"
+            });
+        }
+
         const string stringsPath = "strings/enUS.json";
         var stringsFilePath = Path.Combine(snapshot, "strings", "enUS.json");
         Directory.CreateDirectory(Path.GetDirectoryName(stringsFilePath)!);
@@ -322,23 +430,48 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
             SchemaVersion = 2,
             Succeeded = true,
             Complete = true,
-            Steps = new object[]
-            {
-                new
+            Steps = itemStatPresentation is null
+                ? new object[]
                 {
-                    Producer = "keyed-core",
-                    Status = "Written",
-                    Outputs = includedCategoryFiles,
-                    NotWritten = Array.Empty<string>()
-                },
-                new
-                {
-                    Producer = "strings",
-                    Status = "Written",
-                    Outputs = new[] { stringsPath },
-                    NotWritten = Array.Empty<string>()
+                    new
+                    {
+                        Producer = "keyed-core",
+                        Status = "Written",
+                        Outputs = includedCategoryFiles,
+                        NotWritten = Array.Empty<string>()
+                    },
+                    new
+                    {
+                        Producer = "strings",
+                        Status = "Written",
+                        Outputs = new[] { stringsPath },
+                        NotWritten = Array.Empty<string>()
+                    }
                 }
-            },
+                : new object[]
+                {
+                    new
+                    {
+                        Producer = "keyed-core",
+                        Status = "Written",
+                        Outputs = includedCategoryFiles,
+                        NotWritten = Array.Empty<string>()
+                    },
+                    new
+                    {
+                        Producer = "item-stat-presentation.json",
+                        Status = "Written",
+                        Outputs = new[] { "keyed/item-stat-presentation.json" },
+                        NotWritten = Array.Empty<string>()
+                    },
+                    new
+                    {
+                        Producer = "strings",
+                        Status = "Written",
+                        Outputs = new[] { stringsPath },
+                        NotWritten = Array.Empty<string>()
+                    }
+                },
             Files = files
         };
         await File.WriteAllTextAsync(Path.Combine(snapshot, "manifest.json"), JsonSerializer.Serialize(manifest));
@@ -400,10 +533,31 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
 
     private static string RecipeWithForcePrefix(int group) =>
         "[{\"Id\":\"force-prefix\",\"Index\":1,\"NumInputs\":1,\"ResolvedInputsCount\":1," +
-        "\"Inputs\":[{\"Name\":{\"key\":\"amu\",\"args\":[]},\"Quantity\":1,\"Qualifiers\":[]}]," +
-        "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"out\",\"args\":[]},\"Quantity\":1," +
+        "\"Inputs\":[{\"Name\":{\"key\":\"ring\",\"args\":[]},\"Quantity\":1,\"Qualifiers\":[]}]," +
+        "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"ring\",\"args\":[]},\"Quantity\":1," +
         "\"Qualifiers\":[{\"key\":\"strCubeQualifierForcePrefixN\",\"args\":[" + group + "]}]," +
         "\"Lines\":[]}},\"Notes\":[{\"key\":\"category\",\"args\":[]}]}]";
+
+    private static string RecipeWithForceSuffix(int group) =>
+        "[{\"Id\":\"force-suffix\",\"Index\":2,\"NumInputs\":1,\"ResolvedInputsCount\":1," +
+        "\"Inputs\":[{\"Name\":{\"key\":\"ring\",\"args\":[]},\"Quantity\":1,\"Qualifiers\":[]}]," +
+        "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"ring\",\"args\":[]},\"Quantity\":1," +
+        "\"Qualifiers\":[{\"key\":\"strCubeQualifierForceSuffixN\",\"args\":[" + group + "]}]," +
+        "\"Lines\":[]}},\"Notes\":[{\"key\":\"category\",\"args\":[]}]}]";
+
+    private static string RecipeWithProperties(string id, string properties) =>
+        "[{\"Id\":\"" + id + "\",\"Index\":1,\"NumInputs\":1,\"ResolvedInputsCount\":1," +
+        "\"Inputs\":[{\"Name\":{\"key\":\"amu\",\"args\":[]},\"Quantity\":1,\"Qualifiers\":[]}]," +
+        "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"out\",\"args\":[]},\"Quantity\":1," +
+        "\"Qualifiers\":[],\"Lines\":" + properties + "}},\"Notes\":[{\"key\":\"category\",\"args\":[]}]}]";
+
+    private static string RecipeWithRuneAndSocket() =>
+        "[{\"Id\":\"rune-socket\",\"Index\":1,\"NumInputs\":2,\"ResolvedInputsCount\":2," +
+        "\"Inputs\":[{\"Name\":{\"key\":\"r27\",\"args\":[]},\"Quantity\":2,\"Qualifiers\":[]}," +
+        "{\"Name\":{\"key\":\"demRune\",\"args\":[]},\"Quantity\":1,\"Qualifiers\":[]}]," +
+        "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"out\",\"args\":[]},\"Quantity\":1," +
+        "\"Qualifiers\":[{\"key\":\"strCubeQualifierItemWithSocketsN\",\"args\":[3]}],\"Lines\":[]}}," +
+        "\"Notes\":[{\"key\":\"category\",\"args\":[]}]}]";
 
     private static string CombineRecipes(params string[] recipes) =>
         "[" + string.Join(",", recipes.Select(static recipe => recipe[1..^1])) + "]";
@@ -450,6 +604,11 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         "\"out\":\"Rare Jewel\",\"out2\":\"Socketed Armor\",\"magic\":\"Magic Item\"," +
         "\"rare\":\"Rare Item\",\"enhanced\":\"%+d%% Enhanced Damage\"," +
         "\"weapon\":\"Any Weapon\",\"jewel\":\"Jewel\",\"useitem\":\"Return Exact Input Item\"," +
+        "\"rvs\":\"35%\",\"r27\":\"Ohm Rune (#27)\",\"demRune\":\"Dem Rune (#38)\",\"ring\":\"Magic Ring\"," +
+        "\"ModStr1y\":\"Indestructible\",\"ModStr3y\":\"Cannot Be Frozen\"," +
+        "\"ModStr4b\":\"Knockback\",\"ModStr5z\":\"Ignore Target's Defense\"," +
+        "\"ModStre9s\":\"Half Freeze Duration\",\"ModStr6d\":\"Hit Blinds Target\"," +
+        "\"strethereal\":\"Ethereal (Cannot be Repaired)\"," +
         "\"strCubeQualifierItemWithSocketsN\":\"Socketed (%d)\"," +
         "\"strCubeQualifierQuantityN\":\"Quantity (%d)\"}";
 
