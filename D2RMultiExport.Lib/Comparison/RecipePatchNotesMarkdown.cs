@@ -274,14 +274,15 @@ internal static class RecipePatchNotesMarkdown
 
         foreach (var targetGroup in targetGroups)
         {
-            markdown.Append("### ").Append(targetGroup.Heading).Append(" (")
-                .Append(ComparisonMarkdown.Invariant(targetGroup.Entries.Length)).AppendLine(")").AppendLine();
+            ComparisonMarkdown.AppendDetailsStart(markdown,
+                $"{targetGroup.Heading} ({ComparisonMarkdown.Invariant(targetGroup.Entries.Length)})");
             AppendEntrySection(markdown, targetGroup.Entries, RecipeChangeKind.Modified,
                 "Confirmed matched modifications", oldTranslations, newTranslations, context, 4);
             AppendEntrySection(markdown, targetGroup.Entries, RecipeChangeKind.Added, "Added recipe definitions",
                 oldTranslations, newTranslations, context, 4);
             AppendEntrySection(markdown, targetGroup.Entries, RecipeChangeKind.Removed, "Removed recipe definitions",
                 oldTranslations, newTranslations, context, 4);
+            ComparisonMarkdown.AppendDetailsEnd(markdown);
         }
     }
 

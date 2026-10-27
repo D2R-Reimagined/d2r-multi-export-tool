@@ -392,31 +392,31 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
 
         var first = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
         var second = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
-        var enchantmentStart = first.IndexOf("<summary>Item Enchantment Recipe", StringComparison.Ordinal);
-        var enchantmentEnd = first.IndexOf("</details>", enchantmentStart, StringComparison.Ordinal);
-        var enchantmentSection = first[enchantmentStart..enchantmentEnd];
+        var enchantmentSection = GetDetailsSection(first, "Item Enchantment Recipe");
 
         Assert.Equal(first, second);
         Assert.Equal(
             [
-                "### 1H Weapons (1)",
-                "### Any Weapon (2)",
-                "### Missile (2)",
-                "### Missile Weapons (1)",
-                "### Slam Weapons (1)",
-                "### Spears and Polearms (1)"
+                "<summary>1H Weapons (1)</summary>",
+                "<summary>Any Weapon (2)</summary>",
+                "<summary>Missile (2)</summary>",
+                "<summary>Missile Weapons (1)</summary>",
+                "<summary>Slam Weapons (1)</summary>",
+                "<summary>Spears and Polearms (1)</summary>"
             ],
             enchantmentSection.Split('\n').Select(static line => line.TrimEnd('\r'))
-                .Where(static line => line.StartsWith("### ", StringComparison.Ordinal)));
+                .Where(static line => line.StartsWith("<summary>", StringComparison.Ordinal))
+                .Skip(1));
         Assert.Contains("#### Confirmed matched modifications (1)", enchantmentSection);
         Assert.Contains("#### Added recipe definitions (1)", enchantmentSection);
         Assert.Contains("#### Removed recipe definitions (1)", enchantmentSection);
         Assert.Equal(8,
             enchantmentSection.Split("<!-- changes.json: cube-recipes / ", StringSplitOptions.None).Length - 1);
-        Assert.DoesNotContain("<details>", enchantmentSection);
+        Assert.Equal(7, enchantmentSection.Split("<details>", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("### 1H Weapons (1)", enchantmentSection);
         Assert.Contains("### Added recipe definitions (1)", first);
         Assert.Contains("#### Ordinary recipe", first);
-        Assert.Equal(2, first.Split("<details>", StringSplitOptions.None).Length - 1);
+        Assert.Equal(8, first.Split("<details>", StringSplitOptions.None).Length - 1);
         AssertBalancedDetails(first);
     }
 
@@ -621,6 +621,33 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
     private static string CombineRecipes(params string[] recipes) =>
         "[" + string.Join(",", recipes.Select(static recipe => recipe[1..^1])) + "]";
 
+    private static string GetDetailsSection(string markdown, string summaryPrefix)
+    {
+        var summaryStart = markdown.IndexOf("<summary>" + summaryPrefix, StringComparison.Ordinal);
+        Assert.True(summaryStart >= 0);
+        var detailsStart = markdown.LastIndexOf("<details>", summaryStart, StringComparison.Ordinal);
+        Assert.True(detailsStart >= 0);
+
+        var depth = 0;
+        var sectionEnd = detailsStart;
+        foreach (var line in markdown[detailsStart..].Split('\n'))
+        {
+            var trimmedLine = line.TrimEnd('\r');
+            if (trimmedLine == "<details>")
+                depth++;
+            else if (trimmedLine == "</details>" && --depth == 0)
+            {
+                sectionEnd += line.Length;
+                return markdown[detailsStart..sectionEnd];
+            }
+
+            sectionEnd += line.Length + 1;
+        }
+
+        Assert.Fail("Details section was not closed.");
+        return "";
+    }
+
     private static void AssertBalancedDetails(string markdown)
     {
         var details = new Stack<bool>();
@@ -630,7 +657,6 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
             var line = lines[index].TrimEnd('\r');
             if (line == "<details>")
             {
-                Assert.Empty(details);
                 details.Push(false);
                 continue;
             }
