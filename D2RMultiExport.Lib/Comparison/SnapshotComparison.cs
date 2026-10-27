@@ -82,6 +82,28 @@ public static class SnapshotComparison
         return outputs.WriteTextAsync("recipe-changes.md", markdown);
     }
 
+    /// <summary>Renders item changes from an existing schema-2 comparison report.</summary>
+    public static Task<string> RenderItemChangesAsync(ComparisonReport report) =>
+        ItemChangeMarkdown.RenderAsync(report);
+
+    /// <summary>Writes the item Markdown report through the atomic output gateway.</summary>
+    public static Task WriteItemChangesAsync(string markdown, string outputDirectory)
+    {
+        var outputs = new ExportOutputs(outputDirectory) { Producer = "snapshot-comparison" };
+        return outputs.WriteTextAsync("item-changes.md", markdown);
+    }
+
+    /// <summary>Renders comprehensive player-facing item patch notes from an existing comparison report.</summary>
+    public static Task<string> RenderItemPatchNotesAsync(ComparisonReport report) =>
+        ItemPatchNotesMarkdown.RenderAsync(report);
+
+    /// <summary>Writes player-facing item patch notes through the atomic output gateway.</summary>
+    public static Task WriteItemPatchNotesAsync(string markdown, string outputDirectory)
+    {
+        var outputs = new ExportOutputs(outputDirectory) { Producer = "snapshot-comparison" };
+        return outputs.WriteTextAsync("item-patch-notes.md", markdown);
+    }
+
     private static CategoryComparison CompareCategory(
         RecordComparer.ComparisonDefinition definition,
         SnapshotInfo oldSnapshot,

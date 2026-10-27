@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace D2RMultiExport.Lib.Comparison;
 
-/// <summary>Manifest-verified English strings used only while rendering a recipe comparison.</summary>
+/// <summary>Manifest-verified English strings used only while rendering comparison Markdown.</summary>
 internal sealed class RecipeTranslations
 {
     private RecipeTranslations(Dictionary<string, string> values, string status)

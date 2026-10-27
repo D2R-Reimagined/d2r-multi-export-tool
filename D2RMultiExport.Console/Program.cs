@@ -212,7 +212,7 @@ var compareNewOption = new Option<string>("--new")
 };
 var compareOutputOption = new Option<string>("--out", "-o")
 {
-    Description = "Directory where changes.json and recipe-changes.md will be written",
+    Description = "Directory where comparison JSON and Markdown reports will be written",
     Required = true
 };
 var comparePrettyOption = new Option<bool>("--pretty")
@@ -244,8 +244,12 @@ compareCommand.SetAction(async (parseResult, _) =>
 
         var report = await SnapshotComparison.CompareAsync(oldDirectory, newDirectory);
         var recipeMarkdown = await SnapshotComparison.RenderRecipeChangesAsync(report);
+        var itemMarkdown = await SnapshotComparison.RenderItemChangesAsync(report);
+        var itemPatchNotesMarkdown = await SnapshotComparison.RenderItemPatchNotesAsync(report);
         await SnapshotComparison.WriteAsync(report, outputDirectory, parseResult.GetValue(comparePrettyOption));
         await SnapshotComparison.WriteRecipeChangesAsync(recipeMarkdown, outputDirectory);
+        await SnapshotComparison.WriteItemChangesAsync(itemMarkdown, outputDirectory);
+        await SnapshotComparison.WriteItemPatchNotesAsync(itemPatchNotesMarkdown, outputDirectory);
         foreach (var category in report.Categories)
         {
             Console.WriteLine(
@@ -265,6 +269,8 @@ compareCommand.SetAction(async (parseResult, _) =>
 
         Console.WriteLine($"Comparison report: '{Path.GetFullPath(outputDirectory)}\\changes.json'.");
         Console.WriteLine($"Recipe Markdown report: '{Path.GetFullPath(outputDirectory)}\\recipe-changes.md'.");
+        Console.WriteLine($"Item Markdown report: '{Path.GetFullPath(outputDirectory)}\\item-changes.md'.");
+        Console.WriteLine($"Item patch notes: '{Path.GetFullPath(outputDirectory)}\\item-patch-notes.md'.");
         if (!report.Succeeded)
         {
             Console.Error.WriteLine("Comparison completed with validation or comparison errors; see changes.json.");

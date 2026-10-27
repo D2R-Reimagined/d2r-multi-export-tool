@@ -13,7 +13,8 @@ dotnet run --project .\D2RMultiExport.Console -- compare `
 ```
 
 The comparison output may not be either input directory, a directory inside an
-input, or a symlink/junction alias into an input. It contains `changes.json`;
+input, or a symlink/junction alias into an input. It contains `changes.json`,
+`recipe-changes.md`, `item-changes.md`, and `item-patch-notes.md`;
 `--pretty` is available and defaults to true. No developer test paths are built
 into the application.
 
@@ -52,6 +53,46 @@ compared and does not present empty change sections as zero changes. `changes.js
 and the existing comparison exit-code behavior remain authoritative; a fatal
 failure while rendering or writing either report follows the existing fatal
 comparison path.
+
+## Item change Markdown
+
+The same `compare` invocation writes `item-changes.md` beside the other reports.
+It presents `uniques`, `sets`, `runewords`, `armors`, `weapons`, `magicprefix`,
+and `magicsuffix` directly from the schema-2 report; it does not perform a second
+comparison or infer record matches. Added, removed, and modified records include
+their report identity, available variants and match metadata, readable fields,
+and complete original JSON in collapsible sections. Modified keyed properties
+are shown as localized before/after lines with their original numeric arguments;
+set-piece and automagic-group differences use the report's explicit nested
+changes. Automagic groups are possible associations, not guaranteed rolls.
+
+The summary provides snapshot and translation validation information and counts
+for every category. A `NotCompared` or missing category is explicitly unavailable
+and is not represented as zero changes. Affix ambiguity warnings and unresolved
+candidate identities remain visible as comparator-reported removals/additions;
+the Markdown does not present them as confirmed modifications. A stable identity
+change remains a separate removal and addition. As with recipe Markdown, English
+text is used only from manifest-verified snapshot translations, and unresolved or
+unsupported keys fall back to their original key and arguments.
+
+## Player-facing item patch notes
+
+The same `compare` invocation also writes `item-patch-notes.md` beside the
+comparison reports. It is generated from the existing comparison report and
+manifest-verified English strings; it does not run a second comparison or
+change matching, `changes.json`, `recipe-changes.md`, or `item-changes.md`.
+
+The notes start with added, removed, modified, and unchanged counts, followed by
+Uniques, Sets, Runewords, Base armor, Base weapons, Magic prefixes, and Magic
+suffixes. Added and removed records include readable identifying metadata and
+all available properties. Modified records show only changed metadata and
+property lines. Exact property lines are removed as a multiset; remaining lines
+are paired for numeric comparisons only when a property identity is unique on
+both sides. Ambiguous or replaced lines remain separate additions/removals.
+Set-piece and shared-bonus changes are presented separately, runeword rune order
+is retained, and automagic groups are described as possible associations, not
+guaranteed rolls. Unavailable categories are labeled unavailable, and
+untranslated values retain their original key and arguments for review.
 
 ## Snapshot validation
 
