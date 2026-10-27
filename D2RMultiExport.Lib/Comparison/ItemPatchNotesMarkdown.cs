@@ -832,6 +832,16 @@ internal static class ItemPatchNotesMarkdown
             rendered = formatted;
         else if (hasTemplate && TryFormatRangeTemplate(template, args, translations, out formatted))
             rendered = formatted;
+        else if (state.ConciseRecipeText && hasTemplate && !template.Contains('%'))
+        {
+            state.UntranslatedValues++;
+            rendered = template + (args.Length > 0 ? " (value unverified)" : "");
+        }
+        else if (state.ConciseRecipeText)
+        {
+            state.UntranslatedValues++;
+            rendered = "Property description unavailable; see detailed comparison.";
+        }
         else
         {
             state.UntranslatedValues++;
@@ -846,13 +856,20 @@ internal static class ItemPatchNotesMarkdown
         foreach (var property in line.EnumerateObject())
         {
             if (property.Name is "key" or "nameKey" or "args" or "children") continue;
+            if (state.ConciseRecipeText && property.Name == "selection") continue;
             if (property.Name == "classOnly" && property.Value.ValueKind == JsonValueKind.String)
             {
                 var classKey = property.Value.GetString() ?? "";
-                annotations.Add(translations.TryGet(classKey, out var classText)
-                    ? classText
-                    : $"classOnly={classKey}");
-                if (!translations.TryGet(classKey, out _)) state.UntranslatedValues++;
+                if (translations.TryGet(classKey, out var classText))
+                    annotations.Add(classText);
+                else
+                {
+                    state.UntranslatedValues++;
+                    annotations.Add(state.ConciseRecipeText
+                        ? "Class restriction unavailable; see detailed comparison."
+                        : $"classOnly={classKey}");
+                }
+
                 continue;
             }
 
@@ -877,7 +894,12 @@ internal static class ItemPatchNotesMarkdown
                       qualifier.Equals("Armor", StringComparison.OrdinalIgnoreCase) ||
                       qualifier.Equals("Shield", StringComparison.OrdinalIgnoreCase)
                         ? qualifier + " only"
-                        : "Qualifier: " + qualifier;
+                        : state.ConciseRecipeText
+                            ? "Item restriction unavailable; see detailed comparison."
+                            : "Qualifier: " + qualifier;
+                if (state.ConciseRecipeText && !translations.TryGet(qualifier, out _) &&
+                    qualifier is not ("Weapon" or "Armor" or "Shield"))
+                    state.UntranslatedValues++;
                 annotations.Add(qualifierText);
                 continue;
             }
@@ -890,11 +912,25 @@ internal static class ItemPatchNotesMarkdown
                 continue;
             }
 
-            annotations.Add(
-                $"{FormatFieldName(property.Name)}={RenderValue(property.Value, property.Name, translations, state)}");
+            if (state.ConciseRecipeText)
+            {
+                state.UntranslatedValues++;
+                annotations.Add("Additional condition unavailable; see detailed comparison.");
+            }
+            else
+            {
+                annotations.Add(
+                    $"{FormatFieldName(property.Name)}={RenderValue(property.Value, property.Name, translations, state)}");
+            }
         }
 
-        if (annotations.Count > 0) rendered += " (" + string.Join("; ", annotations) + ")";
+        if (state.ConciseRecipeText) annotations = annotations.Distinct(StringComparer.Ordinal).ToList();
+
+        if (annotations.Count > 0)
+            rendered += state.ConciseRecipeText && annotations.Count == 1 &&
+                        annotations[0].StartsWith('(') && annotations[0].EndsWith(')')
+                ? " " + annotations[0]
+                : " (" + string.Join("; ", annotations) + ")";
         if (perLevelSuffix.Length > 0)
             rendered += (char.IsWhiteSpace(perLevelSuffix[0]) ? "" : " ") + perLevelSuffix;
         return LightEscape(rendered);
@@ -1739,5 +1775,7 @@ internal static class ItemPatchNotesMarkdown
     internal sealed class RenderState
     {
         public int UntranslatedValues { get; set; }
+
+        public bool ConciseRecipeText { get; init; }
     }
 }

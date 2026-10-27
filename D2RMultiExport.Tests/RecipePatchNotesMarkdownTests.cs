@@ -35,15 +35,22 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         Assert.DoesNotContain("### Removed recipe definitions", markdown);
         Assert.Contains("#### ", markdown);
         Assert.Equal(1, markdown.Split("<details>", StringSplitOptions.None).Length - 1);
-        Assert.Contains("Required ingredient quantity: 3 × Amulet (was 5 × Amulet)", markdown);
-        Assert.Contains("Added ingredient requirement: Rare Item", markdown);
-        Assert.Contains("Removed ingredient requirement: Magic Item", markdown);
-        Assert.Contains("Required class restriction: Sorceress (was Amazon)", markdown);
-        Assert.Contains("Output item (A): Socketed Armor (was Rare Jewel)", markdown);
-        Assert.Contains("Output quantity (A): 2 × Socketed Armor (was 1 × Rare Jewel)", markdown);
-        Assert.Contains("Output chance (A): 50 (was 100)", markdown);
-        Assert.Contains("Output property (A): +15% Enhanced Damage (was +10%)", markdown);
-        Assert.Contains("**Review:** Recipe Op changed (1 → 2)", markdown);
+        Assert.Contains("#### Sorceress-only recipe: 3 × Rare Amulet + El Rune → 2 × Socketed Armor", markdown);
+        Assert.Contains("Ingredient quantity: 3 × Amulet (was 5 × Amulet)", markdown);
+        Assert.Contains("Amulet now requires: Rare Item", markdown);
+        Assert.Contains("Amulet no longer requires: Magic Item", markdown);
+        Assert.Contains("Required class restriction changed: Sorceress (was Amazon)", markdown);
+        Assert.Contains("Result: Socketed Armor (was Rare Jewel)", markdown);
+        Assert.Contains("Result quantity: 2 × Socketed Armor (was Rare Jewel)", markdown);
+        Assert.Contains("Result chance: 50 (was 100)", markdown);
+        Assert.Contains("Changed: +15% Enhanced Damage (was +10%)", markdown);
+        Assert.Contains("Recipe condition changed; see detailed comparison.", markdown);
+        Assert.DoesNotContain("Output property (A)", markdown);
+        Assert.DoesNotContain("Source:", markdown);
+        Assert.DoesNotContain("row 1", markdown);
+        Assert.DoesNotContain("Op=", markdown);
+        Assert.DoesNotContain("Param=", markdown);
+        Assert.DoesNotContain("Value=", markdown);
         Assert.Contains("Sorceress-only recipe", markdown);
     }
 
@@ -65,13 +72,16 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         Assert.DoesNotContain("### Confirmed matched modifications", markdown);
         Assert.Contains("#### New recipe", markdown);
         Assert.Contains("#### Old recipe", markdown);
-        Assert.Contains("- Required ingredients:", markdown);
+        Assert.Contains("- Ingredients:", markdown);
         Assert.Contains("2 × Perfect Ruby", markdown);
-        Assert.Contains("1 × El Rune", markdown);
+        Assert.Contains("El Rune", markdown);
+        Assert.DoesNotContain("1 × El Rune", markdown);
         Assert.Contains("- Results:", markdown);
-        Assert.Contains("1 × Rare Jewel", markdown);
+        Assert.Contains("Rare Jewel", markdown);
         Assert.Contains("<!-- changes.json: cube-recipes / added-id -->", markdown);
-        Assert.Contains("- Source: `added-id`, row 1.", markdown);
+        Assert.DoesNotContain("added-id", markdown.Replace("<!-- changes.json: cube-recipes / added-id -->", "",
+            StringComparison.Ordinal));
+        Assert.DoesNotContain("row 1", markdown);
         Assert.DoesNotContain("#### Recipe `added-id`", markdown);
         Assert.DoesNotContain("```json", markdown);
         Assert.DoesNotContain("Complete original record JSON", markdown);
@@ -108,7 +118,7 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         Assert.Contains("<summary>Item Enchantment Recipe — 0 modified, 0 added, 1 removed</summary>", first);
         Assert.Contains("<summary>Other recipes — 0 modified, 2 added, 0 removed</summary>", first);
         Assert.Contains("- Additional notes: Secondary label", first);
-        Assert.Contains("- Assigned notes: missingCategory \\[\\] (translation unavailable)", first);
+        Assert.Contains("- Assigned notes: Translation unavailable; see detailed comparison.", first);
         Assert.DoesNotContain("Item Crafting Recipe / Secondary label</summary>", first);
         Assert.Equal(1,
             first.Split("<!-- changes.json: cube-recipes / modified-id -->", StringSplitOptions.None).Length - 1);
@@ -124,7 +134,7 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
     }
 
     [Fact]
-    public async Task MissingTranslationsAndOperationChangesRemainExplicitlyForReview()
+    public async Task MissingTranslationsAndOperationChangesUseConciseNeutralFallbacks()
     {
         const string oldRecipe = "[{\"Id\":\"matched\",\"Index\":1,\"NumInputs\":1,\"ResolvedInputsCount\":1," +
                                  "\"Inputs\":[{\"Name\":{\"key\":\"missingName\",\"args\":[5]},\"Quantity\":1," +
@@ -140,12 +150,16 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
 
         var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
 
-        Assert.Contains("missingName \\[5\\] (translation unavailable)", markdown);
-        Assert.Contains("missingOutput \\[\\] (translation unavailable)", markdown);
-        Assert.Contains("**Review: translation unavailable or unsupported.**", markdown);
-        Assert.Contains("**Review:** Recipe Op changed (1 → 2); its gameplay meaning has not been verified.", markdown);
-        Assert.Contains("**Review:** Recipe Param changed (7 → 8)", markdown);
-        Assert.Contains("Untranslated or unsupported values requiring review:", markdown);
+        Assert.Contains("Untranslated item", markdown);
+        Assert.Contains("Recipe condition changed; see detailed comparison.", markdown);
+        Assert.Equal(1, markdown.Split("Recipe condition changed; see detailed comparison.",
+            StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("missingName", markdown);
+        Assert.DoesNotContain("missingOutput", markdown);
+        Assert.DoesNotContain("Op=", markdown);
+        Assert.DoesNotContain("Param=", markdown);
+        Assert.DoesNotContain("Value=", markdown);
+        Assert.DoesNotContain("Review items:", markdown);
     }
 
     [Fact]
@@ -155,7 +169,7 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
                                    "\"ResolvedInputsCount\":2,\"Inputs\":[{\"Name\":{\"key\":\"weapon\",\"args\":[]}," +
                                    "\"Quantity\":1,\"Qualifiers\":[]},{\"Name\":{\"key\":\"jewel\",\"args\":[]}," +
                                    "\"Quantity\":4,\"Qualifiers\":[{\"key\":\"strCubeQualifierQuantityN\",\"args\":[4]}]}]," +
-                                   "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"useitem\",\"args\":[]}," +
+                                   "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"strCubeOutputUseItemFromInput1\",\"args\":[]}," +
                                    "\"Quantity\":1,\"Qualifiers\":[{\"key\":\"strCubeQualifierItemWithSocketsN\"," +
                                    "\"args\":[4]}],\"Lines\":[]}},\"Notes\":[{\"key\":\"category\",\"args\":[]}]}]";
         var oldSnapshot = await CreateSnapshotAsync("old", "[]", Translations);
@@ -164,10 +178,86 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
 
         var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
 
-        Assert.True(markdown.Contains("1 × Any Weapon + 4 × Jewel", StringComparison.Ordinal), markdown);
-        Assert.Contains("Result requirement: Socketed (4)", markdown);
+        Assert.True(markdown.Contains("Any Weapon + 4 × Jewel → Original Weapon (4 sockets)", StringComparison.Ordinal),
+            markdown);
         Assert.DoesNotContain("Quantity (4)", markdown);
-        Assert.Contains("Review items: 0.", markdown);
+        Assert.DoesNotContain("1 ×", markdown);
+    }
+
+    [Fact]
+    public async Task OutputModesAndMultipleResultsRemainDistinctWithoutTechnicalLabels()
+    {
+        var recipes = CombineRecipes(
+            RecipeWithOutputMode("exact-return", "strCubeOutputUseItemFromInput1"),
+            RecipeWithOutputMode("same-type", "strCubeOutputUseTypeOfInput1"),
+            "[{\"Id\":\"multiple-results\",\"Index\":3,\"NumInputs\":1," +
+            "\"ResolvedInputsCount\":1,\"Inputs\":[{\"Name\":{\"key\":\"amu\",\"args\":[]}," +
+            "\"Quantity\":1,\"Qualifiers\":[{\"key\":\"rare\",\"args\":[]}]}]," +
+            "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"out\",\"args\":[]},\"Quantity\":1," +
+            "\"Qualifiers\":[],\"Lines\":[{\"key\":\"enhanced\",\"args\":[15]," +
+            "\"selection\":\"stat: item_singleskill; min: 6; max: 35\"}]}," +
+            "\"B\":{\"Name\":{\"key\":\"out2\",\"args\":[]},\"Quantity\":2," +
+            "\"Qualifiers\":[],\"Lines\":[{\"key\":\"missingStat\",\"args\":[6]," +
+            "\"selection\":\"stat: item_singleskill; min: 6; max: 35\"}]}}," +
+            "\"Notes\":[{\"key\":\"category\",\"args\":[]}]}]");
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", Translations);
+        var newSnapshot = await CreateSnapshotAsync("new", recipes, Translations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
+
+        Assert.Contains("Any Weapon → Original Weapon", markdown);
+        Assert.Contains("Any Weapon → New Weapon (same base type)", markdown);
+        Assert.Contains("#### Rare Amulet → Rare Jewel / 2 × Socketed Armor", markdown);
+        Assert.Contains("Rare Jewel", markdown);
+        Assert.Contains("2 × Socketed Armor", markdown);
+        Assert.Contains("+15% Enhanced Damage", markdown);
+        Assert.Contains("Some result properties cannot be translated safely; see detailed comparison.", markdown);
+        Assert.DoesNotContain("missingStat", markdown);
+        Assert.DoesNotContain("selection", markdown);
+        Assert.DoesNotContain("stat: item_singleskill", markdown);
+        Assert.DoesNotContain("- A:", markdown);
+        Assert.DoesNotContain("- B:", markdown);
+        Assert.DoesNotContain("1 ×", markdown);
+        Assert.Equal(3, markdown.Split("<!-- changes.json: cube-recipes /", StringSplitOptions.None).Length - 1);
+        AssertBalancedDetails(markdown);
+    }
+
+    [Fact]
+    public async Task IdenticalHeadingsWithTechnicalConditionsStayUnpairedAndCaveated()
+    {
+        var recipes = CombineRecipes(
+            RecipeWithCondition("condition-one", 1),
+            RecipeWithCondition("condition-two", 2));
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", Translations);
+        var newSnapshot = await CreateSnapshotAsync("new", recipes, Translations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
+
+        Assert.Equal(2, markdown.Split("#### Amulet → Rare Jewel", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, markdown.Split("Recipe condition distinguishes this definition; see detailed comparison.",
+            StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("Op=", markdown);
+        Assert.DoesNotContain("Param=", markdown);
+        Assert.DoesNotContain("Value=", markdown);
+    }
+
+    [Fact]
+    public async Task HiddenQualifierArgumentChangesUseNeutralConditionWording()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", RecipeWithForcePrefix(373), Translations);
+        var newSnapshot = await CreateSnapshotAsync("new", RecipeWithForcePrefix(366), Translations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
+
+        Assert.Contains("Forced prefix", markdown);
+        Assert.Contains("Recipe condition changed; see detailed comparison.", markdown);
+        Assert.DoesNotContain("373", markdown);
+        Assert.DoesNotContain("366", markdown);
+        Assert.DoesNotContain("now requires: Forced prefix", markdown);
+        Assert.DoesNotContain("no longer requires: Forced prefix", markdown);
     }
 
     [Fact]
@@ -182,7 +272,7 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
 
         Assert.Equal(first, second);
         Assert.Contains("Recipe changes unavailable", first);
-        Assert.Contains("Recipe change counts: unavailable", first);
+        Assert.Contains("Recipe change counts are unavailable", first);
         Assert.DoesNotContain("Total matched modifications: 0", first);
         Assert.DoesNotContain("| Other recipes | 0 | 0 | 0 |", first);
         AssertBalancedDetails(first);
@@ -294,6 +384,26 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
                "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"out\",\"args\":[]},\"Quantity\":1," +
                "\"Qualifiers\":[],\"OutputChance\":100,\"Lines\":[]}},\"Notes\":[" + notes + "]}]";
     }
+
+    private static string RecipeWithOutputMode(string id, string outputKey) =>
+        "[{\"Id\":\"" + id + "\",\"Index\":1,\"NumInputs\":1,\"ResolvedInputsCount\":1," +
+        "\"Inputs\":[{\"Name\":{\"key\":\"weapon\",\"args\":[]},\"Quantity\":1,\"Qualifiers\":[]}]," +
+        "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"" + outputKey + "\",\"args\":[]}," +
+        "\"Quantity\":1,\"Qualifiers\":[],\"Lines\":[]}},\"Notes\":[{\"key\":\"category\",\"args\":[]}]}]";
+
+    private static string RecipeWithCondition(string id, int operation) =>
+        "[{\"Id\":\"" + id + "\",\"Index\":1,\"NumInputs\":1,\"ResolvedInputsCount\":1," +
+        "\"Inputs\":[{\"Name\":{\"key\":\"amu\",\"args\":[]},\"Quantity\":1,\"Qualifiers\":[]}]," +
+        "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"out\",\"args\":[]},\"Quantity\":1," +
+        "\"Qualifiers\":[],\"Lines\":[]}},\"Notes\":[{\"key\":\"category\",\"args\":[]}]," +
+        "\"Op\":" + operation + ",\"Param\":7,\"Value\":1}]";
+
+    private static string RecipeWithForcePrefix(int group) =>
+        "[{\"Id\":\"force-prefix\",\"Index\":1,\"NumInputs\":1,\"ResolvedInputsCount\":1," +
+        "\"Inputs\":[{\"Name\":{\"key\":\"amu\",\"args\":[]},\"Quantity\":1,\"Qualifiers\":[]}]," +
+        "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"out\",\"args\":[]},\"Quantity\":1," +
+        "\"Qualifiers\":[{\"key\":\"strCubeQualifierForcePrefixN\",\"args\":[" + group + "]}]," +
+        "\"Lines\":[]}},\"Notes\":[{\"key\":\"category\",\"args\":[]}]}]";
 
     private static string CombineRecipes(params string[] recipes) =>
         "[" + string.Join(",", recipes.Select(static recipe => recipe[1..^1])) + "]";

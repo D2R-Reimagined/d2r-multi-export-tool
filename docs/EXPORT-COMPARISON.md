@@ -114,32 +114,40 @@ untranslated values retain their original key and arguments for review.
 The same `compare` invocation writes `recipe-patch-notes.md` from the existing
 `cube-recipes` comparison and each snapshot's manifest-verified English strings.
 It does not run another comparison or change `changes.json`, recipe identity,
-or any of the existing reports. The report keeps its summary table visible and
-groups recipes by the first translated value in each record's `Notes` array;
-additional notes remain visible as secondary labels in the expanded recipe.
-Records without notes, or whose primary note cannot be translated, appear under
-`Other recipes`. Modified recipes use the new record's notes for placement;
-removed recipes use the old record's notes. Note categories use Wiki.js-compatible
-`<details>` sections; within each expanded category, change types and individual
-recipes use ordinary Markdown headings. Counts remain in the visible summary table,
-the category summaries, and the change-type headings. Unavailable recipe comparisons
-remain explicitly labeled unavailable rather than represented as zero changes.
+or any of the existing reports. The visible summary table keeps counts by the
+first translated value in each record's `Notes` array; secondary notes remain
+visible in the expanded recipe. Records without notes, or whose primary note
+cannot be translated, appear under `Other recipes`. Modified recipes use the new
+record's notes for placement; removed recipes use the old record's notes.
 
-Matched recipe modifications describe readable changes to ingredient quantities
-and requirements, result items and quantities, output chances, output properties,
-class restrictions, and descriptions. Added and removed definitions include the
-full readable ingredient and result details, qualifiers, conditions available in
-the keyed record, and output properties, without embedding raw JSON. Recipe
-operation fields whose gameplay meaning is not verified, unsupported data, and
-inconsistent input counts are explicitly marked for review.
+Each note category has one Wiki.js-compatible `<details>` section. Change types
+and recipes inside it use ordinary Markdown headings. The summary table and
+category headings retain their counts; snapshot paths, manifest hashes, recipe
+IDs, row indexes, and routine comparison diagnostics are not shown. Each recipe
+still has an HTML comment linking its record to `changes.json` for traceability.
+Unavailable recipe comparisons remain explicitly labeled unavailable instead of
+being represented as zero changes.
 
-Recipe IDs are content-derived, so ingredient or condition adjustments can be
-reported as unmatched additions and removals. The patch notes do not guess pairs
-or claim those records are definitely new or deleted recipes; they retain the
-source ID and row for traceability and explain that recipe restructuring is
-possible. Unavailable recipe comparisons are labeled unavailable rather than
-reported as zero changes. Translation fallbacks preserve their source key and
-arguments and include a visible review marker.
+Instruction-style headings show ingredients and results without `1 ×` prefixes;
+larger quantities remain visible. Translated quality and socket restrictions are
+attached to the relevant item, and single-output headings omit internal output
+slot labels. A recipe that returns the exact input is described as `Original …`,
+while one that generates an item of the same base type is described as `New …
+(same base type)`; these behaviors are not conflated. When a recipe has a
+separate description heading, its ingredient and result instructions remain in
+the details. Modified recipes use natural `Changed`, `Added`, and `Removed`
+property labels, and do not repeat a complete ingredient list below an
+instruction-style heading.
+
+Unverified operation or property-selection conditions are not explained or
+rendered as raw values. A confirmed modification limited to unsupported
+conditions is described neutrally as a changed recipe condition, with the full
+technical values retained in the detailed comparison. Identical visible recipe
+headings that may differ by technical conditions carry the same neutral caveat.
+Unmatched definitions retain the identity/restructuring caveat and are not
+assumed to be genuine deletions and additions. Untranslated or unsupported
+properties use one concise fallback pointing to the detailed comparison;
+`changes.json` and `recipe-changes.md` retain their complete technical details.
 
 ## Snapshot validation
 
