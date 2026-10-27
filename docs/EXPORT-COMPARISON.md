@@ -14,7 +14,8 @@ dotnet run --project .\D2RMultiExport.Console -- compare `
 
 The comparison output may not be either input directory, a directory inside an
 input, or a symlink/junction alias into an input. It contains `changes.json`,
-`recipe-changes.md`, `item-changes.md`, and `item-patch-notes.md`;
+`recipe-changes.md`, `item-changes.md`, `item-patch-notes.md`, and
+`recipe-patch-notes.md`;
 `--pretty` is available and defaults to true. No developer test paths are built
 into the application.
 
@@ -100,6 +101,30 @@ Set-piece and shared-bonus changes are presented separately, runeword rune order
 is retained, and automagic groups are described as possible associations, not
 guaranteed rolls. Unavailable categories are labeled unavailable, and
 untranslated values retain their original key and arguments for review.
+
+## Player-facing recipe patch notes
+
+The same `compare` invocation writes `recipe-patch-notes.md` from the existing
+`cube-recipes` comparison and each snapshot's manifest-verified English strings.
+It does not run another comparison or change `changes.json`, recipe identity,
+or any of the existing reports. Recipes are grouped by translated `Notes` when
+available; otherwise they appear under `Other recipes`.
+
+Matched recipe modifications describe readable changes to ingredient quantities
+and requirements, result items and quantities, output chances, output properties,
+class restrictions, and descriptions. Added and removed definitions include the
+full readable ingredient and result details, qualifiers, conditions available in
+the keyed record, and output properties, without embedding raw JSON. Recipe
+operation fields whose gameplay meaning is not verified, unsupported data, and
+inconsistent input counts are explicitly marked for review.
+
+Recipe IDs are content-derived, so ingredient or condition adjustments can be
+reported as unmatched additions and removals. The patch notes do not guess pairs
+or claim those records are definitely new or deleted recipes; they retain the
+source ID and row for traceability and explain that recipe restructuring is
+possible. Unavailable recipe comparisons are labeled unavailable rather than
+reported as zero changes. Translation fallbacks preserve their source key and
+arguments and include a visible review marker.
 
 ## Snapshot validation
 

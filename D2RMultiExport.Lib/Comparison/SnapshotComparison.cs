@@ -104,6 +104,17 @@ public static class SnapshotComparison
         return outputs.WriteTextAsync("item-patch-notes.md", markdown);
     }
 
+    /// <summary>Renders player-facing crafting patch notes from an existing comparison report.</summary>
+    public static Task<string> RenderRecipePatchNotesAsync(ComparisonReport report) =>
+        RecipePatchNotesMarkdown.RenderAsync(report);
+
+    /// <summary>Writes player-facing crafting patch notes through the atomic output gateway.</summary>
+    public static Task WriteRecipePatchNotesAsync(string markdown, string outputDirectory)
+    {
+        var outputs = new ExportOutputs(outputDirectory) { Producer = "snapshot-comparison" };
+        return outputs.WriteTextAsync("recipe-patch-notes.md", markdown);
+    }
+
     private static CategoryComparison CompareCategory(
         RecordComparer.ComparisonDefinition definition,
         SnapshotInfo oldSnapshot,

@@ -41,11 +41,21 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
             newSnapshot);
         var recipeChanges = NormalizePaths(await SnapshotComparison.RenderRecipeChangesAsync(report), oldSnapshot,
             newSnapshot);
+        var itemPatchNotes = NormalizePaths(await SnapshotComparison.RenderItemPatchNotesAsync(report), oldSnapshot,
+            newSnapshot);
+        var outputDirectory = Directory.CreateDirectory(Path.Combine(_root, "comparison")).FullName;
+        await SnapshotComparison.WriteAsync(report, outputDirectory);
+        var changesJson = NormalizeJsonPaths(
+            await File.ReadAllTextAsync(Path.Combine(outputDirectory, "changes.json")), oldSnapshot, newSnapshot);
 
         Assert.Equal("33223a5850e90335f4a6becfc7fad91730cd1044fd9dc55cd436977bdcc2f4a2",
             Sha256(Encoding.UTF8.GetBytes(itemChanges)));
         Assert.Equal("b3ed1b58d7dfac491c5ff805f15403ac23114849dfa205919fce1eb5c1de1d56",
             Sha256(Encoding.UTF8.GetBytes(recipeChanges)));
+        Assert.Equal("b2163ac8a25a95668e93f5f30934e184614107baf7c83bde878689ab9ccfe77e",
+            Sha256(Encoding.UTF8.GetBytes(itemPatchNotes)));
+        Assert.Equal("d312736ad9f5763a424e1ca066b661b006febcfcc21726ad03dd431d7386dfa5",
+            Sha256(Encoding.UTF8.GetBytes(changesJson)));
     }
 
     [Fact]
@@ -491,6 +501,12 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
     private static string NormalizePaths(string markdown, string oldSnapshot, string newSnapshot) =>
         markdown.Replace(oldSnapshot, "<old-snapshot>", StringComparison.Ordinal)
             .Replace(newSnapshot, "<new-snapshot>", StringComparison.Ordinal);
+
+    private static string NormalizeJsonPaths(string json, string oldSnapshot, string newSnapshot) =>
+        json.Replace(JsonSerializer.Serialize(oldSnapshot)[1..^1],
+                JsonSerializer.Serialize("<old-snapshot>")[1..^1], StringComparison.Ordinal)
+            .Replace(JsonSerializer.Serialize(newSnapshot)[1..^1],
+                JsonSerializer.Serialize("<new-snapshot>")[1..^1], StringComparison.Ordinal);
 
     private static string Sha256(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 }

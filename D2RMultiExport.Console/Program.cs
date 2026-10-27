@@ -246,10 +246,12 @@ compareCommand.SetAction(async (parseResult, _) =>
         var recipeMarkdown = await SnapshotComparison.RenderRecipeChangesAsync(report);
         var itemMarkdown = await SnapshotComparison.RenderItemChangesAsync(report);
         var itemPatchNotesMarkdown = await SnapshotComparison.RenderItemPatchNotesAsync(report);
+        var recipePatchNotesMarkdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
         await SnapshotComparison.WriteAsync(report, outputDirectory, parseResult.GetValue(comparePrettyOption));
         await SnapshotComparison.WriteRecipeChangesAsync(recipeMarkdown, outputDirectory);
         await SnapshotComparison.WriteItemChangesAsync(itemMarkdown, outputDirectory);
         await SnapshotComparison.WriteItemPatchNotesAsync(itemPatchNotesMarkdown, outputDirectory);
+        await SnapshotComparison.WriteRecipePatchNotesAsync(recipePatchNotesMarkdown, outputDirectory);
         foreach (var category in report.Categories)
         {
             Console.WriteLine(
@@ -271,6 +273,7 @@ compareCommand.SetAction(async (parseResult, _) =>
         Console.WriteLine($"Recipe Markdown report: '{Path.GetFullPath(outputDirectory)}\\recipe-changes.md'.");
         Console.WriteLine($"Item Markdown report: '{Path.GetFullPath(outputDirectory)}\\item-changes.md'.");
         Console.WriteLine($"Item patch notes: '{Path.GetFullPath(outputDirectory)}\\item-patch-notes.md'.");
+        Console.WriteLine($"Recipe patch notes: '{Path.GetFullPath(outputDirectory)}\\recipe-patch-notes.md'.");
         if (!report.Succeeded)
         {
             Console.Error.WriteLine("Comparison completed with validation or comparison errors; see changes.json.");

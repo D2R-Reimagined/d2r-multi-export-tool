@@ -570,7 +570,7 @@ internal static class ItemPatchNotesMarkdown
         }
     }
 
-    private static PropertyDiff DiffProperties(
+    internal static PropertyDiff DiffProperties(
         IReadOnlyList<JsonElement> oldLines,
         IReadOnlyList<JsonElement> newLines,
         RecipeTranslations oldTranslations,
@@ -689,7 +689,7 @@ internal static class ItemPatchNotesMarkdown
         return true;
     }
 
-    private static string RenderPropertyLineText(JsonElement line, RecipeTranslations translations, RenderState state)
+    internal static string RenderPropertyLineText(JsonElement line, RecipeTranslations translations, RenderState state)
     {
         if (line.ValueKind != JsonValueKind.Object) return RenderValue(line, "", translations, state);
         var key = TryGetString(line, "key");
@@ -844,7 +844,7 @@ internal static class ItemPatchNotesMarkdown
             out formatted);
     }
 
-    private static void AppendPropertyLine(
+    internal static void AppendPropertyLine(
         StringBuilder markdown,
         JsonElement line,
         RecipeTranslations translations,
@@ -1449,7 +1449,7 @@ internal static class ItemPatchNotesMarkdown
         return false;
     }
 
-    private static string CanonicalJson(JsonElement value)
+    internal static string CanonicalJson(JsonElement value)
     {
         var result = new StringBuilder();
         AppendCanonical(result, value);
@@ -1503,7 +1503,7 @@ internal static class ItemPatchNotesMarkdown
 
     private static string CanonicalString(string value) => JsonSerializer.Serialize(value);
 
-    private static string LightEscape(string value)
+    internal static string LightEscape(string value)
     {
         var result = new StringBuilder(value.Length);
         for (var index = 0; index < value.Length; index++)
@@ -1551,9 +1551,9 @@ internal static class ItemPatchNotesMarkdown
 
     private sealed record PropertyCollection(string Path, string Label, JsonElement Lines);
 
-    private sealed record PropertyDiff(IReadOnlyList<string> Changes);
+    internal sealed record PropertyDiff(IReadOnlyList<string> Changes);
 
-    private sealed class RenderState
+    internal sealed class RenderState
     {
         public int UntranslatedValues { get; set; }
     }
