@@ -824,7 +824,7 @@ internal static class ItemPatchNotesMarkdown
                     return null;
                 }
 
-                annotations.Add(classText);
+                annotations.Add(RemoveOuterParentheses(classText));
                 continue;
             }
 
@@ -881,6 +881,25 @@ internal static class ItemPatchNotesMarkdown
         if (perLevelSuffix.Length > 0)
             rendered += (char.IsWhiteSpace(perLevelSuffix[0]) ? "" : " ") + perLevelSuffix;
         return LightEscape(rendered);
+    }
+
+    private static string RemoveOuterParentheses(string value)
+    {
+        if (value.Length < 2 || value[0] != '(' || value[^1] != ')') return value;
+
+        var depth = 0;
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (value[index] == '(')
+                depth++;
+            else if (value[index] == ')')
+            {
+                depth--;
+                if (depth < 0 || depth == 0 && index < value.Length - 1) return value;
+            }
+        }
+
+        return depth == 0 ? value[1..^1] : value;
     }
 
     private static bool TryFormatRangeTemplate(
@@ -1083,8 +1102,7 @@ internal static class ItemPatchNotesMarkdown
         }
 
         if (changes.Added.Count == 0 && changes.Removed.Count == 0 && changes.Modified.Count == 0) return;
-        markdown.AppendLine("- Possible automagic group changes:");
-        markdown.AppendLine("  These are possible automagic associations; they do not imply a guaranteed affix roll.");
+        markdown.AppendLine("- Eligible automagic affix changes (can roll; not guaranteed on every item):");
         AppendNestedEntries(markdown, "Added", changes.Added, newTranslations, state, category);
         AppendNestedEntries(markdown, "Removed", changes.Removed, oldTranslations, state, category);
         if (changes.Modified.Count > 0)

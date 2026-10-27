@@ -105,9 +105,10 @@ ambiguous lines are not guessed. Empty property-array entries are omitted, and
 readable base damage lines are not repeated as `DamageTypes` metadata when those
 lines also changed.
 Set-piece and shared-bonus changes remain distinct within each affected set,
-runeword rune order is retained, and automagic groups are described as possible
-associations, not guaranteed rolls. Unavailable categories are labeled unavailable, and
-untranslated values retain their original key and arguments for review.
+runeword rune order is retained, and automagic notes identify eligible affixes
+that can roll but are not guaranteed on every item. Unavailable categories are
+labeled unavailable, and untranslated values retain their original key and
+arguments for review.
 
 ## Player-facing recipe patch notes
 
@@ -144,7 +145,8 @@ while one that generates an item of the same base type is described as `New …
 separate description heading, its ingredient and result instructions remain in
 the details. Modified recipes use natural `Changed`, `Added`, and `Removed`
 property labels, and do not repeat a complete ingredient list below an
-instruction-style heading.
+instruction-style heading. When a changed forced magic prefix has no reliable
+player-facing name, the notes state that it changed without exposing selector IDs.
 
 Unverified operation or property-selection conditions are not explained or
 rendered as raw values. A confirmed modification limited to unsupported

@@ -321,11 +321,26 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
 
         Assert.Contains("Magic Ring (Forced prefix)", markdown);
         Assert.Contains("Magic Ring (Forced suffix)", markdown);
-        Assert.Contains(
-            "Some guaranteed affixes cannot currently be identified by name.",
-            markdown);
+        Assert.DoesNotContain("365", markdown);
+        Assert.DoesNotContain("101", markdown);
         Assert.DoesNotContain("guaranteed Coral prefix", markdown);
         Assert.DoesNotContain("guaranteed of the Leech suffix", markdown);
+    }
+
+    [Fact]
+    public async Task ParenthesizedClassTranslationIsNotWrappedTwiceInRecipeNotes()
+    {
+        const string translations = "{\"damage\":\"+%d Damage\",\"amazon\":\"(Amazon Only)\"}";
+        const string properties = "[{\"key\":\"damage\",\"args\":[5],\"classOnly\":\"amazon\"}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", Translations);
+        var newSnapshot = await CreateSnapshotAsync("new", RecipeWithProperties("class-only", properties),
+            translations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
+
+        Assert.Contains("+5 Damage (Amazon Only)", markdown);
+        Assert.DoesNotContain("+5 Damage ((Amazon Only))", markdown);
     }
 
     [Fact]
@@ -346,16 +361,17 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
     [Fact]
     public async Task HiddenQualifierArgumentChangesUseNeutralConditionWording()
     {
-        var oldSnapshot = await CreateSnapshotAsync("old", RecipeWithForcePrefix(373), Translations);
-        var newSnapshot = await CreateSnapshotAsync("new", RecipeWithForcePrefix(366), Translations);
+        var oldSnapshot = await CreateSnapshotAsync("old", RecipeWithForcePrefix(387), Translations);
+        var newSnapshot = await CreateSnapshotAsync("new", RecipeWithForcePrefix(381), Translations);
         var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
 
         var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
 
         Assert.Contains("Forced prefix", markdown);
-        Assert.Contains("Recipe condition changed; see detailed comparison.", markdown);
-        Assert.DoesNotContain("373", markdown);
-        Assert.DoesNotContain("366", markdown);
+        Assert.Contains("Result forced magic prefix changed.", markdown);
+        Assert.DoesNotContain("387", markdown);
+        Assert.DoesNotContain("381", markdown);
+        Assert.DoesNotContain("Outputs.A.Qualifiers", markdown);
         Assert.DoesNotContain("now requires: Forced prefix", markdown);
         Assert.DoesNotContain("no longer requires: Forced prefix", markdown);
     }

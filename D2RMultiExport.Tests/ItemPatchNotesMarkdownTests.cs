@@ -146,6 +146,22 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
     }
 
     [Fact]
+    public async Task ParenthesizedClassTranslationIsNotWrappedTwice()
+    {
+        const string translations = "{\"damage\":\"+%d Damage\",\"amazon\":\"(Amazon Only)\"}";
+        const string unique = "[{\"Index\":\"Qualified Item\",\"Lines\":[{\"key\":\"damage\",\"args\":[5],"
+                              + "\"classOnly\":\"amazon\"}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", "[]", translations);
+        var newSnapshot = await CreateSnapshotAsync("new", "[]", unique, translations);
+
+        var markdown = await SnapshotComparison.RenderItemPatchNotesAsync(
+            await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot));
+
+        Assert.Contains("+5 Damage (Amazon Only)", markdown);
+        Assert.DoesNotContain("+5 Damage ((Amazon Only))", markdown);
+    }
+
+    [Fact]
     public async Task OldAndNewPropertiesUseTheirOwnManifestVerifiedTranslations()
     {
         const string oldUnique = "[{\"Index\":\"Translated Item\",\"Lines\":[{\"key\":\"damage\",\"args\":[1]}]}]";
@@ -360,8 +376,9 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
         Assert.Contains("Sockets: 3 (was 2)", markdown);
         Assert.Contains("Durability: 25 (was 20)", markdown);
         Assert.Contains("Average Damage: 12 (was 10)", markdown);
-        Assert.Contains("Possible automagic group changes", markdown);
-        Assert.Contains("do not imply a guaranteed affix roll", markdown);
+        Assert.Contains("Eligible automagic affix changes (can roll; not guaranteed on every item):", markdown);
+        Assert.DoesNotContain("Possible automagic group changes", markdown);
+        Assert.DoesNotContain("possible automagic associations", markdown);
         Assert.Contains("Changed: Damage 3 (was 1)", markdown);
     }
 

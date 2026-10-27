@@ -1018,7 +1018,15 @@ internal static class RecipePatchNotesMarkdown
             newMatched[newIndex] = true;
             var oldText = RenderQualifier(oldQualifiers[oldIndex], oldTranslations, context);
             var newText = RenderQualifier(newQualifiers[newIndex], newTranslations, context);
-            if (oldText is null || newText is null || oldText == newText) continue;
+            if (oldText is null || newText is null) continue;
+            if (oldText == newText)
+            {
+                if (labelPrefix == "Result" &&
+                    GetKey(oldQualifiers[oldIndex]) == SyntheticStringRegistry.Keys.CubeQualifierForcePrefixN)
+                    markdown.AppendLine("- Result forced magic prefix changed.");
+                continue;
+            }
+
             markdown.Append("- ").Append(labelPrefix).Append(" requirement changed: ").Append(newText)
                 .Append(" (was ").Append(oldText).AppendLine(").");
         }
