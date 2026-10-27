@@ -97,7 +97,10 @@ internal static class RecipePatchNotesMarkdown
         if (TryGet(record, "RequiredClass", out var requiredClass) &&
             requiredClass.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(requiredClass.GetString()))
             title = RenderValue(requiredClass, translations, context) + "-only recipe: " + title;
-        return new RecipeEntry(kind, key, rowIndex, record, oldRecord, newRecord, category, title);
+        var titleRequiresReview = title.Contains("**Review:", StringComparison.Ordinal) ||
+                                  title.Contains("review required", StringComparison.OrdinalIgnoreCase);
+        return new RecipeEntry(kind, key, rowIndex, record, oldRecord, newRecord, category, title,
+            titleRequiresReview);
     }
 
     private static string GetRecipeCategory(
@@ -105,23 +108,17 @@ internal static class RecipePatchNotesMarkdown
         RecipeTranslations translations,
         RenderContext context)
     {
-        if (!TryGet(record, "Notes", out var notes) || notes.ValueKind != JsonValueKind.Array)
+        if (!TryGet(record, "Notes", out var notes) || notes.ValueKind != JsonValueKind.Array ||
+            notes.GetArrayLength() == 0)
             return OtherRecipesCategory;
 
-        var rendered = new List<string>();
-        var translated = true;
-        foreach (var note in notes.EnumerateArray())
-        {
-            var before = context.PropertyState.UntranslatedValues;
-            var value = RenderValue(note, translations, context);
-            if (context.PropertyState.UntranslatedValues != before ||
-                value.Contains("**Review:", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(value))
-                translated = false;
-            rendered.Add(value);
-        }
-
-        var description = string.Join(" / ", rendered);
-        return translated && description.Length > 0 ? description : OtherRecipesCategory;
+        var before = context.PropertyState.UntranslatedValues;
+        var primaryNote = RenderValue(notes[0], translations, context);
+        return context.PropertyState.UntranslatedValues == before &&
+               !primaryNote.Contains("**Review:", StringComparison.Ordinal) &&
+               !string.IsNullOrWhiteSpace(primaryNote)
+            ? primaryNote
+            : OtherRecipesCategory;
     }
 
     private static string GetRecipeTitle(JsonElement record, RecipeTranslations translations, RenderContext context)
@@ -215,18 +212,25 @@ internal static class RecipePatchNotesMarkdown
         RecipeTranslations newTranslations,
         RenderContext context)
     {
+        markdown.AppendLine("## Recipe changes");
+        markdown.AppendLine();
         foreach (var categoryGroup in entries.GroupBy(static entry => entry.Category, StringComparer.Ordinal)
                      .OrderBy(static group => group.Key == OtherRecipesCategory ? 1 : 0)
                      .ThenBy(static group => group.Key, StringComparer.Ordinal))
         {
-            markdown.Append("## ").AppendLine(ComparisonMarkdown.EscapeMarkdown(categoryGroup.Key));
-            markdown.AppendLine();
+            var modifiedCount = categoryGroup.Count(static entry => entry.Kind == RecipeChangeKind.Modified);
+            var addedCount = categoryGroup.Count(static entry => entry.Kind == RecipeChangeKind.Added);
+            var removedCount = categoryGroup.Count(static entry => entry.Kind == RecipeChangeKind.Removed);
+            ComparisonMarkdown.AppendDetailsStart(markdown,
+                $"{categoryGroup.Key} — {ComparisonMarkdown.Invariant(modifiedCount)} modified, " +
+                $"{ComparisonMarkdown.Invariant(addedCount)} added, {ComparisonMarkdown.Invariant(removedCount)} removed");
             AppendEntrySection(markdown, categoryGroup, RecipeChangeKind.Modified, "Confirmed matched modifications",
                 oldTranslations, newTranslations, context);
             AppendEntrySection(markdown, categoryGroup, RecipeChangeKind.Added, "Added recipe definitions",
                 oldTranslations, newTranslations, context);
             AppendEntrySection(markdown, categoryGroup, RecipeChangeKind.Removed, "Removed recipe definitions",
                 oldTranslations, newTranslations, context);
+            ComparisonMarkdown.AppendDetailsEnd(markdown);
         }
     }
 
@@ -245,15 +249,18 @@ internal static class RecipePatchNotesMarkdown
             .ToArray();
         if (selected.Length == 0) return;
 
-        markdown.Append("### ").AppendLine(heading);
-        markdown.AppendLine();
+        markdown.Append("### ").Append(heading).Append(" (")
+            .Append(ComparisonMarkdown.Invariant(selected.Length)).AppendLine(")").AppendLine();
         foreach (var entry in selected)
         {
+            markdown.Append("#### ").AppendLine(entry.Title).AppendLine();
             AppendTrace(markdown, entry.Key);
-            markdown.Append("#### ").AppendLine(entry.Title);
-            markdown.AppendLine();
             markdown.Append("- Source: ").Append(ComparisonMarkdown.InlineCode(entry.Key)).Append(", row ")
                 .Append(entry.RowIndex?.ToString(CultureInfo.InvariantCulture) ?? "?").AppendLine(".");
+            if (entry.TitleRequiresReview)
+                markdown.AppendLine("- **Review: translation unavailable or unsupported.**");
+            AppendAssignedNotes(markdown, entry.Record, entry.Category,
+                kind == RecipeChangeKind.Removed ? oldTranslations : newTranslations, context);
             if (kind == RecipeChangeKind.Modified)
                 AppendModifiedRecipe(markdown, entry, oldTranslations, newTranslations, context);
             else
@@ -272,7 +279,6 @@ internal static class RecipePatchNotesMarkdown
         if (!TryGet(record, "RequiredClass", out var requiredClass) || IsEmptyValue(requiredClass))
             AppendDefinitionField(markdown, record, "Class", "Class restriction", translations, context);
         AppendDefinitionField(markdown, record, "Description", "Description", translations, context);
-        AppendNotes(markdown, record, translations, context);
         AppendInputs(markdown, record, translations, context);
         AppendOutputs(markdown, record, translations, context);
 
@@ -326,17 +332,22 @@ internal static class RecipePatchNotesMarkdown
             .AppendLine(RenderValue(value, translations, context));
     }
 
-    private static void AppendNotes(
+    private static void AppendAssignedNotes(
         StringBuilder markdown,
         JsonElement record,
+        string category,
         RecipeTranslations translations,
         RenderContext context)
     {
         if (!TryGet(record, "Notes", out var notes) || notes.ValueKind != JsonValueKind.Array ||
-            !notes.EnumerateArray().Any()) return;
-        markdown.Append("- Crafting category or notes: ")
-            .AppendLine(string.Join(" / ", notes.EnumerateArray()
-                .Select(note => RenderValue(note, translations, context))));
+            notes.GetArrayLength() == 0) return;
+
+        var rendered = notes.EnumerateArray().Select(note => RenderValue(note, translations, context)).ToArray();
+        var labels = category == OtherRecipesCategory ? rendered : rendered.Skip(1).ToArray();
+        if (labels.Length == 0) return;
+
+        markdown.Append(category == OtherRecipesCategory ? "- Assigned notes: " : "- Additional notes: ")
+            .AppendLine(string.Join(" / ", labels));
     }
 
     private static void AppendInputs(
@@ -1205,7 +1216,8 @@ internal static class RecipePatchNotesMarkdown
         JsonElement OldRecord,
         JsonElement NewRecord,
         string Category,
-        string Title);
+        string Title,
+        bool TitleRequiresReview);
 
     private enum RecipeChangeKind
     {

@@ -224,6 +224,47 @@ internal static class ComparisonMarkdown
 
     public static string Invariant(int value) => value.ToString(CultureInfo.InvariantCulture);
 
+    public static void AppendDetailsStart(StringBuilder markdown, string summaryText)
+    {
+        markdown.AppendLine("<details>");
+        markdown.Append("<summary>").Append(SummaryText(summaryText)).AppendLine("</summary>");
+        markdown.AppendLine();
+    }
+
+    public static void AppendDetailsEnd(StringBuilder markdown)
+    {
+        markdown.AppendLine("</details>");
+        markdown.AppendLine();
+    }
+
+    public static string SummaryText(string markdownText)
+    {
+        var text = new StringBuilder(markdownText.Length);
+        for (var index = 0; index < markdownText.Length; index++)
+        {
+            if (markdownText[index] == '\\' && index + 1 < markdownText.Length &&
+                markdownText[index + 1] is '\\' or '`' or '*' or '_' or '{' or '}' or '[' or ']' or '<' or '>' or '#' or
+                    '+' or '|' or '!')
+            {
+                text.Append(markdownText[++index]);
+                continue;
+            }
+
+            if (markdownText[index] == '`') continue;
+            if (markdownText[index] == '*' && index + 1 < markdownText.Length && markdownText[index + 1] == '*')
+            {
+                index++;
+                continue;
+            }
+
+            text.Append(markdownText[index]);
+        }
+
+        return text.ToString().Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal);
+    }
+
     public static void AppendRawRecord(StringBuilder markdown, JsonElement record,
         string summary = "Complete original record JSON")
     {

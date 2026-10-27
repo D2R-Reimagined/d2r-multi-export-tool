@@ -84,10 +84,17 @@ manifest-verified English strings; it does not run a second comparison or
 change matching, `changes.json`, `recipe-changes.md`, or `item-changes.md`.
 
 The notes start with added, removed, modified, and unchanged counts, followed by
-Uniques, Sets, Runewords, Base armor, Base weapons, Magic prefixes, and Magic
-suffixes. Added and removed records include readable identifying metadata and
-all available properties. Modified records show only changed metadata and
-property lines. Exact property lines are removed as a multiset; remaining lines
+collapsible Uniques, Sets, Runewords, Base armor, Base weapons, Magic prefixes,
+and Magic suffixes. Each category summary shows its change counts. Within Uniques,
+each affected equipment type is collapsible and shows its total added, removed,
+and modified item counts; ordinary Added, Removed, and Modified headings contain
+the individual items, with available Normal, Exceptional, or Elite tier details.
+Each affected set has one collapsible section containing its changed partial and
+full set bonuses and only its added, removed, or modified pieces. Other categories
+retain independently collapsible change sections. Added and removed records
+include readable identifying metadata and all available properties. Modified
+records show only changed metadata and property lines.
+Exact property lines are removed as a multiset; remaining lines
 are paired only when their key, non-argument metadata, and ordered nonnumeric
 arguments identify a unique line on both sides. Numeric arguments can then be
 shown as `new (was old)`. A supported template with one numeric placeholder and
@@ -97,9 +104,9 @@ template. A changed skill or trigger remains an addition and removal, and
 ambiguous lines are not guessed. Empty property-array entries are omitted, and
 readable base damage lines are not repeated as `DamageTypes` metadata when those
 lines also changed.
-Set-piece and shared-bonus changes are presented separately, runeword rune order
-is retained, and automagic groups are described as possible associations, not
-guaranteed rolls. Unavailable categories are labeled unavailable, and
+Set-piece and shared-bonus changes remain distinct within each affected set,
+runeword rune order is retained, and automagic groups are described as possible
+associations, not guaranteed rolls. Unavailable categories are labeled unavailable, and
 untranslated values retain their original key and arguments for review.
 
 ## Player-facing recipe patch notes
@@ -107,8 +114,16 @@ untranslated values retain their original key and arguments for review.
 The same `compare` invocation writes `recipe-patch-notes.md` from the existing
 `cube-recipes` comparison and each snapshot's manifest-verified English strings.
 It does not run another comparison or change `changes.json`, recipe identity,
-or any of the existing reports. Recipes are grouped by translated `Notes` when
-available; otherwise they appear under `Other recipes`.
+or any of the existing reports. The report keeps its summary table visible and
+groups recipes by the first translated value in each record's `Notes` array;
+additional notes remain visible as secondary labels in the expanded recipe.
+Records without notes, or whose primary note cannot be translated, appear under
+`Other recipes`. Modified recipes use the new record's notes for placement;
+removed recipes use the old record's notes. Note categories use Wiki.js-compatible
+`<details>` sections; within each expanded category, change types and individual
+recipes use ordinary Markdown headings. Counts remain in the visible summary table,
+the category summaries, and the change-type headings. Unavailable recipe comparisons
+remain explicitly labeled unavailable rather than represented as zero changes.
 
 Matched recipe modifications describe readable changes to ingredient quantities
 and requirements, result items and quantities, output chances, output properties,

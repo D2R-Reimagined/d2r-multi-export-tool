@@ -52,7 +52,7 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
             Sha256(Encoding.UTF8.GetBytes(itemChanges)));
         Assert.Equal("b3ed1b58d7dfac491c5ff805f15403ac23114849dfa205919fce1eb5c1de1d56",
             Sha256(Encoding.UTF8.GetBytes(recipeChanges)));
-        Assert.Equal("b2163ac8a25a95668e93f5f30934e184614107baf7c83bde878689ab9ccfe77e",
+        Assert.Equal("90526d0055dfc877f0b4611401ee0a9ed9bb8510cf2d0d8bdf56bf2829448d92",
             Sha256(Encoding.UTF8.GetBytes(itemPatchNotes)));
         Assert.Equal("d312736ad9f5763a424e1ca066b661b006febcfcc21726ad03dd431d7386dfa5",
             Sha256(Encoding.UTF8.GetBytes(changesJson)));
@@ -422,6 +422,120 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
         Assert.Contains("Magic prefixes | unavailable", first);
         Assert.Contains("Comparison unavailable: NotCompared", first);
         Assert.DoesNotContain("Magic prefixes | 0 | 0 | 0", first);
+        AssertBalancedDetails(first);
+    }
+
+    [Fact]
+    public async Task ModifiedUniqueChangesAndEquipmentGroupsAreCollapsible()
+    {
+        const string translations = "{\"uniqueName\":\"Baseline Unique\",\"damage\":\"+%d Damage\",\"amu\":\"Amulet\"}";
+        const string oldUnique = "[{\"Index\":\"Unique\",\"NameKey\":\"uniqueName\",\"Type\":\"amu\"," +
+                                 "\"Lines\":[{\"key\":\"damage\",\"args\":[1]}]}]";
+        const string newUnique = "[{\"Index\":\"Unique\",\"NameKey\":\"uniqueName\",\"Type\":\"amu\"," +
+                                 "\"Lines\":[{\"key\":\"damage\",\"args\":[2]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", oldUnique, translations);
+        var newSnapshot = await CreateSnapshotAsync("new", "[]", newUnique, translations);
+        var markdown = await SnapshotComparison.RenderItemPatchNotesAsync(
+            await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot));
+
+        Assert.Contains("## Uniques", markdown);
+        Assert.Contains("<summary>Uniques — 0 added, 0 removed, 1 modified</summary>", markdown);
+        Assert.Contains("<summary>Amulet (1 changed: 1 modified)</summary>", markdown);
+        Assert.DoesNotContain("<summary>Modified (1)</summary>", markdown);
+        Assert.True(markdown.Contains("Changed: +2 Damage (was +1)", StringComparison.Ordinal), markdown);
+        AssertBalancedDetails(markdown);
+    }
+
+    [Fact]
+    public async Task UniqueChangesAcrossTiersShareEquipmentTypeAndOmitEmptyTypes()
+    {
+        const string translations = "{\"normal\":\"Normal-tier Belt\",\"exceptional\":\"Exceptional-tier Belt\","
+                                    + "\"elite\":\"Elite-tier Belt\",\"removed\":\"Removed Belt\","
+                                    + "\"modified\":\"Modified Belt\",\"belt\":\"Belts\",\"damage\":\"+%d Damage\"}";
+        const string equipment = "\"Equipment\":{\"NormCode\":\"b1\",\"UberCode\":\"b2\","
+                                 + "\"UltraCode\":\"b3\"}";
+        var oldUnique = "[{\"Index\":\"Removed\",\"NameKey\":\"removed\",\"Type\":\"belt\","
+                        + "\"Code\":\"b2\"," + equipment + ",\"Lines\":[]},"
+                        + "{\"Index\":\"Modified\",\"NameKey\":\"modified\",\"Type\":\"belt\","
+                        + "\"Code\":\"b3\"," + equipment + ",\"Lines\":[{\"key\":\"damage\",\"args\":[1]}]}]";
+        var newUnique = "[{\"Index\":\"Normal\",\"NameKey\":\"normal\",\"Type\":\"belt\","
+                        + "\"Code\":\"b1\"," + equipment + ",\"Lines\":[]},"
+                        + "{\"Index\":\"Exceptional\",\"NameKey\":\"exceptional\",\"Type\":\"belt\","
+                        + "\"Code\":\"b2\"," + equipment + ",\"Lines\":[]},"
+                        + "{\"Index\":\"Elite\",\"NameKey\":\"elite\",\"Type\":\"belt\","
+                        + "\"Code\":\"b3\"," + equipment + ",\"Lines\":[]},"
+                        + "{\"Index\":\"Modified\",\"NameKey\":\"modified\",\"Type\":\"belt\","
+                        + "\"Code\":\"b3\"," + equipment + ",\"Lines\":[{\"key\":\"damage\",\"args\":[2]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", oldUnique, translations);
+        var newSnapshot = await CreateSnapshotAsync("new", "[]", newUnique, translations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        var markdown = await SnapshotComparison.RenderItemPatchNotesAsync(report);
+
+        Assert.Equal(1, CountOccurrences(markdown, "<summary>Belts ("));
+        Assert.Contains("<summary>Belts (5 changed: 3 added, 1 removed, 1 modified)</summary>", markdown);
+        Assert.Contains("#### Added", markdown);
+        Assert.Contains("#### Removed", markdown);
+        Assert.Contains("#### Modified", markdown);
+        Assert.Contains("Item tier: Normal", markdown);
+        Assert.Contains("Item tier: Exceptional", markdown);
+        Assert.Contains("Item tier: Elite", markdown);
+        Assert.Contains("Removed Belt", markdown);
+        Assert.Contains("Changed: +2 Damage (was +1)", markdown);
+        Assert.DoesNotContain("<summary>Helms", markdown);
+        Assert.DoesNotContain("<summary>Normal-tier", markdown);
+        AssertBalancedDetails(markdown);
+    }
+
+    [Fact]
+    public async Task SetsGroupBonusesAndOnlyChangedPiecesWithoutNestedPieceCollapses()
+    {
+        const string translations = "{\"modifiedSet\":\"A & <Set>\",\"addedSet\":\"Added Set\","
+                                    + "\"removedSet\":\"Removed Set\",\"changedPiece\":\"Changed & <Piece>\","
+                                    + "\"removedPiece\":\"Removed Piece\",\"addedPiece\":\"Added Piece\","
+                                    + "\"unchangedPiece\":\"Unchanged Piece\",\"partial\":\"%d partial bonus\","
+                                    + "\"full\":\"%d full bonus\",\"damage\":\"Damage %d\"}";
+        const string oldSets = "[{\"Index\":\"modifiedSet\",\"PartialBonuses\":[{\"key\":\"partial\",\"args\":[3]}],"
+                               + "\"FullBonuses\":[{\"key\":\"full\",\"args\":[10]}],\"SetItems\":["
+                               + "{\"Index\":\"changedPiece\",\"NameKey\":\"changedPiece\",\"Lines\":[{\"key\":\"damage\",\"args\":[1]}]},"
+                               + "{\"Index\":\"removedPiece\",\"NameKey\":\"removedPiece\",\"Lines\":[]},"
+                               + "{\"Index\":\"unchangedPiece\",\"NameKey\":\"unchangedPiece\",\"Lines\":[{\"key\":\"damage\",\"args\":[2]}]}]},"
+                               + "{\"Index\":\"removedSet\",\"NameKey\":\"removedSet\",\"SetItems\":["
+                               + "{\"Index\":\"removedPiece\",\"NameKey\":\"removedPiece\",\"Lines\":[]}]}]";
+        const string newSets = "[{\"Index\":\"modifiedSet\",\"PartialBonuses\":[{\"key\":\"partial\",\"args\":[5]}],"
+                               + "\"FullBonuses\":[{\"key\":\"full\",\"args\":[15]}],\"SetItems\":["
+                               + "{\"Index\":\"changedPiece\",\"NameKey\":\"changedPiece\",\"Lines\":[{\"key\":\"damage\",\"args\":[4]}]},"
+                               + "{\"Index\":\"addedPiece\",\"NameKey\":\"addedPiece\",\"Lines\":[]},"
+                               + "{\"Index\":\"unchangedPiece\",\"NameKey\":\"unchangedPiece\",\"Lines\":[{\"key\":\"damage\",\"args\":[2]}]}]},"
+                               + "{\"Index\":\"addedSet\",\"NameKey\":\"addedSet\",\"SetItems\":["
+                               + "{\"Index\":\"addedPiece\",\"NameKey\":\"addedPiece\",\"Lines\":[]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", "[]", translations,
+            new Dictionary<string, string> { ["keyed/sets.json"] = oldSets });
+        var newSnapshot = await CreateSnapshotAsync("new", "[]", "[]", translations,
+            new Dictionary<string, string> { ["keyed/sets.json"] = newSets });
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        var first = await SnapshotComparison.RenderItemPatchNotesAsync(report);
+        var second = await SnapshotComparison.RenderItemPatchNotesAsync(report);
+
+        var setsStart = first.IndexOf("## Sets", StringComparison.Ordinal);
+        var setsEnd = first.IndexOf("## Runewords", setsStart, StringComparison.Ordinal);
+        var setsSection = first[setsStart..setsEnd];
+        Assert.Equal(first, second);
+        Assert.Contains("<summary>A &amp; &lt;Set&gt; — modified set (3 changed pieces)</summary>", setsSection);
+        Assert.Contains("<summary>Added Set — added set (1 piece)</summary>", setsSection);
+        Assert.Contains("<summary>Removed Set — removed set (1 piece)</summary>", setsSection);
+        Assert.Contains("#### Partial Set Bonuses", setsSection);
+        Assert.Contains("#### Full Set Bonuses", setsSection);
+        Assert.Contains("Changed: 5 partial bonus (was 3)", setsSection);
+        Assert.Contains("Changed: 15 full bonus (was 10)", setsSection);
+        Assert.Contains("#### Changed Set Pieces (3)", setsSection);
+        Assert.Contains("Changed: Damage 4 (was 1)", setsSection);
+        Assert.Equal(1, CountOccurrences(setsSection, "Changed &amp; &lt;Piece&gt;"));
+        Assert.DoesNotContain("Changed & <Piece>", setsSection);
+        Assert.DoesNotContain("Unchanged Piece", setsSection);
+        Assert.Equal(4, CountOccurrences(setsSection, "<details>"));
+        AssertBalancedDetails(first);
     }
 
     private async Task<string> CreateSnapshotAsync(
@@ -509,4 +623,39 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
                 JsonSerializer.Serialize("<new-snapshot>")[1..^1], StringComparison.Ordinal);
 
     private static string Sha256(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
+
+    private static int CountOccurrences(string value, string search) =>
+        (value.Length - value.Replace(search, "", StringComparison.Ordinal).Length) / search.Length;
+
+    private static void AssertBalancedDetails(string markdown)
+    {
+        var details = new Stack<bool>();
+        var lines = markdown.Split('\n');
+        for (var index = 0; index < lines.Length; index++)
+        {
+            var line = lines[index].TrimEnd('\r');
+            if (line == "<details>")
+            {
+                details.Push(false);
+                continue;
+            }
+
+            if (line.StartsWith("<summary>", StringComparison.Ordinal) &&
+                line.EndsWith("</summary>", StringComparison.Ordinal))
+            {
+                Assert.NotEmpty(details);
+                Assert.False(details.Pop());
+                details.Push(true);
+                Assert.Equal("", lines[index + 1].TrimEnd('\r'));
+                continue;
+            }
+
+            if (line != "</details>") continue;
+            Assert.NotEmpty(details);
+            Assert.True(details.Pop());
+            Assert.Equal("", lines[index + 1].TrimEnd('\r'));
+        }
+
+        Assert.Empty(details);
+    }
 }

@@ -136,25 +136,38 @@ internal static class ItemPatchNotesMarkdown
             return;
         }
 
-        AppendEntrySection(markdown, "Added", category.AddedRecords, definition, newTranslations, category, state);
-        AppendEntrySection(markdown, "Removed", category.RemovedRecords, definition, oldTranslations, category, state);
-        markdown.AppendLine("### Modified");
-        markdown.AppendLine();
-        if (category.ModifiedRecords.Count == 0)
-        {
-            markdown.AppendLine("*None.*");
-            markdown.AppendLine();
-        }
-        else if (definition.Id == "uniques")
-        {
-            AppendGroupedModifiedUniques(markdown, category.ModifiedRecords, definition, oldTranslations,
-                newTranslations, state);
-        }
+        var changes = new StringBuilder();
+        if (definition.Id == "uniques")
+            AppendUniqueChanges(changes, category, definition, oldTranslations, newTranslations, state);
+        else if (definition.Id == "sets")
+            AppendSetChanges(changes, category, definition, oldTranslations, newTranslations, state);
         else
         {
-            foreach (var record in category.ModifiedRecords)
-                AppendModifiedRecord(markdown, record, definition, oldTranslations, newTranslations, state, 4);
+            AppendEntrySection(changes, "Added", category.AddedRecords, definition, newTranslations, category, state);
+            AppendEntrySection(changes, "Removed", category.RemovedRecords, definition, oldTranslations, category,
+                state);
+            if (category.ModifiedRecords.Count > 0)
+            {
+                AppendDetailsStart(changes, $"Modified ({Invariant(category.ModifiedRecords.Count)})");
+                foreach (var record in category.ModifiedRecords)
+                    AppendModifiedRecord(changes, record, definition, oldTranslations, newTranslations, state, 4);
+                AppendDetailsEnd(changes);
+            }
         }
+
+        if (category.AddedRecords.Count == 0 && category.RemovedRecords.Count == 0 &&
+            category.ModifiedRecords.Count == 0)
+        {
+            changes.AppendLine("*No reported changes.*");
+            changes.AppendLine();
+        }
+
+        var counts = category.Counts;
+        AppendDetailsStart(markdown,
+            $"{definition.Title} — {Invariant(counts.Added)} added, {Invariant(counts.Removed)} removed, " +
+            $"{Invariant(counts.Modified)} modified");
+        markdown.Append(changes);
+        AppendDetailsEnd(markdown);
 
         if (category.Errors.Count > 0) AppendIssues(markdown, category.Errors, "Comparison errors");
         if (category.Warnings.Count > 0)
@@ -170,56 +183,130 @@ internal static class ItemPatchNotesMarkdown
         CategoryComparison category,
         RenderState state)
     {
-        markdown.Append("### ").AppendLine(heading);
-        markdown.AppendLine();
-        if (records.Count == 0)
-        {
-            markdown.AppendLine("*None.*");
-            markdown.AppendLine();
-            return;
-        }
+        if (records.Count == 0) return;
 
-        if (definition.Id == "uniques")
-        {
-            foreach (var group in records.GroupBy(record => GetEquipmentCategory(record.Record, translations, state))
-                         .OrderBy(static group => group.Key, StringComparer.Ordinal))
-            {
-                markdown.Append("#### ").AppendLine(LightEscape(group.Key));
-                markdown.AppendLine();
-                foreach (var record in group.OrderBy(record => GetDisplayName(record.Record, record.Key, translations,
-                                 state,
-                                 countFallback: false),
-                             StringComparer.Ordinal))
-                    AppendEntry(markdown, record, definition, translations, category, state, 5);
-            }
-
-            return;
-        }
-
+        AppendDetailsStart(markdown, $"{heading} ({Invariant(records.Count)})");
         foreach (var record in records)
             AppendEntry(markdown, record, definition, translations, category, state, 4);
+        AppendDetailsEnd(markdown);
     }
 
-    private static void AppendGroupedModifiedUniques(
+    private static void AppendUniqueChanges(
         StringBuilder markdown,
-        IReadOnlyList<ModifiedRecord> records,
+        CategoryComparison category,
         CategoryDefinition definition,
         RecipeTranslations oldTranslations,
         RecipeTranslations newTranslations,
         RenderState state)
     {
-        foreach (var group in records.GroupBy(record => GetEquipmentCategory(record.New, newTranslations, state))
-                     .OrderBy(static group => group.Key, StringComparer.Ordinal))
+        var records = category.AddedRecords.Select(record =>
+                new UniqueChange("Added", record.Key, record.Record, newTranslations, record, null))
+            .Concat(category.RemovedRecords.Select(record =>
+                new UniqueChange("Removed", record.Key, record.Record, oldTranslations, record, null)))
+            .Concat(category.ModifiedRecords.Select(record =>
+                new UniqueChange("Modified", record.Key, record.New, newTranslations, null, record)))
+            .ToArray();
+        foreach (var group in records.GroupBy(record => GetEquipmentCategoryKey(record.Record))
+                     .OrderBy(group => GetEquipmentCategoryLabel(group.Key, oldTranslations, newTranslations),
+                         StringComparer.Ordinal)
+                     .ThenBy(static group => group.Key, StringComparer.Ordinal))
         {
-            markdown.Append("#### ").AppendLine(LightEscape(group.Key));
-            markdown.AppendLine();
-            foreach (var record in group.OrderBy(record => GetDisplayName(record.New, record.Key, newTranslations,
-                             state,
-                             countFallback: false),
-                         StringComparer.Ordinal))
-                AppendModifiedRecord(markdown, record, definition, oldTranslations, newTranslations, state, 5);
+            var added = group.Count(static record => record.ChangeType == "Added");
+            var removed = group.Count(static record => record.ChangeType == "Removed");
+            var modified = group.Count(static record => record.ChangeType == "Modified");
+            var changeCounts = new List<string>();
+            if (added > 0) changeCounts.Add(Invariant(added) + " added");
+            if (removed > 0) changeCounts.Add(Invariant(removed) + " removed");
+            if (modified > 0) changeCounts.Add(Invariant(modified) + " modified");
+            var label = GetEquipmentCategoryLabel(group.Key, oldTranslations, newTranslations);
+            AppendDetailsStart(markdown,
+                $"{label} ({Invariant(group.Count())} changed: {string.Join(", ", changeCounts)})");
+            foreach (var changeType in new[] { "Added", "Removed", "Modified" })
+            {
+                var changes = group.Where(record => record.ChangeType == changeType)
+                    .OrderBy(record => GetDisplayNameText(record.Record, record.Key, record.Translations, state,
+                        countFallback: false), StringComparer.Ordinal)
+                    .ThenBy(static record => record.Key, StringComparer.Ordinal)
+                    .ToArray();
+                if (changes.Length == 0) continue;
+                AppendHeading(markdown, 4, changeType);
+                markdown.AppendLine();
+                foreach (var record in changes)
+                {
+                    if (record.Entry is not null)
+                        AppendEntry(markdown, record.Entry, definition, record.Translations, category, state, 5);
+                    else
+                        AppendModifiedRecord(markdown, record.Modified!, definition, oldTranslations, newTranslations,
+                            state, 5);
+                }
+            }
+
+            AppendDetailsEnd(markdown);
         }
     }
+
+    private static void AppendSetChanges(
+        StringBuilder markdown,
+        CategoryComparison category,
+        CategoryDefinition definition,
+        RecipeTranslations oldTranslations,
+        RecipeTranslations newTranslations,
+        RenderState state)
+    {
+        var records = category.AddedRecords.Select(record =>
+                new SetChange("Added", record.Key, record.Record, record, null, newTranslations))
+            .Concat(category.RemovedRecords.Select(record =>
+                new SetChange("Removed", record.Key, record.Record, record, null, oldTranslations)))
+            .Concat(category.ModifiedRecords.Select(record =>
+                new SetChange("Modified", record.Key, record.New, null, record, newTranslations)))
+            .OrderBy(record => GetDisplayNameText(record.Record, record.Key, record.Translations, state,
+                countFallback: false), StringComparer.Ordinal)
+            .ThenBy(static record => record.Key, StringComparer.Ordinal)
+            .ThenBy(static record => record.ChangeType, StringComparer.Ordinal);
+
+        foreach (var record in records)
+        {
+            var displayName = GetDisplayNameText(record.Record, record.Key, record.Translations, state);
+            var summary = displayName + " — " + record.ChangeType.ToLowerInvariant() + " set";
+            if (record.Modified is not null)
+            {
+                var changedPieces = CountChangedSetPieces(record.Modified.NestedChanges);
+                if (changedPieces > 0)
+                    summary += $" ({Invariant(changedPieces)} changed {(changedPieces == 1 ? "piece" : "pieces")})";
+            }
+            else if (TryGet(record.Record, "SetItems", out var pieces) && pieces.ValueKind == JsonValueKind.Array)
+            {
+                var pieceCount = pieces.GetArrayLength();
+                summary += $" ({Invariant(pieceCount)} piece{(pieceCount == 1 ? "" : "s")})";
+            }
+
+            AppendDetailsStart(markdown, summary);
+            AppendTraceComment(markdown, definition.Id, record.Key);
+            if (record.Entry is not null)
+            {
+                AppendVariantNames(markdown, record.Entry.VariantTypes);
+                AppendCompleteRecord(markdown, record.Record, definition.Id, record.Translations, state);
+            }
+            else
+            {
+                var modified = record.Modified!;
+                AppendChangedMetadata(markdown, modified, oldTranslations, newTranslations, state);
+                AppendPropertyChanges(markdown, modified.Old, modified.New, oldTranslations, newTranslations, state,
+                    "Partial Set Bonuses", "PartialBonuses");
+                AppendPropertyChanges(markdown, modified.Old, modified.New, oldTranslations, newTranslations, state,
+                    "Full Set Bonuses", "FullBonuses");
+                if (modified.NestedChanges is { } nested)
+                    AppendNestedChanges(markdown, nested, definition.Id, oldTranslations, newTranslations, state);
+            }
+
+            markdown.AppendLine();
+            AppendDetailsEnd(markdown);
+        }
+    }
+
+    private static int CountChangedSetPieces(NestedRecordChanges? changes) => changes is null
+        ? 0
+        : changes.Added.Count + changes.Removed.Count + changes.Modified.Count;
 
     private static void AppendEntry(
         StringBuilder markdown,
@@ -231,8 +318,12 @@ internal static class ItemPatchNotesMarkdown
         int headingLevel)
     {
         AppendTraceComment(markdown, definition.Id, record.Key);
-        AppendHeading(markdown, headingLevel, GetDisplayName(record.Record, record.Key, translations, state));
+        var displayName = definition.Id == "uniques"
+            ? EscapeHtml(GetDisplayNameText(record.Record, record.Key, translations, state))
+            : GetDisplayName(record.Record, record.Key, translations, state);
+        AppendHeading(markdown, headingLevel, displayName);
         markdown.AppendLine();
+        if (definition.Id == "uniques") AppendUniqueTierDetails(markdown, record.Record);
         if (definition.Id is not ("magicprefix" or "magicsuffix"))
             AppendVariantNames(markdown, record.VariantTypes);
         if (IsAmbiguousCandidate(record.Key, definition.Id, category))
@@ -240,6 +331,31 @@ internal static class ItemPatchNotesMarkdown
                 "- Identity review: ambiguous candidate; the comparison lists this as an addition/removal, not a confirmed item change.");
         AppendCompleteRecord(markdown, record.Record, definition.Id, translations, state);
         markdown.AppendLine();
+    }
+
+    private static void AppendUniqueTierDetails(StringBuilder markdown, JsonElement record)
+    {
+        if (!TryGet(record, "Equipment", out var equipment) || equipment.ValueKind != JsonValueKind.Object) return;
+
+        var tiers = new (string Field, string Name)[]
+            {
+                ("NormCode", "Normal"), ("UberCode", "Exceptional"), ("UltraCode", "Elite")
+            }.Select(tier => (tier.Name, Code: TryGetString(equipment, tier.Field)))
+            .Where(static tier => !string.IsNullOrWhiteSpace(tier.Code))
+            .ToArray();
+        if (tiers.Length == 0) return;
+
+        var itemCode = TryGetString(record, "Code");
+        var matchingTiers = tiers.Where(tier => string.Equals(tier.Code, itemCode,
+            StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (matchingTiers.Length == 1)
+        {
+            markdown.Append("- Item tier: ").AppendLine(matchingTiers[0].Name);
+            return;
+        }
+
+        markdown.Append("- Base item tiers: ")
+            .AppendLine(string.Join(", ", tiers.Select(tier => tier.Name + " " + InlineCode(tier.Code!))));
     }
 
     private static void AppendModifiedRecord(
@@ -252,8 +368,12 @@ internal static class ItemPatchNotesMarkdown
         int headingLevel)
     {
         AppendTraceComment(markdown, definition.Id, record.Key);
-        AppendHeading(markdown, headingLevel, GetDisplayName(record.New, record.Key, newTranslations, state));
+        var displayName = definition.Id == "uniques"
+            ? EscapeHtml(GetDisplayNameText(record.New, record.Key, newTranslations, state))
+            : GetDisplayName(record.New, record.Key, newTranslations, state);
+        AppendHeading(markdown, headingLevel, displayName);
         markdown.AppendLine();
+        if (definition.Id == "uniques") AppendUniqueTierDetails(markdown, record.New);
         AppendModifiedRecordDetails(markdown, record, definition, oldTranslations, newTranslations, state);
         markdown.AppendLine();
     }
@@ -541,13 +661,16 @@ internal static class ItemPatchNotesMarkdown
         JsonElement newRecord,
         RecipeTranslations oldTranslations,
         RecipeTranslations newTranslations,
-        RenderState state)
+        RenderState state,
+        string? sectionHeading = null,
+        string? onlyPath = null)
     {
         var oldCollections = GetPropertyCollections(oldRecord).ToDictionary(static collection => collection.Path,
             StringComparer.Ordinal);
         var newCollections = GetPropertyCollections(newRecord).ToDictionary(static collection => collection.Path,
             StringComparer.Ordinal);
-        var paths = oldCollections.Keys.Concat(newCollections.Keys).Distinct(StringComparer.Ordinal).ToList();
+        var paths = oldCollections.Keys.Concat(newCollections.Keys).Distinct(StringComparer.Ordinal)
+            .Where(path => onlyPath is null || path == onlyPath).ToList();
         var emittedHeading = false;
         foreach (var path in paths)
         {
@@ -559,14 +682,17 @@ internal static class ItemPatchNotesMarkdown
             if (diff.Changes.Count == 0) continue;
             if (!emittedHeading)
             {
-                markdown.AppendLine("- Property changes:");
+                if (sectionHeading is null)
+                    markdown.AppendLine("- Property changes:");
+                else
+                    markdown.Append("#### ").AppendLine(sectionHeading);
                 emittedHeading = true;
             }
 
-            if (paths.Count > 1 || path.Length > 0)
+            if (sectionHeading is null && (paths.Count > 1 || path.Length > 0))
                 markdown.Append("  - ").Append(LightEscape(PropertyCollectionLabel(path))).AppendLine(":");
             foreach (var change in diff.Changes)
-                markdown.Append("    - ").AppendLine(change);
+                markdown.Append(sectionHeading is null ? "    - " : "- ").AppendLine(change);
         }
     }
 
@@ -981,27 +1107,7 @@ internal static class ItemPatchNotesMarkdown
         var isAutomagic = category is "armors" or "weapons";
         if (!isAutomagic)
         {
-            markdown.AppendLine("- Set-piece changes:");
-            if (changes.Added.Count == 0 && changes.Removed.Count == 0 && changes.Modified.Count == 0)
-            {
-                markdown.AppendLine(
-                    "  - The comparison reports nested set data changes without identifying an individual piece.");
-                return;
-            }
-
-            AppendNestedSetPieceEntries(markdown, "Added", changes.Added, newTranslations, state);
-            AppendNestedSetPieceEntries(markdown, "Removed", changes.Removed, oldTranslations, state);
-            foreach (var nested in changes.Modified)
-            {
-                AppendTraceComment(markdown, category, nested.Key);
-                AppendHeading(markdown, 5,
-                    "Modified: " + GetDisplayName(nested.New, nested.Key, newTranslations, state));
-                markdown.AppendLine();
-                AppendModifiedRecordDetails(markdown, nested, new CategoryDefinition("set-piece", "Set piece"),
-                    oldTranslations, newTranslations, state);
-                markdown.AppendLine();
-            }
-
+            AppendSetPieceChanges(markdown, changes, oldTranslations, newTranslations, state);
             return;
         }
 
@@ -1027,6 +1133,41 @@ internal static class ItemPatchNotesMarkdown
         }
     }
 
+    private static void AppendSetPieceChanges(
+        StringBuilder markdown,
+        NestedRecordChanges changes,
+        RecipeTranslations oldTranslations,
+        RecipeTranslations newTranslations,
+        RenderState state)
+    {
+        var count = CountChangedSetPieces(changes);
+        markdown.Append("#### Changed Set Pieces");
+        if (count > 0) markdown.Append(" (").Append(Invariant(count)).Append(')');
+        markdown.AppendLine();
+        if (count == 0)
+        {
+            markdown.AppendLine(
+                "The comparison reports nested set data changes without identifying an individual piece.");
+            return;
+        }
+
+        AppendNestedSetPieceEntries(markdown, "Added", changes.Added, newTranslations, state);
+        AppendNestedSetPieceEntries(markdown, "Removed", changes.Removed, oldTranslations, state);
+        foreach (var nested in changes.Modified
+                     .OrderBy(record => GetDisplayNameText(record.New, record.Key, newTranslations, state,
+                         countFallback: false), StringComparer.Ordinal)
+                     .ThenBy(static record => record.Key, StringComparer.Ordinal))
+        {
+            AppendTraceComment(markdown, "sets", nested.Key);
+            AppendHeading(markdown, 5,
+                EscapeHtml(GetDisplayNameText(nested.New, nested.Key, newTranslations, state)) + " — modified");
+            markdown.AppendLine();
+            AppendModifiedRecordDetails(markdown, nested, new CategoryDefinition("set-piece", "Set piece"),
+                oldTranslations, newTranslations, state);
+            markdown.AppendLine();
+        }
+    }
+
     private static void AppendNestedSetPieceEntries(
         StringBuilder markdown,
         string status,
@@ -1034,10 +1175,15 @@ internal static class ItemPatchNotesMarkdown
         RecipeTranslations translations,
         RenderState state)
     {
-        foreach (var record in records)
+        foreach (var record in records.OrderBy(record =>
+                             GetDisplayNameText(record.Record, record.Key, translations, state, countFallback: false),
+                         StringComparer.Ordinal)
+                     .ThenBy(static record => record.Key, StringComparer.Ordinal))
         {
             AppendTraceComment(markdown, "sets", record.Key);
-            AppendHeading(markdown, 5, status + ": " + GetDisplayName(record.Record, record.Key, translations, state));
+            AppendHeading(markdown, 5,
+                EscapeHtml(GetDisplayNameText(record.Record, record.Key, translations, state)) + " — " +
+                status.ToLowerInvariant());
             markdown.AppendLine();
             AppendCompleteRecord(markdown, record.Record, "set-piece", translations, state);
             markdown.AppendLine();
@@ -1074,7 +1220,7 @@ internal static class ItemPatchNotesMarkdown
         foreach (var piece in pieces.EnumerateArray())
         {
             var key = TryGetString(piece, "Index") ?? "unknown piece";
-            markdown.Append("  - ").AppendLine(GetDisplayName(piece, key, translations, state));
+            markdown.Append("  - ").AppendLine(EscapeHtml(GetDisplayNameText(piece, key, translations, state)));
             AppendCompleteRecord(markdown, piece, "set-piece", translations, state);
         }
     }
@@ -1210,31 +1356,52 @@ internal static class ItemPatchNotesMarkdown
         string fallback,
         RecipeTranslations translations,
         RenderState state,
+        bool countFallback = true) =>
+        LightEscape(GetDisplayNameText(record, fallback, translations, state, countFallback));
+
+    private static string GetDisplayNameText(
+        JsonElement record,
+        string fallback,
+        RecipeTranslations translations,
+        RenderState state,
         bool countFallback = true)
     {
         var nameKey = TryGetString(record, "NameKey");
         if (nameKey is not null)
         {
-            if (!countFallback)
-                return translations.TryGet(nameKey, out var localizedName)
-                    ? LightEscape(localizedName)
-                    : LightEscape(nameKey);
-            return RenderNameKey(nameKey, translations, state);
+            if (translations.TryGet(nameKey, out var localizedName)) return localizedName;
+            if (!countFallback) return nameKey;
+            state.UntranslatedValues++;
+            return nameKey + " (translation unavailable)";
         }
 
-        if (TryGetString(record, "Name") is { } name) return LightEscape(name);
+        if (TryGetString(record, "Name") is { } name) return name;
         if (TryGetString(record, "Index") is { } index)
-            return translations.TryGet(index, out var localized) ? LightEscape(localized) : LightEscape(index);
-        if (TryGetString(record, "Code") is { } code) return LightEscape(code);
-        return LightEscape(fallback);
+            return translations.TryGet(index, out var localized) ? localized : index;
+        if (TryGetString(record, "Code") is { } code) return code;
+        return fallback;
     }
 
-    private static string GetEquipmentCategory(JsonElement record, RecipeTranslations translations, RenderState state)
+    private static string GetEquipmentCategoryKey(JsonElement record)
     {
         var type = TryGet(record, "Equipment", out var equipment) ? TryGetString(equipment, "Type") : null;
         type ??= TryGetString(record, "Type");
-        return string.IsNullOrEmpty(type) ? "Other" : TranslateMaybe(type, translations);
+        return string.IsNullOrEmpty(type) ? "Other" : type;
     }
+
+    private static string GetEquipmentCategoryLabel(
+        string type,
+        RecipeTranslations oldTranslations,
+        RecipeTranslations newTranslations) =>
+        newTranslations.TryGet(type, out var newLabel)
+            ? newLabel
+            : oldTranslations.TryGet(type, out var oldLabel)
+                ? oldLabel
+                : type;
+
+    private static string EscapeHtml(string value) => value.Replace("&", "&amp;", StringComparison.Ordinal)
+        .Replace("<", "&lt;", StringComparison.Ordinal)
+        .Replace(">", "&gt;", StringComparison.Ordinal);
 
     private static string RenderNameKey(string key, RecipeTranslations translations, RenderState state)
     {
@@ -1548,6 +1715,22 @@ internal static class ItemPatchNotesMarkdown
             : null;
 
     private sealed record CategoryDefinition(string Id, string Title);
+
+    private sealed record UniqueChange(
+        string ChangeType,
+        string Key,
+        JsonElement Record,
+        RecipeTranslations Translations,
+        RecordEntry? Entry,
+        ModifiedRecord? Modified);
+
+    private sealed record SetChange(
+        string ChangeType,
+        string Key,
+        JsonElement Record,
+        RecordEntry? Entry,
+        ModifiedRecord? Modified,
+        RecipeTranslations Translations);
 
     private sealed record PropertyCollection(string Path, string Label, JsonElement Lines);
 
