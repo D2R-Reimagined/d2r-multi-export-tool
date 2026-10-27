@@ -169,6 +169,103 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
     }
 
     [Fact]
+    public async Task NumericChangesPairBySkillAndPreserveTriggerAndSkillChanges()
+    {
+        const string translations = "{\"proc\":\"%d %s\",\"holyShock\":\"Holy Shock\",\"frozenOrb\":\"Frozen Orb\"}";
+        const string oldUnique = "[{\"Index\":\"Proc Item\",\"Lines\":["
+                                 + "{\"key\":\"proc\",\"args\":[10,\"holyShock\"],\"trigger\":\"onHit\"},"
+                                 + "{\"key\":\"proc\",\"args\":[20,\"frozenOrb\"],\"trigger\":\"onHit\"}]}]";
+        const string newUnique = "[{\"Index\":\"Proc Item\",\"Lines\":["
+                                 + "{\"key\":\"proc\",\"args\":[12,\"holyShock\"],\"trigger\":\"onHit\"},"
+                                 + "{\"key\":\"proc\",\"args\":[25,\"frozenOrb\"],\"trigger\":\"onHit\"}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", oldUnique, translations);
+        var newSnapshot = await CreateSnapshotAsync("new", "[]", newUnique, translations);
+
+        var markdown = await SnapshotComparison.RenderItemPatchNotesAsync(
+            await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot));
+
+        Assert.Contains("Changed: 12 Holy Shock (trigger=onHit) (was 10)", markdown);
+        Assert.Contains("Changed: 25 Frozen Orb (trigger=onHit) (was 20)", markdown);
+        Assert.DoesNotContain("Added: 12 Holy Shock", markdown);
+        Assert.DoesNotContain("Removed: 10 Holy Shock", markdown);
+
+        var changedIdentityOld = "[{\"Index\":\"Proc Item\",\"Lines\":["
+                                 + "{\"key\":\"proc\",\"args\":[10,\"holyShock\"],\"trigger\":\"onHit\"}]}]";
+        var changedIdentityNew = "[{\"Index\":\"Proc Item\",\"Lines\":["
+                                 + "{\"key\":\"proc\",\"args\":[12,\"frozenOrb\"],\"trigger\":\"onGetHit\"}]}]";
+        oldSnapshot = await CreateSnapshotAsync("identity-old", "[]", changedIdentityOld, translations);
+        newSnapshot = await CreateSnapshotAsync("identity-new", "[]", changedIdentityNew, translations);
+        markdown = await SnapshotComparison.RenderItemPatchNotesAsync(
+            await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot));
+
+        Assert.Contains("Added: 12 Frozen Orb", markdown);
+        Assert.Contains("Removed: 10 Holy Shock", markdown);
+        Assert.DoesNotContain("Changed: 12 Frozen Orb", markdown);
+    }
+
+    [Fact]
+    public async Task EmptySetBonusTierDoesNotRenderBlankRemoval()
+    {
+        const string oldSet = "[{\"NameKey\":\"demonBlade\",\"SetBonuses\":[[]]}]";
+        const string newSet = "[{\"NameKey\":\"demonBlade\",\"SetBonuses\":[[{\"key\":\"bonus\",\"args\":[1]}]]}]";
+        const string translations = "{\"bonus\":\"+%d Damage\"}";
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", "[]", translations,
+            new Dictionary<string, string> { ["keyed/weapons.json"] = oldSet });
+        var newSnapshot = await CreateSnapshotAsync("new", "[]", "[]", translations,
+            new Dictionary<string, string> { ["keyed/weapons.json"] = newSet });
+
+        var markdown = await SnapshotComparison.RenderItemPatchNotesAsync(
+            await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot));
+
+        Assert.Contains("Added: +1 Damage", markdown);
+        Assert.DoesNotContain("- Removed: \n", markdown.Replace("\r\n", "\n", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task DamageTypePropertiesAreNotRepeatedAsMetadata()
+    {
+        const string oldWeapon = "[{\"NameKey\":\"throwingPotion\",\"Equipment\":{\"DamageTypes\":[]}}]";
+        const string newWeapon = "[{\"NameKey\":\"throwingPotion\",\"Equipment\":{\"DamageTypes\":["
+                                 + "{\"Type\":2,\"AverageDamage\":5,\"Lines\":[{\"key\":\"fireDamage\",\"args\":[5]}]}]}}]";
+        const string translations = "{\"fireDamage\":\"+%d Fire Damage\"}";
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", "[]", translations,
+            new Dictionary<string, string> { ["keyed/weapons.json"] = oldWeapon });
+        var newSnapshot = await CreateSnapshotAsync("new", "[]", "[]", translations,
+            new Dictionary<string, string> { ["keyed/weapons.json"] = newWeapon });
+
+        var markdown = await SnapshotComparison.RenderItemPatchNotesAsync(
+            await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot));
+
+        Assert.Equal(1, markdown.Split("+5 Fire Damage", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("Damage Types:", markdown);
+    }
+
+    [Fact]
+    public async Task AuraRangeTemplateFormatsAndUnsupportedStaticTemplateKeepsFallback()
+    {
+        const string oldUnique = "[{\"Index\":\"Aura Item\",\"Lines\":["
+                                 + "{\"key\":\"aura\",\"args\":[10,12,\"holyShock\"]}]}]";
+        const string newUnique = "[{\"Index\":\"Aura Item\",\"Lines\":["
+                                 + "{\"key\":\"aura\",\"args\":[15,20,\"holyShock\"]},"
+                                 + "{\"key\":\"static\",\"args\":[1]},"
+                                 + "{\"key\":\"plusRange\",\"args\":[2,5,\"holyShock\"]},"
+                                 + "{\"key\":\"equalRange\",\"args\":[4,4,\"holyShock\"]}]}]";
+        const string translations = "{\"aura\":\"Level %d %s Aura\",\"holyShock\":\"Holy Shock\","
+                                    + "\"static\":\"Static description\",\"plusRange\":\"%+d %s\","
+                                    + "\"equalRange\":\"%i %s\"}";
+        var oldSnapshot = await CreateSnapshotAsync("old", "[]", oldUnique, translations);
+        var newSnapshot = await CreateSnapshotAsync("new", "[]", newUnique, translations);
+
+        var markdown = await SnapshotComparison.RenderItemPatchNotesAsync(
+            await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot));
+
+        Assert.Contains("Changed: Level (15-20) Holy Shock Aura (was Level (10-12))", markdown);
+        Assert.Contains("Added: static \\[1\\] (translation template unsupported; review)", markdown);
+        Assert.Contains("Added: +(2-5) Holy Shock", markdown);
+        Assert.Contains("Added: 4 Holy Shock", markdown);
+    }
+
+    [Fact]
     public async Task SharedSetBonusesAndOnlyChangedSetPiecesAreShown()
     {
         const string translations = "{\"setName\":\"Dawn Set\",\"pieceA\":\"Dawn Helm\",\"pieceB\":\"Dawn Shield\","

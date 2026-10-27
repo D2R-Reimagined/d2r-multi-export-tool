@@ -87,8 +87,15 @@ Uniques, Sets, Runewords, Base armor, Base weapons, Magic prefixes, and Magic
 suffixes. Added and removed records include readable identifying metadata and
 all available properties. Modified records show only changed metadata and
 property lines. Exact property lines are removed as a multiset; remaining lines
-are paired for numeric comparisons only when a property identity is unique on
-both sides. Ambiguous or replaced lines remain separate additions/removals.
+are paired only when their key, non-argument metadata, and ordered nonnumeric
+arguments identify a unique line on both sides. Numeric arguments can then be
+shown as `new (was old)`. A supported template with one numeric placeholder and
+one surplus numeric endpoint renders those endpoints as a range (with equal
+endpoints reduced to one value); the remaining arguments still use the original
+template. A changed skill or trigger remains an addition and removal, and
+ambiguous lines are not guessed. Empty property-array entries are omitted, and
+readable base damage lines are not repeated as `DamageTypes` metadata when those
+lines also changed.
 Set-piece and shared-bonus changes are presented separately, runeword rune order
 is retained, and automagic groups are described as possible associations, not
 guaranteed rolls. Unavailable categories are labeled unavailable, and

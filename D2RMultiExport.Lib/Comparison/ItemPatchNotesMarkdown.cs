@@ -624,11 +624,22 @@ internal static class ItemPatchNotesMarkdown
             changes.Add("Property order changed.");
 
         foreach (var index in added)
-            changes.Add($"Added: {RenderPropertyLineText(newLines[index], newTranslations, state)}");
+        {
+            if (!IsEmptyPropertyLine(newLines[index]))
+                changes.Add($"Added: {RenderPropertyLineText(newLines[index], newTranslations, state)}");
+        }
+
         foreach (var index in removed)
-            changes.Add($"Removed: {RenderPropertyLineText(oldLines[index], oldTranslations, state)}");
+        {
+            if (!IsEmptyPropertyLine(oldLines[index]))
+                changes.Add($"Removed: {RenderPropertyLineText(oldLines[index], oldTranslations, state)}");
+        }
+
         return new PropertyDiff(changes);
     }
+
+    private static bool IsEmptyPropertyLine(JsonElement line) =>
+        line.ValueKind == JsonValueKind.Array && line.GetArrayLength() == 0;
 
     private static Dictionary<string, List<int>> BuildIdentityBuckets(IReadOnlyList<JsonElement> lines, bool[] matched)
     {
@@ -653,12 +664,27 @@ internal static class ItemPatchNotesMarkdown
         var stable = new StringBuilder();
         stable.Append("key=").Append(CanonicalString(key)).Append(';');
         var hasArgs = TryGet(line, "args", out var args);
-        var argsAreNumeric = !hasArgs || args.ValueKind == JsonValueKind.Array &&
-            args.EnumerateArray().All(static argument => argument.ValueKind == JsonValueKind.Number);
         foreach (var property in line.EnumerateObject().Where(static property => property.Name != "args")
                      .OrderBy(static property => property.Name, StringComparer.Ordinal))
             stable.Append(property.Name).Append('=').Append(CanonicalJson(property.Value)).Append(';');
-        if (hasArgs && !argsAreNumeric) stable.Append("args=").Append(CanonicalJson(args));
+        if (hasArgs)
+        {
+            if (args.ValueKind == JsonValueKind.Array)
+            {
+                var nonNumericArgs = args.EnumerateArray()
+                    .Where(static argument => argument.ValueKind != JsonValueKind.Number).ToArray();
+                if (nonNumericArgs.Length > 0)
+                {
+                    stable.Append("args=[");
+                    foreach (var argument in nonNumericArgs)
+                        stable.Append(CanonicalJson(argument)).Append(';');
+                    stable.Append("];");
+                }
+            }
+            else
+                stable.Append("args=").Append(CanonicalJson(args)).Append(';');
+        }
+
         identity = stable.ToString();
         return true;
     }
@@ -677,6 +703,8 @@ internal static class ItemPatchNotesMarkdown
         var template = "";
         if (key.Length > 0) hasTemplate = translations.TryGet(key, out template);
         if (hasTemplate && ComparisonMarkdown.TryFormatTemplate(template, args, translations, out var formatted))
+            rendered = formatted;
+        else if (hasTemplate && TryFormatRangeTemplate(template, args, translations, out formatted))
             rendered = formatted;
         else
         {
@@ -746,6 +774,76 @@ internal static class ItemPatchNotesMarkdown
         return LightEscape(rendered);
     }
 
+    private static bool TryFormatRangeTemplate(
+        string template,
+        JsonElement[] args,
+        RecipeTranslations translations,
+        out string formatted)
+    {
+        formatted = "";
+        var tokens = new List<(int Start, int Length, string Token)>();
+        for (var index = 0; index < template.Length; index++)
+        {
+            if (template[index] != '%') continue;
+            if (index + 1 >= template.Length) return false;
+            if (template[index + 1] == '%')
+            {
+                index++;
+                continue;
+            }
+
+            string token;
+            var tokenLength = 2;
+            if (template[index + 1] == '+' && index + 2 < template.Length && template[index + 2] == 'd')
+            {
+                token = "+d";
+                tokenLength = 3;
+            }
+            else if (template[index + 1] is 'd' or 'i' or 's')
+                token = template[index + 1].ToString();
+            else
+                return false;
+
+            tokens.Add((index, tokenLength, token));
+            index += tokenLength - 1;
+        }
+
+        var numericTokens = tokens
+            .Select((token, index) => (token, index))
+            .Where(static entry => entry.token.Token is "d" or "+d" or "i")
+            .ToArray();
+        if (numericTokens.Length != 1 || args.Length != tokens.Count + 1) return false;
+
+        var (rangeToken, rangeIndex) = numericTokens[0];
+        if (args[rangeIndex].ValueKind != JsonValueKind.Number ||
+            args[rangeIndex + 1].ValueKind != JsonValueKind.Number)
+            return false;
+
+        var minimum = RawJson(args[rangeIndex]);
+        var maximum = RawJson(args[rangeIndex + 1]);
+        var equal = CanonicalJson(args[rangeIndex])
+            .Equals(CanonicalJson(args[rangeIndex + 1]), StringComparison.Ordinal);
+        var range = rangeToken.Token == "+d" ? "+" : "";
+        range += equal ? minimum : $"({minimum}-{maximum})";
+
+        var rangeTemplate = new StringBuilder(template.Length + range.Length);
+        var cursor = 0;
+        foreach (var (token, index) in tokens.Select((token, index) => (token, index)))
+        {
+            rangeTemplate.Append(template.AsSpan(cursor, token.Start - cursor));
+            if (index == rangeIndex)
+                rangeTemplate.Append(range);
+            else
+                rangeTemplate.Append(template.AsSpan(token.Start, token.Length));
+            cursor = token.Start + token.Length;
+        }
+
+        rangeTemplate.Append(template.AsSpan(cursor));
+        var remainingArgs = args.Where((_, index) => index != rangeIndex && index != rangeIndex + 1).ToArray();
+        return ComparisonMarkdown.TryFormatTemplate(rangeTemplate.ToString(), remainingArgs, translations,
+            out formatted);
+    }
+
     private static void AppendPropertyLine(
         StringBuilder markdown,
         JsonElement line,
@@ -778,8 +876,11 @@ internal static class ItemPatchNotesMarkdown
         RenderState state)
     {
         var runeSequenceChanged = record.Changes.Any(change => IsRuneSequencePath(change.Path));
+        var damageTypePropertiesChanged = HasReadableDamageTypePropertyChanges(record.Old, record.New);
         var changes = record.Changes.Where(change => !IsPropertyChangePath(change.Path) &&
                                                      !IsRuneSequencePath(change.Path) &&
+                                                     !(damageTypePropertiesChanged &&
+                                                       IsDamageTypesMetadataPath(change.Path)) &&
                                                      (record.NestedChanges is null ||
                                                       !IsNestedPath(change.Path, record.NestedChanges.Field)))
             .ToArray();
@@ -812,6 +913,38 @@ internal static class ItemPatchNotesMarkdown
                 AppendFieldChange(markdown, change, oldTranslations, newTranslations, state, "  ");
         }
     }
+
+    private static bool HasReadableDamageTypePropertyChanges(JsonElement oldRecord, JsonElement newRecord)
+    {
+        var oldCollections = GetPropertyCollections(oldRecord)
+            .Where(static collection => IsDamageTypesPropertyPath(collection.Path))
+            .ToDictionary(static collection => collection.Path, StringComparer.Ordinal);
+        var newCollections = GetPropertyCollections(newRecord)
+            .Where(static collection => IsDamageTypesPropertyPath(collection.Path))
+            .ToDictionary(static collection => collection.Path, StringComparer.Ordinal);
+        foreach (var path in oldCollections.Keys.Concat(newCollections.Keys).Distinct(StringComparer.Ordinal))
+        {
+            oldCollections.TryGetValue(path, out var oldCollection);
+            newCollections.TryGetValue(path, out var newCollection);
+            if (oldCollection is not null && newCollection is not null &&
+                CanonicalJson(oldCollection.Lines).Equals(CanonicalJson(newCollection.Lines), StringComparison.Ordinal))
+                continue;
+            if (HasPropertyLineContent(oldCollection) || HasPropertyLineContent(newCollection)) return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasPropertyLineContent(PropertyCollection? collection) =>
+        collection is not null && collection.Lines.ValueKind == JsonValueKind.Array &&
+        collection.Lines.EnumerateArray().Any(static line => !IsEmptyPropertyLine(line));
+
+    private static bool IsDamageTypesPropertyPath(string path) =>
+        path.Split('.', StringSplitOptions.RemoveEmptyEntries)
+            .Any(static segment =>
+                segment == "DamageTypes" || segment.StartsWith("DamageTypes[", StringComparison.Ordinal));
+
+    private static bool IsDamageTypesMetadataPath(string path) => LastPathName(path) == "DamageTypes";
 
     private static void AppendFieldChange(
         StringBuilder markdown,
