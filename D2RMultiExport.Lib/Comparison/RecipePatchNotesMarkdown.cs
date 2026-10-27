@@ -44,7 +44,7 @@ internal static class RecipePatchNotesMarkdown
                                  HasForcedAffixQualifier(entry.NewRecord)))
         {
             markdown.AppendLine(
-                "Forced affix names are shown generically because the keyed affix snapshot does not preserve source row IDs; array positions are not engine row IDs.");
+                "Some guaranteed affixes cannot currently be identified by name.");
             markdown.AppendLine();
         }
 
@@ -633,7 +633,8 @@ internal static class RecipePatchNotesMarkdown
         {
             var lineBefore = context.PropertyState.UntranslatedValues;
             var rendered = ItemPatchNotesMarkdown.RenderPropertyLineText(
-                line, translations, context.PropertyState, translations.VerifiedFlagKeys);
+                line, translations, context.PropertyState, translations.VerifiedFlagKeys,
+                translations.VerifiedTrailingValueKeys);
             if (context.PropertyState.UntranslatedValues > lineBefore &&
                 rendered.Contains("Property description unavailable; see detailed comparison.",
                     StringComparison.Ordinal))
@@ -1290,7 +1291,8 @@ internal static class RecipePatchNotesMarkdown
             var cacheKey = ItemPatchNotesMarkdown.CanonicalJson(value);
             if (context.RenderedLines.TryGetValue((translations, cacheKey), out var cached)) return cached;
             var rendered = ItemPatchNotesMarkdown.RenderPropertyLineText(
-                value, translations, context.PropertyState, translations.VerifiedFlagKeys);
+                value, translations, context.PropertyState, translations.VerifiedFlagKeys,
+                translations.VerifiedTrailingValueKeys);
             if (rendered == "Property description unavailable; see detailed comparison.")
                 rendered = "Translation unavailable; see detailed comparison.";
 

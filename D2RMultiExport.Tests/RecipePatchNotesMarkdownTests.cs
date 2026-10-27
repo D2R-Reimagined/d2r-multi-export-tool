@@ -262,14 +262,16 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         const string verifiedProperties =
             "[{\"key\":\"ModStr1y\",\"args\":[1]},{\"key\":\"ModStr3y\",\"args\":[1]}," +
             "{\"key\":\"ModStr4b\",\"args\":[1]},{\"key\":\"ModStr5z\",\"args\":[1]}," +
-            "{\"key\":\"ModStre9s\",\"args\":[1]},{\"key\":\"strethereal\",\"args\":[1]}]";
+            "{\"key\":\"ModStre9s\",\"args\":[1]},{\"key\":\"strethereal\",\"args\":[1]}," +
+            "{\"key\":\"ModStr6d\",\"args\":[10]}]";
         const string presentation =
             "{\"Stats\":{\"indestructible\":{\"Function\":19,\"PositiveKey\":\"ModStr1y\",\"NegativeKey\":\"ModStr1y\"}," +
             "\"cannotbefrozen\":{\"Function\":19,\"PositiveKey\":\"ModStr3y\",\"NegativeKey\":\"ModStr3y\"}," +
             "\"knockback\":{\"Function\":19,\"PositiveKey\":\"ModStr4b\",\"NegativeKey\":\"ModStr4b\"}," +
             "\"ignoretargetac\":{\"Function\":19,\"PositiveKey\":\"ModStr5z\",\"NegativeKey\":\"ModStr5z\"}," +
             "\"half_freeze\":{\"Function\":19,\"PositiveKey\":\"ModStre9s\",\"NegativeKey\":\"ModStre9s\"}," +
-            "\"item_stupidity\":{\"Function\":12,\"PositiveKey\":\"ModStr6d\",\"NegativeKey\":\"ModStr6d\"}}}";
+            "\"item_stupidity\":{\"Function\":12,\"ValueMode\":2,\"ValueShift\":0,\"PositiveKey\":\"ModStr6d\"," +
+            "\"NegativeKey\":\"ModStr6d\"}}}";
         var oldSnapshot = await CreateSnapshotAsync("old", "[]", Translations,
             itemStatPresentation: presentation);
         var newSnapshot = await CreateSnapshotAsync("new", RecipeWithProperties("flags", verifiedProperties),
@@ -285,13 +287,16 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         Assert.Contains("Ignore Target's Defense", markdown);
         Assert.Contains("Half Freeze Duration", markdown);
         Assert.Contains("Ethereal (Cannot be Repaired)", markdown);
+        Assert.Contains("Hit Blinds Target +10", markdown);
         Assert.DoesNotContain("(value unverified)", markdown);
 
+        var unverifiedPresentation = presentation.Replace(",\"ValueMode\":2,\"ValueShift\":0", "",
+            StringComparison.Ordinal);
         var fallbackOldSnapshot = await CreateSnapshotAsync("fallback-old", "[]", Translations,
-            itemStatPresentation: presentation);
+            itemStatPresentation: unverifiedPresentation);
         var fallbackNewSnapshot = await CreateSnapshotAsync("fallback-new", RecipeWithProperties("fallback-flags",
                 "[{\"key\":\"ModStr6d\",\"args\":[10]},{\"key\":\"ModStr1y\",\"args\":[2]}]"), Translations,
-            itemStatPresentation: presentation);
+            itemStatPresentation: unverifiedPresentation);
         var fallbackReport = await SnapshotComparison.CompareAsync(fallbackOldSnapshot, fallbackNewSnapshot);
         var fallbackMarkdown = await SnapshotComparison.RenderRecipePatchNotesAsync(fallbackReport);
 
@@ -312,7 +317,7 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         Assert.Contains("Magic Ring (Forced prefix)", markdown);
         Assert.Contains("Magic Ring (Forced suffix)", markdown);
         Assert.Contains(
-            "Forced affix names are shown generically because the keyed affix snapshot does not preserve source row IDs; array positions are not engine row IDs.",
+            "Some guaranteed affixes cannot currently be identified by name.",
             markdown);
         Assert.DoesNotContain("guaranteed Coral prefix", markdown);
         Assert.DoesNotContain("guaranteed of the Leech suffix", markdown);

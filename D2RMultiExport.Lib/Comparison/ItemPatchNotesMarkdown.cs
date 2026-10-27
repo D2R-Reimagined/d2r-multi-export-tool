@@ -819,7 +819,8 @@ internal static class ItemPatchNotesMarkdown
         JsonElement line,
         RecipeTranslations translations,
         RenderState state,
-        IReadOnlySet<string>? verifiedFlagKeys = null)
+        IReadOnlySet<string>? verifiedFlagKeys = null,
+        IReadOnlySet<string>? verifiedTrailingValueKeys = null)
     {
         if (line.ValueKind != JsonValueKind.Object) return RenderValue(line, "", translations, state);
         var key = TryGetString(line, "key");
@@ -841,8 +842,14 @@ internal static class ItemPatchNotesMarkdown
             var isVerifiedFixedFlag = verifiedFlagKeys?.Contains(key) == true && args.Length == 1 &&
                                       args[0].ValueKind == JsonValueKind.Number &&
                                       args[0].TryGetInt32(out var flagValue) && flagValue == 1;
-            if (!isVerifiedFixedFlag) state.UntranslatedValues++;
-            rendered = template + (args.Length > 0 && !isVerifiedFixedFlag ? " (value unverified)" : "");
+            var trailingValue = 0;
+            var hasVerifiedTrailingValue = verifiedTrailingValueKeys?.Contains(key) == true && args.Length == 1 &&
+                                           args[0].ValueKind == JsonValueKind.Number &&
+                                           args[0].TryGetInt32(out trailingValue) && trailingValue > 1;
+            if (!isVerifiedFixedFlag && !hasVerifiedTrailingValue) state.UntranslatedValues++;
+            rendered = hasVerifiedTrailingValue
+                ? template + " +" + trailingValue
+                : template + (args.Length > 0 && !isVerifiedFixedFlag ? " (value unverified)" : "");
         }
         else if (state.ConciseRecipeText)
         {

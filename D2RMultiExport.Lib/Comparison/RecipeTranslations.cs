@@ -24,16 +24,20 @@ internal sealed class RecipeTranslations
     private RecipeTranslations(
         Dictionary<string, string> values,
         HashSet<string> verifiedFlagKeys,
+        HashSet<string> verifiedTrailingValueKeys,
         string status)
     {
         Values = values;
         VerifiedFlagKeys = verifiedFlagKeys;
+        VerifiedTrailingValueKeys = verifiedTrailingValueKeys;
         Status = status;
     }
 
     public Dictionary<string, string> Values { get; }
 
     public IReadOnlySet<string> VerifiedFlagKeys { get; }
+
+    public IReadOnlySet<string> VerifiedTrailingValueKeys { get; }
 
     public string Status { get; }
 
@@ -91,8 +95,9 @@ internal sealed class RecipeTranslations
             var status = reader.Info.Warnings.Count == 0
                 ? "available (manifest-verified)"
                 : "available (manifest-verified; snapshot has warnings)";
-            var verifiedFlagKeys = await LoadVerifiedFlagKeysAsync(reader, values);
-            return new RecipeTranslations(values, verifiedFlagKeys, status);
+            var (verifiedFlagKeys, verifiedTrailingValueKeys) =
+                await LoadVerifiedPresentationKeysAsync(reader, values);
+            return new RecipeTranslations(values, verifiedFlagKeys, verifiedTrailingValueKeys, status);
         }
         catch (JsonException ex)
         {
@@ -100,14 +105,16 @@ internal sealed class RecipeTranslations
         }
     }
 
-    private static async Task<HashSet<string>> LoadVerifiedFlagKeysAsync(
-        SnapshotReader reader,
-        IReadOnlyDictionary<string, string> translations)
+    private static async Task<(HashSet<string> FlagKeys, HashSet<string> TrailingValueKeys)>
+        LoadVerifiedPresentationKeysAsync(
+            SnapshotReader reader,
+            IReadOnlyDictionary<string, string> translations)
     {
-        var verifiedKeys = new HashSet<string>(VerifiedFlagKeyExceptions, StringComparer.Ordinal);
+        var verifiedFlagKeys = new HashSet<string>(VerifiedFlagKeyExceptions, StringComparer.Ordinal);
+        var verifiedTrailingValueKeys = new HashSet<string>(StringComparer.Ordinal);
         var file = await reader.ReadFileAsync(ItemStatPresentationPath, ItemStatPresentationProducer);
         if (file.Payload is null || file.Payload.Sha256 is null || file.Errors.Count > 0 || file.Warnings.Count > 0)
-            return verifiedKeys;
+            return (verifiedFlagKeys, verifiedTrailingValueKeys);
 
         try
         {
@@ -115,15 +122,26 @@ internal sealed class RecipeTranslations
             if (document.RootElement.ValueKind != JsonValueKind.Object ||
                 !document.RootElement.TryGetProperty("Stats", out var stats) ||
                 stats.ValueKind != JsonValueKind.Object)
-                return verifiedKeys;
+                return (verifiedFlagKeys, verifiedTrailingValueKeys);
 
-            var references = new Dictionary<string, bool>(StringComparer.Ordinal);
+            var flagReferences = new Dictionary<string, bool>(StringComparer.Ordinal);
+            var trailingValueReferences = new Dictionary<string, bool>(StringComparer.Ordinal);
             foreach (var stat in stats.EnumerateObject())
             {
                 if (stat.Value.ValueKind != JsonValueKind.Object) continue;
                 var isFixedFunction = stat.Value.TryGetProperty("Function", out var function) &&
                                       function.ValueKind == JsonValueKind.Number &&
                                       function.TryGetInt32(out var functionNumber) && functionNumber == 19;
+                var isTrailingValueFunction = stat.Value.TryGetProperty("Function", out function) &&
+                                              function.ValueKind == JsonValueKind.Number &&
+                                              function.TryGetInt32(out functionNumber) && functionNumber == 12 &&
+                                              stat.Value.TryGetProperty("ValueMode", out var valueMode) &&
+                                              valueMode.ValueKind == JsonValueKind.Number &&
+                                              valueMode.TryGetInt32(out var valueModeNumber) && valueModeNumber == 2 &&
+                                              (!stat.Value.TryGetProperty("ValueShift", out var valueShift) ||
+                                               valueShift.ValueKind == JsonValueKind.Number &&
+                                               valueShift.TryGetInt32(out var valueShiftNumber) &&
+                                               valueShiftNumber == 0);
                 foreach (var field in PresentationKeyFields)
                 {
                     if (!stat.Value.TryGetProperty(field, out var keyValue) ||
@@ -132,19 +150,32 @@ internal sealed class RecipeTranslations
                         continue;
 
                     var key = keyValue.GetString()!;
-                    if (references.TryGetValue(key, out var existing))
-                        references[key] = existing && isFixedFunction;
+                    if (flagReferences.TryGetValue(key, out var existingFlagReference))
+                        flagReferences[key] = existingFlagReference && isFixedFunction;
                     else
-                        references.Add(key, isFixedFunction);
+                        flagReferences.Add(key, isFixedFunction);
+
+                    if (trailingValueReferences.TryGetValue(key, out var existingTrailingValueReference))
+                        trailingValueReferences[key] = existingTrailingValueReference && isTrailingValueFunction;
+                    else
+                        trailingValueReferences.Add(key, isTrailingValueFunction);
                 }
             }
 
-            foreach (var (key, isFixedFunction) in references)
+            foreach (var (key, isFixedFunction) in flagReferences)
             {
                 if (isFixedFunction && translations.TryGetValue(key, out var template) &&
                     !string.IsNullOrWhiteSpace(template) &&
                     !template.Contains('%'))
-                    verifiedKeys.Add(key);
+                    verifiedFlagKeys.Add(key);
+            }
+
+            foreach (var (key, isTrailingValueFunction) in trailingValueReferences)
+            {
+                if (isTrailingValueFunction && translations.TryGetValue(key, out var template) &&
+                    !string.IsNullOrWhiteSpace(template) &&
+                    !template.Contains('%'))
+                    verifiedTrailingValueKeys.Add(key);
             }
         }
         catch (JsonException)
@@ -152,10 +183,11 @@ internal sealed class RecipeTranslations
             // This optional presentation file cannot justify suppressing any warning if malformed.
         }
 
-        return verifiedKeys;
+        return (verifiedFlagKeys, verifiedTrailingValueKeys);
     }
 
     private static RecipeTranslations Unavailable(string reason) =>
         new(new Dictionary<string, string>(StringComparer.Ordinal),
-            new HashSet<string>(VerifiedFlagKeyExceptions, StringComparer.Ordinal), $"unavailable: {reason}");
+            new HashSet<string>(VerifiedFlagKeyExceptions, StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal), $"unavailable: {reason}");
 }
