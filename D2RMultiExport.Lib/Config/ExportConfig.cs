@@ -268,14 +268,17 @@ public sealed class ExportConfig
     public sealed class CubeSocketPunchConfig
     {
         [JsonPropertyName("equipTokens")]    public List<string> EquipTokens { get; set; } = [];
+        [JsonPropertyName("jewelTokens")]    public List<string> JewelTokens { get; set; } = [];
         [JsonPropertyName("jewelQualities")] public List<string> JewelQualities { get; set; } = [];
 
         [JsonIgnore] public HashSet<string> EquipTokensSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+        [JsonIgnore] public HashSet<string> JewelTokensSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
         [JsonIgnore] public HashSet<string> JewelQualitiesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
 
         internal void BuildLookups()
         {
             EquipTokensSet    = new HashSet<string>(EquipTokens,    StringComparer.OrdinalIgnoreCase);
+            JewelTokensSet    = new HashSet<string>(JewelTokens,    StringComparer.OrdinalIgnoreCase);
             JewelQualitiesSet = new HashSet<string>(JewelQualities, StringComparer.OrdinalIgnoreCase);
         }
     }

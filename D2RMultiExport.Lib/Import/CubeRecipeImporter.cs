@@ -804,8 +804,9 @@ public sealed class CubeRecipeImporter
     /// <summary>
     /// Post-sentinel allow-list for "skip-but-continue" mode. Matches the
     /// socket-punch family of recipes that lives after the grabber sentinel
-    /// in CubeMain.txt: Input1 ∈ {helm, tors, shld, weap}, Input2 starts
-    /// with `jew` and carries a quality discriminator (mag|rar|uni),
+    /// in CubeMain.txt: Input1 ∈ {helm, tors, shld, weap}, Input2's main token
+    /// is a configured jewel token (`jew` item code or `jewl` item type) and
+    /// it carries a quality discriminator (mag|rar|uni),
     /// Output is `useitem`, and Mod1 is `sock`. The note tagging is handled
     /// downstream by <see cref="IsSocketPunchRecipe"/>.
     /// </summary>
@@ -819,7 +820,7 @@ public sealed class CubeRecipeImporter
             .Select(p => p.Trim().Trim('"'))
             .Where(p => p.Length > 0)
             .ToList();
-        if (in2Parts.Count == 0 || !string.Equals(in2Parts[0], "jew", StringComparison.OrdinalIgnoreCase)) return false;
+        if (in2Parts.Count == 0 || !_config.CubeSocketPunch.JewelTokensSet.Contains(in2Parts[0])) return false;
         if (!in2Parts.Any(p => _config.CubeSocketPunch.JewelQualitiesSet.Contains(p))) return false;
 
         if (!string.Equals(GetMainToken(entry.Output), "useitem", StringComparison.OrdinalIgnoreCase)) return false;
