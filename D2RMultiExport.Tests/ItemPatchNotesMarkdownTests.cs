@@ -48,11 +48,18 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
         var changesJson = NormalizeJsonPaths(
             await File.ReadAllTextAsync(Path.Combine(outputDirectory, "changes.json")), oldSnapshot, newSnapshot);
 
+        Assert.Contains("| Uniques | 0 | 0 | 1 | 0 | — |", itemPatchNotes);
+        Assert.Contains("<summary>Uniques — 0 added, 0 removed, 1 modified</summary>", itemPatchNotes);
+        Assert.Contains("##### Baseline Unique", itemPatchNotes);
+        Assert.Contains("    - Changed: +2 Damage (was +1)", itemPatchNotes);
+        Assert.DoesNotContain("<!--", itemPatchNotes);
+        Assert.DoesNotContain("English translations:", itemPatchNotes);
+        Assert.DoesNotContain("uniqueName", itemPatchNotes);
         Assert.Equal("33223a5850e90335f4a6becfc7fad91730cd1044fd9dc55cd436977bdcc2f4a2",
             Sha256(Encoding.UTF8.GetBytes(itemChanges)));
         Assert.Equal("b3ed1b58d7dfac491c5ff805f15403ac23114849dfa205919fce1eb5c1de1d56",
             Sha256(Encoding.UTF8.GetBytes(recipeChanges)));
-        Assert.Equal("90526d0055dfc877f0b4611401ee0a9ed9bb8510cf2d0d8bdf56bf2829448d92",
+        Assert.Equal("383170f7d202a950e6a3599548b77a0d91a665f95b020b38de7cc0107289367f",
             Sha256(Encoding.UTF8.GetBytes(itemPatchNotes)));
         Assert.Equal("d312736ad9f5763a424e1ca066b661b006febcfcc21726ad03dd431d7386dfa5",
             Sha256(Encoding.UTF8.GetBytes(changesJson)));
