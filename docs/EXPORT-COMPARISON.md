@@ -120,14 +120,18 @@ visible in the expanded recipe. Records without notes, or whose primary note
 cannot be translated, appear under `Other recipes`. Modified recipes use the new
 record's notes for placement; removed recipes use the old record's notes.
 
-Each note category has one Wiki.js-compatible `<details>` section. Change types
-and recipes inside it use ordinary Markdown headings. The summary table and
-category headings retain their counts; snapshot paths, manifest hashes, recipe
-IDs, row indexes, and routine comparison diagnostics are not shown. Each recipe
-still has an HTML comment linking its record to `changes.json` for traceability.
-Within `Item Enchantment Recipe`, affected definitions are grouped into nested
-collapsible sections by the first ingredient's translated keyed item type, with
-counts and change headings.
+Each note category has one Wiki.js-compatible `<details>` section. Within it,
+each non-empty change type has a nested `<details>` section whose summary retains
+the existing label and record count: `Confirmed matched modifications`, `Added
+recipe definitions`, or `Removed recipe definitions`. Individual recipe headings
+and their properties remain ordinary expanded Markdown, not collapsible
+sections. The summary table and category headings retain their counts; snapshot
+paths, manifest hashes, recipe IDs, row indexes, and routine comparison
+diagnostics are not shown. Each recipe still has an HTML comment linking its
+record to `changes.json` for traceability. Within `Item Enchantment Recipe`,
+affected definitions remain grouped in collapsible sections by the first
+ingredient's translated keyed item type; each equipment type contains its own
+non-empty change-type sections using the same summaries and counts.
 Unavailable recipe comparisons remain explicitly labeled unavailable instead of
 being represented as zero changes.
 

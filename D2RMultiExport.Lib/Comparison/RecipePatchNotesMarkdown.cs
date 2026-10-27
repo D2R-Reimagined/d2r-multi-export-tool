@@ -308,8 +308,8 @@ internal static class RecipePatchNotesMarkdown
             .ToArray();
         if (selected.Length == 0) return;
 
-        markdown.Append(new string('#', headingLevel)).Append(' ').Append(heading).Append(" (")
-            .Append(ComparisonMarkdown.Invariant(selected.Length)).AppendLine(")").AppendLine();
+        ComparisonMarkdown.AppendDetailsStart(markdown,
+            $"{heading} ({ComparisonMarkdown.Invariant(selected.Length)})");
         var duplicateTitles = selected.GroupBy(static entry => entry.Title, StringComparer.OrdinalIgnoreCase)
             .Where(static group => group.Count() > 1)
             .Select(static group => group.Key)
@@ -331,6 +331,8 @@ internal static class RecipePatchNotesMarkdown
                     kind == RecipeChangeKind.Added ? newTranslations : oldTranslations, context);
             markdown.AppendLine();
         }
+
+        ComparisonMarkdown.AppendDetailsEnd(markdown);
     }
 
     private static void AppendRecipeDefinition(

@@ -30,11 +30,13 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
 
         Assert.Contains("<summary>Item Crafting Recipe — 1 modified, 0 added, 0 removed</summary>", markdown);
-        Assert.Contains("### Confirmed matched modifications (1)", markdown);
-        Assert.DoesNotContain("### Added recipe definitions", markdown);
-        Assert.DoesNotContain("### Removed recipe definitions", markdown);
+        Assert.Contains("<summary>Confirmed matched modifications (1)</summary>", markdown);
+        Assert.DoesNotContain("<summary>Added recipe definitions", markdown);
+        Assert.DoesNotContain("<summary>Removed recipe definitions", markdown);
         Assert.Contains("#### ", markdown);
-        Assert.Equal(1, markdown.Split("<details>", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, markdown.Split("<details>", StringSplitOptions.None).Length - 1);
+        Assert.Contains("<summary>Confirmed matched modifications (1)</summary>",
+            GetDetailsSection(markdown, "Item Crafting Recipe"));
         Assert.Contains("#### Sorceress-only recipe: 3 × Rare Amulet + El Rune → 2 × Socketed Armor", markdown);
         Assert.Contains("Ingredient quantity: 3 × Amulet (was 5 × Amulet)", markdown);
         Assert.Contains("Amulet now requires: Rare Item", markdown);
@@ -67,9 +69,9 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
 
         Assert.Contains("## Recipe identity and unmatched definitions", markdown);
         Assert.Contains("not automatically paired", markdown);
-        Assert.Contains("### Added recipe definitions (1)", markdown);
-        Assert.Contains("### Removed recipe definitions (1)", markdown);
-        Assert.DoesNotContain("### Confirmed matched modifications", markdown);
+        Assert.Contains("<summary>Added recipe definitions (1)</summary>", markdown);
+        Assert.Contains("<summary>Removed recipe definitions (1)</summary>", markdown);
+        Assert.DoesNotContain("<summary>Confirmed matched modifications", markdown);
         Assert.Contains("#### New recipe", markdown);
         Assert.Contains("#### Old recipe", markdown);
         Assert.Contains("- Ingredients:", markdown);
@@ -117,6 +119,9 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         Assert.Contains("<summary>Item Crafting Recipe — 1 modified, 1 added, 0 removed</summary>", first);
         Assert.Contains("<summary>Item Enchantment Recipe — 0 modified, 0 added, 1 removed</summary>", first);
         Assert.Contains("<summary>Other recipes — 0 modified, 2 added, 0 removed</summary>", first);
+        var craftingSection = GetDetailsSection(first, "Item Crafting Recipe");
+        Assert.Contains("<summary>Confirmed matched modifications (1)</summary>", craftingSection);
+        Assert.Contains("<summary>Added recipe definitions (1)</summary>", craftingSection);
         Assert.Contains("- Additional notes: Secondary label", first);
         Assert.Contains("- Assigned notes: Translation unavailable; see detailed comparison.", first);
         Assert.DoesNotContain("Item Crafting Recipe / Secondary label</summary>", first);
@@ -406,17 +411,27 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
             ],
             enchantmentSection.Split('\n').Select(static line => line.TrimEnd('\r'))
                 .Where(static line => line.StartsWith("<summary>", StringComparison.Ordinal))
+                .Where(static line => !line.Contains("matched modifications", StringComparison.Ordinal) &&
+                                      !line.Contains("recipe definitions", StringComparison.Ordinal))
                 .Skip(1));
-        Assert.Contains("#### Confirmed matched modifications (1)", enchantmentSection);
-        Assert.Contains("#### Added recipe definitions (1)", enchantmentSection);
-        Assert.Contains("#### Removed recipe definitions (1)", enchantmentSection);
+        Assert.Contains("<summary>Confirmed matched modifications (1)</summary>", enchantmentSection);
+        Assert.Contains("<summary>Added recipe definitions (1)</summary>", enchantmentSection);
+        Assert.Contains("<summary>Removed recipe definitions (1)</summary>", enchantmentSection);
+        var anyWeaponSection = GetDetailsSection(enchantmentSection, "Any Weapon (2)");
+        Assert.Contains("<summary>Confirmed matched modifications (1)</summary>", anyWeaponSection);
+        Assert.Contains("<summary>Added recipe definitions (1)</summary>", anyWeaponSection);
+        Assert.Equal(3, anyWeaponSection.Split("<details>", StringSplitOptions.None).Length - 1);
+        var missileSection = GetDetailsSection(enchantmentSection, "Missile (2)");
+        Assert.Contains("<summary>Added recipe definitions (1)</summary>", missileSection);
+        Assert.Contains("<summary>Removed recipe definitions (1)</summary>", missileSection);
+        Assert.Equal(3, missileSection.Split("<details>", StringSplitOptions.None).Length - 1);
         Assert.Equal(8,
             enchantmentSection.Split("<!-- changes.json: cube-recipes / ", StringSplitOptions.None).Length - 1);
-        Assert.Equal(7, enchantmentSection.Split("<details>", StringSplitOptions.None).Length - 1);
+        Assert.Equal(15, enchantmentSection.Split("<details>", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("### 1H Weapons (1)", enchantmentSection);
-        Assert.Contains("### Added recipe definitions (1)", first);
+        Assert.DoesNotContain("### Added recipe definitions (1)", first);
         Assert.Contains("#### Ordinary recipe", first);
-        Assert.Equal(8, first.Split("<details>", StringSplitOptions.None).Length - 1);
+        Assert.Equal(17, first.Split("<details>", StringSplitOptions.None).Length - 1);
         AssertBalancedDetails(first);
     }
 
