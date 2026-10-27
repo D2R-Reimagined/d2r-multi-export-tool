@@ -38,7 +38,8 @@ internal static class SkillTreeExporter
         GameData data)
     {
         var className = data.ResolveClassName(classCode);
-        var classSkills = skills.OrderBy(static skill => skill.Id).ToList();
+        var classSkills = skills.Where(skill => IsExported(skill, data))
+            .OrderBy(static skill => skill.Id).ToList();
 
         return new KeyedSkillClass
         {
@@ -63,6 +64,13 @@ internal static class SkillTreeExporter
                 .ToList()
         };
     }
+
+    internal static bool IsExported(SkillEntry skill, GameData data)
+        => !string.IsNullOrWhiteSpace(skill.CharClass)
+           && data.SkillDescs.TryGetValue(skill.SkillDesc ?? "", out var desc)
+           && desc.Page is >= 1 and <= 3
+           && desc.Row > 0
+           && desc.Column > 0;
 
     private static KeyedSkill MapSkill(SkillEntry skill, GameData data)
     {

@@ -156,6 +156,22 @@ internal interface ICalcScope
 /// </summary>
 internal static class CalcExpression
 {
+    internal enum ScanTokenKind
+    {
+        BareSymbol,
+        Reference,
+        Function,
+        Unsupported
+    }
+
+    internal sealed record ScanToken(
+        ScanTokenKind Kind,
+        int Start,
+        int Length,
+        string Name,
+        string? Target = null,
+        List<string>? Fields = null);
+
     /// <summary>
     /// Evaluates <paramref name="expression"/> against <paramref name="scope"/>. Returns
     /// false (and <c>0</c>) for an empty expression, a syntax error, a division by zero, or
@@ -167,6 +183,38 @@ internal static class CalcExpression
         scope.Trace.Reset();
         return TryEvaluateCore(expression, scope, out value);
     }
+
+    /// <summary>
+    /// Parses an expression without resolving any symbols and returns the normalized source
+    /// plus the exact spans of its identifiers, functions and quoted references.
+    /// Expressions outside the website evaluator's syntax are declined so callers can keep
+    /// the original fallback intact.
+    /// </summary>
+    internal static bool TryScan(string? expression, ICalcScope scope, out string text, out List<ScanToken> tokens)
+    {
+        text = expression ?? "";
+        tokens = [];
+        scope.Trace.Reset();
+        if (string.IsNullOrWhiteSpace(expression)) return scope.Trace.Fail("the expression is empty");
+
+        var normalized = BalanceTerminalParentheses(expression.Trim().Trim('"'));
+        if (normalized.Length == 0) return scope.Trace.Fail("the expression is empty");
+
+        var scanned = new List<ScanToken>();
+        var parser = new Parser(normalized, scope, tokens: scanned, evaluating: false);
+        if (!parser.TryParseExpression(out _) || !parser.AtEnd)
+            return scope.Trace.Fail($"could not parse '{normalized}'");
+        if (scanned.Any(static token => token.Kind == ScanTokenKind.Unsupported))
+            return scope.Trace.Fail($"'{normalized}' uses syntax the website evaluator does not support");
+
+        text = normalized;
+        tokens = scanned;
+        return true;
+    }
+
+    /// <summary>Maps reference functions that are equivalent in the exported skill scope.</summary>
+    internal static string CanonicalReferenceFunction(string function)
+        => ReferenceAliases.TryGetValue(function, out var canonical) ? canonical : function;
 
     /// <summary>Evaluates a drop condition while checking references in both selected and unselected branches.</summary>
     internal static bool TryEvaluateWithReferenceValidation(string? expression, ICalcScope scope, out long value)
@@ -445,10 +493,10 @@ internal static class CalcExpression
     /// primary.
     /// </summary>
     private sealed class Parser(string text, ICalcScope scope, Func<string, int, int, bool>? bareSymbol = null,
-        bool inspectUnselectedReferences = false)
+        bool inspectUnselectedReferences = false, List<ScanToken>? tokens = null, bool evaluating = true)
     {
         private int _position;
-        private bool _evaluate = true;
+        private bool _evaluate = evaluating;
 
         public bool AtEnd
         {
@@ -506,6 +554,7 @@ internal static class CalcExpression
             var op = PeekComparisonOperator();
             if (op is null) return true;
 
+            if (op == "=") tokens?.Add(new ScanToken(ScanTokenKind.Unsupported, _position, op.Length, op));
             _position += op.Length;
             if (!TryParseAdditive(out var right))
             {
@@ -577,6 +626,7 @@ internal static class CalcExpression
                 var op = text[_position];
                 if (op != '*' && op != '/' && op != '%') return true;
 
+                if (op == '%') tokens?.Add(new ScanToken(ScanTokenKind.Unsupported, _position, 1, "%"));
                 _position++;
                 if (!TryParseUnary(out var right))
                 {
@@ -626,6 +676,8 @@ internal static class CalcExpression
             if (!TryParsePrimary(out value)) return false;
 
             SkipWhitespace();
+            if (_position < text.Length && text[_position] == '^')
+                tokens?.Add(new ScanToken(ScanTokenKind.Unsupported, _position, 1, "^"));
             if (!Match('^')) return true;
 
             if (!TryParseUnary(out var exponent))
@@ -672,8 +724,9 @@ internal static class CalcExpression
 
             SkipWhitespace();
             if (_position < text.Length && text[_position] == '(')
-                return TryParseCall(name, out value);
+                return TryParseCall(name, nameStart, out value);
 
+            tokens?.Add(new ScanToken(ScanTokenKind.BareSymbol, nameStart, nameLength, name));
             if (bareSymbol is not null && !bareSymbol(name, nameStart, nameLength)) return false;
             return !_evaluate && bareSymbol is null && !inspectUnselectedReferences
                 || TryResolveSymbol(name, scope, out value);
@@ -701,6 +754,8 @@ internal static class CalcExpression
 
             _position++;
             while (_position < text.Length && char.IsAsciiDigit(text[_position])) _position++;
+            tokens?.Add(new ScanToken(ScanTokenKind.Unsupported, start, _position - start,
+                text[start.._position]));
             if (!double.TryParse(text.AsSpan(start, _position - start), NumberStyles.Float,
                     CultureInfo.InvariantCulture, out var parsed))
             {
@@ -715,14 +770,14 @@ internal static class CalcExpression
         /// <c>min(a, b)</c> / <c>max(a, b)</c>, plus the quoted cross-reference forms
         /// (<c>skill('Fire Bolt'.blvl)</c>, <c>miss('firewall'.rang)</c>, …).
         /// </summary>
-        private bool TryParseCall(string name, out long value)
+        private bool TryParseCall(string name, int callStart, out long value)
         {
             value = 0;
             _position++; // consume '('
             SkipWhitespace();
 
             if (_position < text.Length && text[_position] == '\'')
-                return TryParseReference(name, out value);
+                return TryParseReference(name, callStart, out value);
 
             if (!TryParseExpression(out var first)) return false;
             SkipWhitespace();
@@ -730,6 +785,8 @@ internal static class CalcExpression
             if (!TryParseExpression(out var second)) return false;
             SkipWhitespace();
             if (!Match(')')) return false;
+
+            tokens?.Add(new ScanToken(ScanTokenKind.Function, callStart, _position - callStart, name));
 
             if (name.Equals("min", StringComparison.OrdinalIgnoreCase))
             {
@@ -752,7 +809,7 @@ internal static class CalcExpression
         /// A quoted reference such as <c>skill('Fire Bolt'.blvl)</c>. The scope decides
         /// which functions it understands.
         /// </summary>
-        private bool TryParseReference(string name, out long value)
+        private bool TryParseReference(string name, int callStart, out long value)
         {
             value = 0;
 
@@ -792,6 +849,8 @@ internal static class CalcExpression
             if (!ReferenceFunctions.Contains(name))
                 return scope.Trace.Fail($"'{name}(…)' is not a function skillcalc.txt or misscalc.txt defines");
             if (!Match(')')) return scope.Trace.Fail($"unsupported argument list in {reference}");
+            tokens?.Add(new ScanToken(ScanTokenKind.Reference, callStart, _position - callStart,
+                name, target, fields));
 
             if (!_evaluate && bareSymbol is null && !inspectUnselectedReferences) return true;
             if (scope.TryResolveReference(name, target, fields, out value)) return true;

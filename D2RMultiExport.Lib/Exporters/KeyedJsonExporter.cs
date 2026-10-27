@@ -276,6 +276,11 @@ public static class KeyedJsonExporter
         public ItemTypeExport? Type { get; set; }
         public List<KeyedDamageType>? DamageTypes { get; set; }
         /// <summary>
+        /// Source item level from <c>armor.txt</c>/<c>weapons.txt</c> <c>level</c>.
+        /// Omitted from slim equipment embedded in uniques and set items.
+        /// </summary>
+        public int? ItemLevel { get; set; }
+        /// <summary>
         /// Required character level to equip the base item (from the source
         /// row's <c>levelreq</c> column). Surfaced on base armor/weapon rows so
         /// consumers don't have to parse it out of the resolved <see cref="Lines"/>.
@@ -501,6 +506,7 @@ public static class KeyedJsonExporter
             AverageDamage = d.AverageDamage,
             Lines = d.Lines
         }).ToList(),
+        ItemLevel = e.ItemLevel,
         RequiredLevel = e.RequiredLevel ?? e.BaseRequiredLevel,
         // Socket info (MaxSockets / GemSockets) is only meaningful on base
         // armor/weapon rows. Uniques, sets and runewords ship a fixed socket

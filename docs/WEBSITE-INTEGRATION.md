@@ -26,21 +26,38 @@ description-line members are explicitly camel-cased. `Descriptions` carries
   `scaleCalc`, bound source Params are already source values and quoted synergy
   references remain live.
 - Optional `valuesCalc` (present only on lines whose numbers read another skill's
-  allocation, such as the Druid summons' `SynergyCap`) holds one source calc cell per
-  numeric argument, aligned with `values`. Evaluate each non-null entry in the
-  describing skill's own scope against the live effective and hard rank maps, exactly
-  as `Calculation.ElementalDamage`, and use the result for that argument. A `null`
-  entry, an absent member or an expression the evaluator cannot resolve keeps the
-  exported tables, which remain the no-other-points baseline.
-- Treat `scaleCalc` and `valuesCalc` as exporter BBE grammar. An evaluator that supports only the
-  currently emitted subset must be re-checked when new `miss`, `sklvl`, `sksrc`,
-  `cond`, `%`, `^` or live-state uses appear.
+  allocation, such as the Druid summons' `SynergyCap`) holds one exporter-prepared BBE
+  expression per numeric argument, aligned with `values`. It starts from the source calc
+  cell but may inline supported `pstN`, `ps10`–`ps14`, `astN` and nested source-column
+  pointers. Same-skill expressions use the describing skill's scope; expanded cross-skill
+  levels/formulas stay in the referenced skill's scope, and Params are taken from the row
+  that owns them. `cond('Difficulty', …)` is resolved from the configured export difficulty.
+  Evaluate each non-null entry against live effective and hard rank maps, exactly as
+  `Calculation.ElementalDamage`, and use the result for that argument. A `null` entry, an
+  absent member or an expression the evaluator cannot resolve keeps the exported tables,
+  which remain the no-other-points baseline. Unsupported expressions are retained unchanged
+  by the exporter so the evaluator can take that fallback.
+- Treat `scaleCalc` and `valuesCalc` as exporter BBE grammar. When the exporter adds a new
+  expression form to its output, verify that the consumer can evaluate it; unsupported
+  expressions must continue to fall back to the numeric tables.
 
 Description difficulty is fixed by `skillDescriptionDifficulty` (default Hell),
 including Raise Skeleton/Mage minion damage. There is no exported difficulty axis
 for skills; a future selector needs an explicit contract change.
 
 ## Names, properties and assets
+
+### Item levels
+
+`ItemLevel` and `RequiredLevel` are separate source values. Base rows in
+`keyed/armors.json` and `keyed/weapons.json` expose `Equipment.ItemLevel` from
+`armor.txt` / `weapons.txt` `level`, and `Equipment.RequiredLevel` from
+`levelreq`. Unique rows expose top-level `ItemLevel` from
+`uniqueitems.txt` `lvl` and `RequiredLevel` from `lvl req`; individual set
+items use the same top-level fields from `setitems.txt`. Their nested slim
+`Equipment` objects intentionally omit `ItemLevel`. Set parent objects retain
+the legacy `ItemLevel: 1`: `sets.txt` has no `lvl` column, so no source level is
+available for the parent.
 
 ### Property roll preservation
 
