@@ -179,30 +179,32 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
     }
 
     [Fact]
-    public async Task NumericChangesPairBySkillAndPreserveTriggerAndSkillChanges()
+    public async Task NumericChangesPairBySkillAndOmitLinesWithUnrecognizedConditions()
     {
         const string translations = "{\"proc\":\"%d %s\",\"holyShock\":\"Holy Shock\",\"frozenOrb\":\"Frozen Orb\"}";
         const string oldUnique = "[{\"Index\":\"Proc Item\",\"Lines\":["
-                                 + "{\"key\":\"proc\",\"args\":[10,\"holyShock\"],\"trigger\":\"onHit\"},"
-                                 + "{\"key\":\"proc\",\"args\":[20,\"frozenOrb\"],\"trigger\":\"onHit\"}]}]";
+                                 + "{\"key\":\"proc\",\"args\":[10,\"holyShock\"]},"
+                                 + "{\"key\":\"proc\",\"args\":[20,\"frozenOrb\"]}]}]";
         const string newUnique = "[{\"Index\":\"Proc Item\",\"Lines\":["
-                                 + "{\"key\":\"proc\",\"args\":[12,\"holyShock\"],\"trigger\":\"onHit\"},"
-                                 + "{\"key\":\"proc\",\"args\":[25,\"frozenOrb\"],\"trigger\":\"onHit\"}]}]";
+                                 + "{\"key\":\"proc\",\"args\":[12,\"holyShock\"]},"
+                                 + "{\"key\":\"proc\",\"args\":[25,\"frozenOrb\"]}]}]";
         var oldSnapshot = await CreateSnapshotAsync("old", "[]", oldUnique, translations);
         var newSnapshot = await CreateSnapshotAsync("new", "[]", newUnique, translations);
 
         var markdown = await SnapshotComparison.RenderItemPatchNotesAsync(
             await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot));
 
-        Assert.Contains("Changed: 12 Holy Shock (trigger=onHit) (was 10)", markdown);
-        Assert.Contains("Changed: 25 Frozen Orb (trigger=onHit) (was 20)", markdown);
+        Assert.Contains("Changed: 12 Holy Shock (was 10)", markdown);
+        Assert.Contains("Changed: 25 Frozen Orb (was 20)", markdown);
         Assert.DoesNotContain("Added: 12 Holy Shock", markdown);
         Assert.DoesNotContain("Removed: 10 Holy Shock", markdown);
 
         var changedIdentityOld = "[{\"Index\":\"Proc Item\",\"Lines\":["
-                                 + "{\"key\":\"proc\",\"args\":[10,\"holyShock\"],\"trigger\":\"onHit\"}]}]";
+                                 + "{\"key\":\"proc\",\"args\":[10,\"holyShock\"]},"
+                                 + "{\"key\":\"proc\",\"args\":[5,\"holyShock\"],\"trigger\":\"onHit\"}]}]";
         var changedIdentityNew = "[{\"Index\":\"Proc Item\",\"Lines\":["
-                                 + "{\"key\":\"proc\",\"args\":[12,\"frozenOrb\"],\"trigger\":\"onGetHit\"}]}]";
+                                 + "{\"key\":\"proc\",\"args\":[12,\"frozenOrb\"]},"
+                                 + "{\"key\":\"proc\",\"args\":[6,\"frozenOrb\"],\"trigger\":\"onGetHit\"}]}]";
         oldSnapshot = await CreateSnapshotAsync("identity-old", "[]", changedIdentityOld, translations);
         newSnapshot = await CreateSnapshotAsync("identity-new", "[]", changedIdentityNew, translations);
         markdown = await SnapshotComparison.RenderItemPatchNotesAsync(
@@ -211,6 +213,9 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
         Assert.Contains("Added: 12 Frozen Orb", markdown);
         Assert.Contains("Removed: 10 Holy Shock", markdown);
         Assert.DoesNotContain("Changed: 12 Frozen Orb", markdown);
+        Assert.DoesNotContain("6 Frozen Orb", markdown);
+        Assert.DoesNotContain("5 Holy Shock", markdown);
+        Assert.DoesNotContain("trigger", markdown);
     }
 
     [Fact]
@@ -251,7 +256,7 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
     }
 
     [Fact]
-    public async Task AuraRangeTemplateFormatsAndUnsupportedStaticTemplateKeepsFallback()
+    public async Task AuraRangeTemplateFormatsAndUnsupportedStaticTemplateIsOmitted()
     {
         const string oldUnique = "[{\"Index\":\"Aura Item\",\"Lines\":["
                                  + "{\"key\":\"aura\",\"args\":[10,12,\"holyShock\"]}]}]";
@@ -270,7 +275,9 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
             await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot));
 
         Assert.Contains("Changed: Level (15-20) Holy Shock Aura (was Level (10-12))", markdown);
-        Assert.Contains("Added: static \\[1\\] (translation template unsupported; review)", markdown);
+        Assert.DoesNotContain("Static description", markdown);
+        Assert.DoesNotContain("static \\[1\\]", markdown);
+        Assert.DoesNotContain("translation template unsupported", markdown);
         Assert.Contains("Added: +(2-5) Holy Shock", markdown);
         Assert.Contains("Added: 4 Holy Shock", markdown);
     }
@@ -309,7 +316,7 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
     [Fact]
     public async Task RunewordVariantsAndRuneSequenceRemainDistinct()
     {
-        const string translations = "{\"El\":\"El\",\"Tir\":\"Tir\"}";
+        const string translations = "{\"El\":\"El\",\"Tir\":\"Tir\",\"sword\":\"Sword\",\"bow\":\"Bow\"}";
         const string oldRuneword =
             "[{\"Index\":\"Leaf\",\"RequiredLevel\":10,\"Runes\":[{\"NameKey\":\"El\"},{\"NameKey\":\"Tir\"}],"
             + "\"Types\":[{\"Index\":\"sword\"}]},{\"Index\":\"Leaf\",\"RequiredLevel\":10,"
@@ -326,8 +333,8 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
         var markdown = await SnapshotComparison.RenderItemPatchNotesAsync(
             await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot));
 
-        Assert.Contains("Equipment variants", markdown);
-        Assert.Contains("sword", markdown);
+        Assert.Contains("Equipment variants: Sword", markdown);
+        Assert.DoesNotContain("`sword`", markdown);
         Assert.Contains("Rune sequence: Tir → El (was El → Tir)", markdown);
         Assert.DoesNotContain("Rune sequence: El → Tir", markdown);
     }
@@ -359,7 +366,7 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
     }
 
     [Fact]
-    public async Task AffixVariantsKeepAmbiguityDiagnosticsAndTranslationFallback()
+    public async Task AffixVariantsOmitAmbiguityDiagnosticsAndUntranslatedValues()
     {
         const string oldAffixes =
             "[{\"NameKey\":\"Frosted\",\"Level\":8,\"Group\":1,\"Types\":[\"armo\"],\"Lines\":[{\"key\":\"fire\",\"args\":[1]}]},"
@@ -381,16 +388,18 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
         var markdown = await SnapshotComparison.RenderItemPatchNotesAsync(
             await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot));
 
-        Assert.Contains("ambiguous-affix-identity", markdown);
-        Assert.Contains("ambiguous candidate", markdown);
-        Assert.Contains("missing \\[7\\]", markdown);
-        Assert.Contains("translation unavailable", markdown);
+        Assert.Contains("Lightning 2", markdown);
+        Assert.Contains("Cold 2", markdown);
+        Assert.DoesNotContain("ambiguous", markdown);
+        Assert.DoesNotContain("Comparison warnings", markdown);
+        Assert.DoesNotContain("missing \\[7\\]", markdown);
+        Assert.DoesNotContain("translation unavailable", markdown);
     }
 
     [Fact]
     public async Task ModifiedAffixVariantsRetainReadableIdentityMetadata()
     {
-        const string translations = "{\"name\":\"Frosted\",\"damage\":\"+%d Damage\"}";
+        const string translations = "{\"name\":\"Frosted\",\"damage\":\"+%d Damage\",\"armo\":\"Any Armor\"}";
         const string oldAffix = "[{\"NameKey\":\"name\",\"Level\":8,\"Group\":1,\"Types\":[\"armo\"],"
                                 + "\"Lines\":[{\"key\":\"damage\",\"args\":[1]}]}]";
         const string newAffix = "[{\"NameKey\":\"name\",\"Level\":8,\"Group\":1,\"Types\":[\"armo\"],"
@@ -403,8 +412,10 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
         var markdown = await SnapshotComparison.RenderItemPatchNotesAsync(
             await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot));
 
-        Assert.Contains("Affix variant identity: Level: 8; Group: 1; Eligible variants: `armo`", markdown);
+        Assert.Contains("Affix variant: Level: 8; Eligible types: Any Armor", markdown);
+        Assert.DoesNotContain("Group: 1", markdown);
         Assert.DoesNotContain("PropertySignature", markdown);
+        Assert.DoesNotContain("matched using", markdown);
     }
 
     [Fact]
@@ -420,7 +431,8 @@ public sealed class ItemPatchNotesMarkdownTests : IDisposable
 
         Assert.Equal(first, second);
         Assert.Contains("Magic prefixes | unavailable", first);
-        Assert.Contains("Comparison unavailable: NotCompared", first);
+        Assert.Contains("*Changes for this category are not available.*", first);
+        Assert.DoesNotContain("NotCompared", first);
         Assert.DoesNotContain("Magic prefixes | 0 | 0 | 0", first);
         AssertBalancedDetails(first);
     }

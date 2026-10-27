@@ -3,6 +3,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using D2RMultiExport.Lib.Translation;
 using static D2RMultiExport.Lib.Comparison.ComparisonMarkdown;
 
 namespace D2RMultiExport.Lib.Comparison;
@@ -30,7 +31,13 @@ internal static class ItemPatchNotesMarkdown
     /// <summary>Exporter bookkeeping fields that do not help players read an added or removed item.</summary>
     private static readonly HashSet<string> NonPlayerMetadataFields = new(StringComparer.Ordinal)
     {
-        "Vanilla", "Enabled", "DamageArmorEnhanced", "EquipmentType", "Code"
+        "Vanilla", "Enabled", "DamageArmorEnhanced", "EquipmentType", "Code", "Group", "PType", "AutoPrefix"
+    };
+
+    /// <summary>Identifier and exporter bookkeeping fields whose changes are not gameplay changes.</summary>
+    private static readonly HashSet<string> NonPlayerChangeFields = new(StringComparer.Ordinal)
+    {
+        "Index", "Vanilla", "DamageArmorEnhanced", "EquipmentType", "Code", "Group", "PType", "AutoPrefix"
     };
 
     public static async Task<string> RenderAsync(ComparisonReport report)
@@ -48,17 +55,12 @@ internal static class ItemPatchNotesMarkdown
         var markdown = new StringBuilder();
         markdown.AppendLine("# Item patch notes");
         markdown.AppendLine();
-        AppendSummary(markdown, report, oldTranslations, newTranslations, state);
+        AppendSummary(markdown, report);
         markdown.Append(sections);
         return markdown.ToString();
     }
 
-    private static void AppendSummary(
-        StringBuilder markdown,
-        ComparisonReport report,
-        RecipeTranslations oldTranslations,
-        RecipeTranslations newTranslations,
-        RenderState state)
+    private static void AppendSummary(StringBuilder markdown, ComparisonReport report)
     {
         markdown.AppendLine("## Change counts");
         markdown.AppendLine();
@@ -86,30 +88,6 @@ internal static class ItemPatchNotesMarkdown
         }
 
         markdown.AppendLine();
-        markdown.Append("English translations: old snapshot ").Append(EscapeMarkdown(oldTranslations.Status))
-            .Append("; new snapshot ").Append(EscapeMarkdown(newTranslations.Status)).AppendLine(".");
-        markdown.Append("Keyed names or properties needing review (fallback or unsupported template): ")
-            .Append(Invariant(state.UntranslatedValues)).AppendLine(".");
-        var diagnostics = CountIssues(report);
-        markdown.Append("Comparison diagnostics: ").Append(Invariant(diagnostics.Errors)).Append(" errors, ")
-            .Append(Invariant(diagnostics.Warnings)).AppendLine(" warnings.");
-        markdown.AppendLine();
-        markdown.AppendLine(
-            "Only comparator-reported changes are listed. Unpaired property lines remain additions and removals; no buff or nerf classification is inferred.");
-        markdown.AppendLine();
-    }
-
-    private static (int Errors, int Warnings) CountIssues(ComparisonReport report)
-    {
-        var errors = report.OldSnapshot.Errors.Count + report.NewSnapshot.Errors.Count;
-        var warnings = report.OldSnapshot.Warnings.Count + report.NewSnapshot.Warnings.Count;
-        foreach (var category in report.Categories)
-        {
-            errors += category.Errors.Count;
-            warnings += category.Warnings.Count;
-        }
-
-        return (errors, warnings);
     }
 
     private static void AppendCategory(
@@ -124,15 +102,8 @@ internal static class ItemPatchNotesMarkdown
         markdown.AppendLine();
         if (category?.Status != "Compared")
         {
-            markdown.Append("**Comparison unavailable: ")
-                .Append(EscapeMarkdown(category?.Status ?? "missing from report"))
-                .AppendLine(".**");
+            markdown.AppendLine("*Changes for this category are not available.*");
             markdown.AppendLine();
-            markdown.AppendLine(
-                "This category was not successfully compared; its absence does not mean that there were no item changes.");
-            markdown.AppendLine();
-            AppendIssues(markdown, category?.Errors ?? [], "Comparison errors");
-            AppendIssues(markdown, category?.Warnings ?? [], "Comparison warnings");
             return;
         }
 
@@ -143,9 +114,8 @@ internal static class ItemPatchNotesMarkdown
             AppendSetChanges(changes, category, definition, oldTranslations, newTranslations, state);
         else
         {
-            AppendEntrySection(changes, "Added", category.AddedRecords, definition, newTranslations, category, state);
-            AppendEntrySection(changes, "Removed", category.RemovedRecords, definition, oldTranslations, category,
-                state);
+            AppendEntrySection(changes, "Added", category.AddedRecords, definition, newTranslations, state);
+            AppendEntrySection(changes, "Removed", category.RemovedRecords, definition, oldTranslations, state);
             if (category.ModifiedRecords.Count > 0)
             {
                 AppendDetailsStart(changes, $"Modified ({Invariant(category.ModifiedRecords.Count)})");
@@ -168,10 +138,6 @@ internal static class ItemPatchNotesMarkdown
             $"{Invariant(counts.Modified)} modified");
         markdown.Append(changes);
         AppendDetailsEnd(markdown);
-
-        if (category.Errors.Count > 0) AppendIssues(markdown, category.Errors, "Comparison errors");
-        if (category.Warnings.Count > 0)
-            AppendIssues(markdown, category.Warnings, "Comparison warnings and identity review");
     }
 
     private static void AppendEntrySection(
@@ -180,14 +146,13 @@ internal static class ItemPatchNotesMarkdown
         IReadOnlyList<RecordEntry> records,
         CategoryDefinition definition,
         RecipeTranslations translations,
-        CategoryComparison category,
         RenderState state)
     {
         if (records.Count == 0) return;
 
         AppendDetailsStart(markdown, $"{heading} ({Invariant(records.Count)})");
         foreach (var record in records)
-            AppendEntry(markdown, record, definition, translations, category, state, 4);
+            AppendEntry(markdown, record, definition, translations, state, 4);
         AppendDetailsEnd(markdown);
     }
 
@@ -234,7 +199,7 @@ internal static class ItemPatchNotesMarkdown
                 foreach (var record in changes)
                 {
                     if (record.Entry is not null)
-                        AppendEntry(markdown, record.Entry, definition, record.Translations, category, state, 5);
+                        AppendEntry(markdown, record.Entry, definition, record.Translations, state, 5);
                     else
                         AppendModifiedRecord(markdown, record.Modified!, definition, oldTranslations, newTranslations,
                             state, 5);
@@ -281,10 +246,9 @@ internal static class ItemPatchNotesMarkdown
             }
 
             AppendDetailsStart(markdown, summary);
-            AppendTraceComment(markdown, definition.Id, record.Key);
             if (record.Entry is not null)
             {
-                AppendVariantNames(markdown, record.Entry.VariantTypes);
+                AppendVariantNames(markdown, record.Entry.VariantTypes, record.Translations);
                 AppendCompleteRecord(markdown, record.Record, definition.Id, record.Translations, state);
             }
             else
@@ -313,27 +277,25 @@ internal static class ItemPatchNotesMarkdown
         RecordEntry record,
         CategoryDefinition definition,
         RecipeTranslations translations,
-        CategoryComparison category,
         RenderState state,
         int headingLevel)
     {
-        AppendTraceComment(markdown, definition.Id, record.Key);
         var displayName = definition.Id == "uniques"
             ? EscapeHtml(GetDisplayNameText(record.Record, record.Key, translations, state))
             : GetDisplayName(record.Record, record.Key, translations, state);
         AppendHeading(markdown, headingLevel, displayName);
         markdown.AppendLine();
-        if (definition.Id == "uniques") AppendUniqueTierDetails(markdown, record.Record);
+        if (definition.Id == "uniques") AppendUniqueTierDetails(markdown, record.Record, translations);
         if (definition.Id is not ("magicprefix" or "magicsuffix"))
-            AppendVariantNames(markdown, record.VariantTypes);
-        if (IsAmbiguousCandidate(record.Key, definition.Id, category))
-            markdown.AppendLine(
-                "- Identity review: ambiguous candidate; the comparison lists this as an addition/removal, not a confirmed item change.");
+            AppendVariantNames(markdown, record.VariantTypes, translations);
         AppendCompleteRecord(markdown, record.Record, definition.Id, translations, state);
         markdown.AppendLine();
     }
 
-    private static void AppendUniqueTierDetails(StringBuilder markdown, JsonElement record)
+    private static void AppendUniqueTierDetails(
+        StringBuilder markdown,
+        JsonElement record,
+        RecipeTranslations translations)
     {
         if (!TryGet(record, "Equipment", out var equipment) || equipment.ValueKind != JsonValueKind.Object) return;
 
@@ -354,8 +316,11 @@ internal static class ItemPatchNotesMarkdown
             return;
         }
 
-        markdown.Append("- Base item tiers: ")
-            .AppendLine(string.Join(", ", tiers.Select(tier => tier.Name + " " + InlineCode(tier.Code!))));
+        var tierNames = tiers
+            .Select(tier => TryTranslate(tier.Code!, translations) is { } baseName ? tier.Name + " " + baseName : null)
+            .OfType<string>()
+            .ToArray();
+        if (tierNames.Length > 0) markdown.Append("- Base item tiers: ").AppendLine(string.Join(", ", tierNames));
     }
 
     private static void AppendModifiedRecord(
@@ -367,13 +332,12 @@ internal static class ItemPatchNotesMarkdown
         RenderState state,
         int headingLevel)
     {
-        AppendTraceComment(markdown, definition.Id, record.Key);
         var displayName = definition.Id == "uniques"
             ? EscapeHtml(GetDisplayNameText(record.New, record.Key, newTranslations, state))
             : GetDisplayName(record.New, record.Key, newTranslations, state);
         AppendHeading(markdown, headingLevel, displayName);
         markdown.AppendLine();
-        if (definition.Id == "uniques") AppendUniqueTierDetails(markdown, record.New);
+        if (definition.Id == "uniques") AppendUniqueTierDetails(markdown, record.New, newTranslations);
         AppendModifiedRecordDetails(markdown, record, definition, oldTranslations, newTranslations, state);
         markdown.AppendLine();
     }
@@ -389,25 +353,12 @@ internal static class ItemPatchNotesMarkdown
         if (definition.Id is "magicprefix" or "magicsuffix")
             AppendAffixIdentity(markdown, record.New, newTranslations, state);
         else
-            AppendVariantNames(markdown, record.VariantTypes);
-        if (definition.Id is "magicprefix" or "magicsuffix" && record.MatchedBy is not null &&
-            record.MatchedBy != "NameKey")
-        {
-            var matchMethod = record.MatchedBy == "PropertySignature"
-                ? "property signature"
-                : InlineCode(record.MatchedBy);
-            markdown.Append("- Affix variant matched using ").Append(matchMethod).AppendLine(".");
-        }
+            AppendVariantNames(markdown, record.VariantTypes, newTranslations);
 
         AppendChangedMetadata(markdown, record, oldTranslations, newTranslations, state);
         AppendPropertyChanges(markdown, record.Old, record.New, oldTranslations, newTranslations, state);
         if (record.NestedChanges is { } nested)
             AppendNestedChanges(markdown, nested, definition.Id, oldTranslations, newTranslations, state);
-        if (!record.Changes.Any(change => !IsPropertyChangePath(change.Path) &&
-                                          (record.NestedChanges is null || !IsNestedPath(change.Path,
-                                              record.NestedChanges.Field))) &&
-            !HasPropertyChanges(record.Old, record.New) && record.NestedChanges is null)
-            markdown.AppendLine("- The comparator reported a modification without a readable field value.");
     }
 
     private static void AppendCompleteRecord(
@@ -435,8 +386,8 @@ internal static class ItemPatchNotesMarkdown
     {
         if (value.ValueKind != JsonValueKind.Object)
         {
-            markdown.Append(new string(' ', depth * 2)).Append("- Record data: ")
-                .AppendLine(RenderValue(value, "", translations, state));
+            if (RenderValue(value, "", translations, state) is { } text)
+                markdown.Append(new string(' ', depth * 2)).Append("- ").AppendLine(text);
             return;
         }
 
@@ -484,13 +435,8 @@ internal static class ItemPatchNotesMarkdown
                 {
                     foreach (var variant in property.Value.EnumerateArray())
                     {
-                        var variantNameKey = TryGetString(variant, "NameKey");
-                        var variantName = variantNameKey is not null
-                            ? RenderNameKey(variantNameKey, translations, state)
-                            : TryGetString(variant, "Name") ?? TryGetString(variant, "Type") ??
-                            TryGetString(variant, "Index") ?? "Variant";
                         markdown.Append(new string(' ', depth * 2)).Append("- Variant: ")
-                            .AppendLine(variantNameKey is null ? LightEscape(variantName) : variantName);
+                            .AppendLine(RenderVariantName(variant, translations, state) ?? "Variant");
                         AppendMetadataTree(markdown, variant, translations, state, depth + 1, true);
                     }
 
@@ -501,9 +447,9 @@ internal static class ItemPatchNotesMarkdown
                 continue;
             }
 
-            var label = FormatFieldName(name);
-            markdown.Append(new string(' ', depth * 2)).Append("- ").Append(label).Append(": ")
-                .AppendLine(RenderValue(property.Value, name, translations, state));
+            if (RenderValue(property.Value, name, translations, state) is not { } rendered) continue;
+            markdown.Append(new string(' ', depth * 2)).Append("- ").Append(FormatFieldName(name)).Append(": ")
+                .AppendLine(rendered);
         }
     }
 
@@ -516,22 +462,14 @@ internal static class ItemPatchNotesMarkdown
     {
         var nameKey = TryGetString(equipment, "NameKey");
         var code = TryGetString(equipment, "Code") ?? TryGetString(equipment, "NormCode");
-        if (string.IsNullOrWhiteSpace(nameKey)) nameKey = null;
-        if (string.IsNullOrWhiteSpace(code)) code = null;
-        if (nameKey is not null || code is not null)
-        {
-            markdown.Append(new string(' ', depth * 2)).Append("- Base Item: ");
-            if (nameKey is not null)
-                markdown.Append(RenderNameKey(nameKey, translations, state));
-            else
-                markdown.Append(LightEscape(code!));
-            if (code is not null && nameKey is not null) markdown.Append(" [").Append(InlineCode(code)).Append(']');
-            markdown.AppendLine();
-        }
+        var baseItem = !string.IsNullOrWhiteSpace(nameKey) ? RenderNameKey(nameKey, translations, state) : null;
+        if (baseItem is null && !string.IsNullOrWhiteSpace(code)) baseItem = TryTranslate(code, translations);
+        if (baseItem is not null)
+            markdown.Append(new string(' ', depth * 2)).Append("- Base Item: ").AppendLine(baseItem);
 
         foreach (var property in equipment.EnumerateObject())
         {
-            if (property.Name is "NameKey" or "Code" or "NormCode" or "ExCode") continue;
+            if (property.Name is "NameKey" or "Code" or "NormCode" or "ExCode" or "UberCode" or "UltraCode") continue;
             if (NonPlayerMetadataFields.Contains(property.Name)) continue;
             if (PropertyArrayFields.Contains(property.Name) &&
                 property.Value.ValueKind == JsonValueKind.Array) continue;
@@ -548,8 +486,9 @@ internal static class ItemPatchNotesMarkdown
                 continue;
             }
 
+            if (RenderValue(property.Value, property.Name, translations, state) is not { } rendered) continue;
             markdown.Append(new string(' ', depth * 2)).Append("- ").Append(FormatFieldName(property.Name)).Append(": ")
-                .AppendLine(RenderValue(property.Value, property.Name, translations, state));
+                .AppendLine(rendered);
         }
     }
 
@@ -570,26 +509,34 @@ internal static class ItemPatchNotesMarkdown
                 or JsonValueKind.True or
                 JsonValueKind.False))
         {
-            var rendered = items.Select(item => RenderValue(item, name, translations, state));
-            markdown.Append(new string(' ', depth * 2)).Append("- ").Append(label).Append(": ")
-                .AppendLine(string.Join(", ", rendered));
+            var rendered = items.Select(item => RenderValue(item, name, translations, state)).OfType<string>()
+                .ToArray();
+            if (rendered.Length > 0)
+                markdown.Append(new string(' ', depth * 2)).Append("- ").Append(label).Append(": ")
+                    .AppendLine(string.Join(", ", rendered));
             return;
         }
 
-        markdown.Append(new string(' ', depth * 2)).Append("- ").Append(label).AppendLine(":");
+        var entries = new StringBuilder();
         for (var index = 0; index < items.Length; index++)
         {
             if (items[index].ValueKind == JsonValueKind.Object)
             {
+                var details = new StringBuilder();
+                AppendMetadataTree(details, items[index], translations, state, depth + 2, false);
+                if (details.Length == 0) continue;
                 var itemLabel = name == "DamageTypes" ? "Damage type" : label;
-                markdown.Append(new string(' ', (depth + 1) * 2)).Append("- ").Append(itemLabel).Append(' ')
+                entries.Append(new string(' ', (depth + 1) * 2)).Append("- ").Append(itemLabel).Append(' ')
                     .Append(Invariant(index + 1)).AppendLine();
-                AppendMetadataTree(markdown, items[index], translations, state, depth + 2, false);
+                entries.Append(details);
             }
-            else
-                markdown.Append(new string(' ', (depth + 1) * 2)).Append("- ")
-                    .AppendLine(RenderValue(items[index], name, translations, state));
+            else if (RenderValue(items[index], name, translations, state) is { } rendered)
+                entries.Append(new string(' ', (depth + 1) * 2)).Append("- ").AppendLine(rendered);
         }
+
+        if (entries.Length == 0) return;
+        markdown.Append(new string(' ', depth * 2)).Append("- ").Append(label).AppendLine(":");
+        markdown.Append(entries);
     }
 
     private static void AppendRuneSequence(
@@ -599,11 +546,12 @@ internal static class ItemPatchNotesMarkdown
         RenderState state,
         int depth)
     {
-        markdown.Append(new string(' ', depth * 2)).Append("- Rune sequence: ")
-            .AppendLine(RenderRuneSequence(runes, translations, state));
+        if (RenderRuneSequence(runes, translations, state) is { } sequence)
+            markdown.Append(new string(' ', depth * 2)).Append("- Rune sequence: ").AppendLine(sequence);
     }
 
-    private static string RenderRuneSequence(
+    /// <summary>The readable rune sequence, or null when any rune cannot be named.</summary>
+    private static string? RenderRuneSequence(
         JsonElement runes,
         RecipeTranslations translations,
         RenderState state)
@@ -620,9 +568,9 @@ internal static class ItemPatchNotesMarkdown
                     : null;
             return code is null
                 ? RenderValue(rune, "", translations, state)
-                : TranslateMaybe(code, translations);
-        });
-        return string.Join(" → ", values);
+                : TryTranslate(code, translations);
+        }).ToArray();
+        return values.Length == 0 || values.Any(static value => value is null) ? null : string.Join(" → ", values);
     }
 
     private static void AppendAllPropertyCollections(
@@ -636,23 +584,21 @@ internal static class ItemPatchNotesMarkdown
             .ToList();
         if (collections.Count == 0) return;
 
-        markdown.AppendLine("- Properties:");
+        var properties = new StringBuilder();
         foreach (var collection in collections)
         {
-            var lines = collection.Lines.EnumerateArray().ToArray();
-            var label = PropertyCollectionLabel(collection.Path);
-            var prefix = label.Length == 0 ? "  " : $"  - {LightEscape(label)}:";
-            if (label.Length > 0) markdown.AppendLine(prefix);
-            if (lines.Length == 0)
-            {
-                markdown.Append(label.Length == 0 ? "  " : "    ").AppendLine("- None.");
-                continue;
-            }
-
-            foreach (var line in lines)
-                AppendPropertyLine(markdown, line, translations, state,
-                    label.Length == 0 ? 1 : 2);
+            var label = PropertyCollectionLabel(collection.Path, translations);
+            var lines = new StringBuilder();
+            foreach (var line in collection.Lines.EnumerateArray())
+                AppendPropertyLine(lines, line, translations, state, label.Length == 0 ? 1 : 2);
+            if (lines.Length == 0) continue;
+            if (label.Length > 0) properties.Append("  - ").Append(LightEscape(label)).AppendLine(":");
+            properties.Append(lines);
         }
+
+        if (properties.Length == 0) return;
+        markdown.AppendLine("- Properties:");
+        markdown.Append(properties);
     }
 
     private static void AppendPropertyChanges(
@@ -690,7 +636,8 @@ internal static class ItemPatchNotesMarkdown
             }
 
             if (sectionHeading is null && (paths.Count > 1 || path.Length > 0))
-                markdown.Append("  - ").Append(LightEscape(PropertyCollectionLabel(path))).AppendLine(":");
+                markdown.Append("  - ").Append(LightEscape(PropertyCollectionLabel(path, newTranslations)))
+                    .AppendLine(":");
             foreach (var change in diff.Changes)
                 markdown.Append(sectionHeading is null ? "    - " : "- ").AppendLine(change);
         }
@@ -725,7 +672,6 @@ internal static class ItemPatchNotesMarkdown
         var oldByIdentity = BuildIdentityBuckets(oldLines, oldMatched);
         var newByIdentity = BuildIdentityBuckets(newLines, newMatched);
         var changes = new List<string>();
-        var changedPairCount = 0;
         foreach (var (identity, oldIndexes) in oldByIdentity)
         {
             if (oldIndexes.Count != 1 || !newByIdentity.TryGetValue(identity, out var newIndexes) ||
@@ -735,30 +681,26 @@ internal static class ItemPatchNotesMarkdown
             var newIndex = newIndexes[0];
             oldMatched[oldIndex] = true;
             newMatched[newIndex] = true;
-            changedPairCount++;
             var oldText = RenderPropertyLineText(oldLines[oldIndex], oldTranslations, state);
             var newText = RenderPropertyLineText(newLines[newIndex], newTranslations, state);
-            changes.Add(newText == oldText
-                ? $"Changed: {newText} (underlying data changed)"
+            if (newText is null || newText == oldText) continue;
+            changes.Add(oldText is null
+                ? $"Changed: {newText}"
                 : $"Changed: {newText} (was {TrimCommonSuffix(oldText, newText)})");
         }
 
-        var added = Enumerable.Range(0, newLines.Count).Where(index => !newMatched[index]).ToArray();
-        var removed = Enumerable.Range(0, oldLines.Count).Where(index => !oldMatched[index]).ToArray();
-        if (changedPairCount == 0 && added.Length == 0 && removed.Length == 0 && oldLines.Count == newLines.Count &&
-            !oldLines.Select(CanonicalJson).SequenceEqual(newLines.Select(CanonicalJson), StringComparer.Ordinal))
-            changes.Add("Property order changed.");
-
-        foreach (var index in added)
+        foreach (var index in Enumerable.Range(0, newLines.Count).Where(index => !newMatched[index]))
         {
-            if (!IsEmptyPropertyLine(newLines[index]))
-                changes.Add($"Added: {RenderPropertyLineText(newLines[index], newTranslations, state)}");
+            if (!IsEmptyPropertyLine(newLines[index]) &&
+                RenderPropertyLineText(newLines[index], newTranslations, state) is { } text)
+                changes.Add($"Added: {text}");
         }
 
-        foreach (var index in removed)
+        foreach (var index in Enumerable.Range(0, oldLines.Count).Where(index => !oldMatched[index]))
         {
-            if (!IsEmptyPropertyLine(oldLines[index]))
-                changes.Add($"Removed: {RenderPropertyLineText(oldLines[index], oldTranslations, state)}");
+            if (!IsEmptyPropertyLine(oldLines[index]) &&
+                RenderPropertyLineText(oldLines[index], oldTranslations, state) is { } text)
+                changes.Add($"Removed: {text}");
         }
 
         return new PropertyDiff(changes);
@@ -815,7 +757,11 @@ internal static class ItemPatchNotesMarkdown
         return true;
     }
 
-    internal static string RenderPropertyLineText(
+    /// <summary>
+    /// The readable player-facing text of a keyed property line, or null when its template, value or
+    /// restriction cannot be rendered safely. Unrendered lines stay in the detailed comparison reports.
+    /// </summary>
+    internal static string? RenderPropertyLineText(
         JsonElement line,
         RecipeTranslations translations,
         RenderState state,
@@ -823,6 +769,8 @@ internal static class ItemPatchNotesMarkdown
         IReadOnlySet<string>? verifiedTrailingValueKeys = null)
     {
         if (line.ValueKind != JsonValueKind.Object) return RenderValue(line, "", translations, state);
+        verifiedFlagKeys ??= translations.VerifiedFlagKeys;
+        verifiedTrailingValueKeys ??= translations.VerifiedTrailingValueKeys;
         var key = TryGetString(line, "key");
         if (string.IsNullOrEmpty(key)) key = TryGetString(line, "nameKey");
         key ??= "";
@@ -837,31 +785,27 @@ internal static class ItemPatchNotesMarkdown
             rendered = formatted;
         else if (hasTemplate && TryFormatRangeTemplate(template, args, translations, out formatted))
             rendered = formatted;
-        else if (state.ConciseRecipeText && hasTemplate && !template.Contains('%'))
+        else if (hasTemplate && !template.Contains('%'))
         {
-            var isVerifiedFixedFlag = verifiedFlagKeys?.Contains(key) == true && args.Length == 1 &&
+            var isVerifiedFixedFlag = verifiedFlagKeys.Contains(key) && args.Length == 1 &&
                                       args[0].ValueKind == JsonValueKind.Number &&
                                       args[0].TryGetInt32(out var flagValue) && flagValue == 1;
             var trailingValue = 0;
-            var hasVerifiedTrailingValue = verifiedTrailingValueKeys?.Contains(key) == true && args.Length == 1 &&
+            var hasVerifiedTrailingValue = verifiedTrailingValueKeys.Contains(key) && args.Length == 1 &&
                                            args[0].ValueKind == JsonValueKind.Number &&
                                            args[0].TryGetInt32(out trailingValue) && trailingValue > 1;
-            if (!isVerifiedFixedFlag && !hasVerifiedTrailingValue) state.UntranslatedValues++;
-            rendered = hasVerifiedTrailingValue
-                ? template + " +" + trailingValue
-                : template + (args.Length > 0 && !isVerifiedFixedFlag ? " (value unverified)" : "");
-        }
-        else if (state.ConciseRecipeText)
-        {
-            state.UntranslatedValues++;
-            rendered = "Property description unavailable; see detailed comparison.";
+            if (args.Length > 0 && !isVerifiedFixedFlag && !hasVerifiedTrailingValue)
+            {
+                state.UntranslatedValues++;
+                return null;
+            }
+
+            rendered = hasVerifiedTrailingValue ? template + " +" + trailingValue : template;
         }
         else
         {
             state.UntranslatedValues++;
-            var reason = hasTemplate ? "translation template unsupported; review" : "translation unavailable";
-            rendered =
-                $"{(key.Length == 0 ? "<empty key>" : key)} [{string.Join(", ", args.Select(RawJson))}] ({reason})";
+            return null;
         }
 
         rendered = CollapseNumericRangeParentheses(rendered);
@@ -869,21 +813,18 @@ internal static class ItemPatchNotesMarkdown
         var perLevelSuffix = "";
         foreach (var property in line.EnumerateObject())
         {
-            if (property.Name is "key" or "nameKey" or "args" or "children") continue;
-            if (state.ConciseRecipeText && property.Name == "selection") continue;
+            // Structural metadata: group identity and pick rules, child weights and random-selection ranges.
+            if (property.Name is "key" or "nameKey" or "args" or "children" or "selection" or "code" or
+                "pickMode" or "chance") continue;
             if (property.Name == "classOnly" && property.Value.ValueKind == JsonValueKind.String)
             {
-                var classKey = property.Value.GetString() ?? "";
-                if (translations.TryGet(classKey, out var classText))
-                    annotations.Add(classText);
-                else
+                if (!translations.TryGet(property.Value.GetString() ?? "", out var classText))
                 {
                     state.UntranslatedValues++;
-                    annotations.Add(state.ConciseRecipeText
-                        ? "Class restriction unavailable; see detailed comparison."
-                        : $"classOnly={classKey}");
+                    return null;
                 }
 
+                annotations.Add(classText);
                 continue;
             }
 
@@ -902,40 +843,32 @@ internal static class ItemPatchNotesMarkdown
             if (property.Name == "qualifier" && property.Value.ValueKind == JsonValueKind.String)
             {
                 var qualifier = property.Value.GetString() ?? "";
-                var qualifierText = translations.TryGet(qualifier, out var translatedQualifier)
-                    ? translatedQualifier
-                    : qualifier.Equals("Weapon", StringComparison.OrdinalIgnoreCase) ||
-                      qualifier.Equals("Armor", StringComparison.OrdinalIgnoreCase) ||
-                      qualifier.Equals("Shield", StringComparison.OrdinalIgnoreCase)
-                        ? qualifier + " only"
-                        : state.ConciseRecipeText
-                            ? "Item restriction unavailable; see detailed comparison."
-                            : "Qualifier: " + qualifier;
-                if (state.ConciseRecipeText && !translations.TryGet(qualifier, out _) &&
-                    qualifier is not ("Weapon" or "Armor" or "Shield"))
+                if (translations.TryGet(qualifier, out var translatedQualifier))
+                    annotations.Add(translatedQualifier);
+                else if (qualifier.Equals("Weapon", StringComparison.OrdinalIgnoreCase) ||
+                         qualifier.Equals("Armor", StringComparison.OrdinalIgnoreCase) ||
+                         qualifier.Equals("Shield", StringComparison.OrdinalIgnoreCase))
+                    annotations.Add(qualifier + " only");
+                else
+                {
                     state.UntranslatedValues++;
-                annotations.Add(qualifierText);
+                    return null;
+                }
+
                 continue;
             }
 
-            if (property.Name == "perLevel" && property.Value.ValueKind == JsonValueKind.True)
+            if (property.Name == "perLevel" && property.Value.ValueKind is JsonValueKind.True or JsonValueKind.False)
             {
-                perLevelSuffix = translations.TryGet("strPerCharacterLevelSuffix", out var suffix)
-                    ? suffix
-                    : "per character level";
+                if (property.Value.GetBoolean())
+                    perLevelSuffix = translations.TryGet("strPerCharacterLevelSuffix", out var suffix)
+                        ? suffix
+                        : "per character level";
                 continue;
             }
 
-            if (state.ConciseRecipeText)
-            {
-                state.UntranslatedValues++;
-                annotations.Add("Additional condition unavailable; see detailed comparison.");
-            }
-            else
-            {
-                annotations.Add(
-                    $"{FormatFieldName(property.Name)}={RenderValue(property.Value, property.Name, translations, state)}");
-            }
+            state.UntranslatedValues++;
+            return null;
         }
 
         if (state.ConciseRecipeText) annotations = annotations.Distinct(StringComparer.Ordinal).ToList();
@@ -1027,19 +960,9 @@ internal static class ItemPatchNotesMarkdown
         RenderState state,
         int depth)
     {
-        markdown.Append(new string(' ', depth * 2)).Append("- ")
-            .AppendLine(RenderPropertyLineText(line, translations, state));
-        if (!TryGet(line, "children", out var children)) return;
-        if (TryGet(line, "pickMode", out var pickMode))
-            markdown.Append(new string(' ', (depth + 1) * 2)).Append("- Pick mode: ")
-                .AppendLine(LightEscape(RawJson(pickMode)));
-        if (children.ValueKind != JsonValueKind.Array)
-        {
-            markdown.Append(new string(' ', (depth + 1) * 2)).Append("- Unusual child data: ")
-                .AppendLine(InlineCode(RawJson(children)));
-            return;
-        }
-
+        if (RenderPropertyLineText(line, translations, state) is not { } text) return;
+        markdown.Append(new string(' ', depth * 2)).Append("- ").AppendLine(text);
+        if (!TryGet(line, "children", out var children) || children.ValueKind != JsonValueKind.Array) return;
         foreach (var child in children.EnumerateArray())
             AppendPropertyLine(markdown, child, translations, state, depth + 1);
     }
@@ -1055,39 +978,35 @@ internal static class ItemPatchNotesMarkdown
         var damageTypePropertiesChanged = HasReadableDamageTypePropertyChanges(record.Old, record.New);
         var changes = record.Changes.Where(change => !IsPropertyChangePath(change.Path) &&
                                                      !IsRuneSequencePath(change.Path) &&
+                                                     !NonPlayerChangeFields.Contains(LastPathName(change.Path)) &&
                                                      !(damageTypePropertiesChanged &&
                                                        IsDamageTypesMetadataPath(change.Path)) &&
                                                      (record.NestedChanges is null ||
                                                       !IsNestedPath(change.Path, record.NestedChanges.Field)))
+            .OrderBy(change => IsKnownFieldPath(change.Path) ? 0 : 1)
             .ToArray();
-        if (changes.Length == 0 && !runeSequenceChanged) return;
-
-        var known = changes.Where(change => IsKnownFieldPath(change.Path)).ToArray();
-        var other = changes.Where(change => !IsKnownFieldPath(change.Path)).ToArray();
-        if (known.Length > 0 || runeSequenceChanged)
+        var details = new StringBuilder();
+        foreach (var change in changes)
+            AppendFieldChange(details, change, oldTranslations, newTranslations, state, "  ");
+        if (runeSequenceChanged)
         {
-            markdown.AppendLine("- Changed details:");
-            foreach (var change in known)
-                AppendFieldChange(markdown, change, oldTranslations, newTranslations, state, "  ");
-            if (runeSequenceChanged)
+            var oldRunes = TryGet(record.Old, "Runes", out var oldRuneValues)
+                ? RenderRuneSequence(oldRuneValues, oldTranslations, state)
+                : null;
+            var newRunes = TryGet(record.New, "Runes", out var newRuneValues)
+                ? RenderRuneSequence(newRuneValues, newTranslations, state)
+                : null;
+            if (newRunes is not null)
             {
-                var oldRunes = TryGet(record.Old, "Runes", out var oldRuneValues)
-                    ? RenderRuneSequence(oldRuneValues, oldTranslations, state)
-                    : "<unavailable>";
-                var newRunes = TryGet(record.New, "Runes", out var newRuneValues)
-                    ? RenderRuneSequence(newRuneValues, newTranslations, state)
-                    : "<unavailable>";
-                markdown.Append("  - Rune sequence: ").Append(newRunes).Append(" (was ").Append(oldRunes)
-                    .AppendLine(")");
+                details.Append("  - Rune sequence: ").Append(newRunes);
+                if (oldRunes is not null) details.Append(" (was ").Append(oldRunes).Append(')');
+                details.AppendLine();
             }
         }
 
-        if (other.Length > 0)
-        {
-            markdown.AppendLine("- Other data changes (review):");
-            foreach (var change in other)
-                AppendFieldChange(markdown, change, oldTranslations, newTranslations, state, "  ");
-        }
+        if (details.Length == 0) return;
+        markdown.AppendLine("- Changed details:");
+        markdown.Append(details);
     }
 
     private static bool HasReadableDamageTypePropertyChanges(JsonElement oldRecord, JsonElement newRecord)
@@ -1137,9 +1056,11 @@ internal static class ItemPatchNotesMarkdown
         var newValue = change.NewValue is { } newRaw
             ? RenderValue(newRaw, LastPathName(change.Path), newTranslations, state)
             : null;
+        if (change.OldValue is not null && oldValue is null || change.NewValue is not null && newValue is null ||
+            oldValue == newValue) return;
         markdown.Append(indent).Append("- ");
         if (oldValue is null)
-            markdown.Append("Added: ").Append(label).Append(": ").AppendLine(newValue ?? "<unavailable>");
+            markdown.Append("Added: ").Append(label).Append(": ").AppendLine(newValue);
         else if (newValue is null)
             markdown.Append("Removed: ").Append(label).Append(": ").AppendLine(oldValue);
         else
@@ -1161,15 +1082,9 @@ internal static class ItemPatchNotesMarkdown
             return;
         }
 
+        if (changes.Added.Count == 0 && changes.Removed.Count == 0 && changes.Modified.Count == 0) return;
         markdown.AppendLine("- Possible automagic group changes:");
         markdown.AppendLine("  These are possible automagic associations; they do not imply a guaranteed affix roll.");
-        if (changes.Added.Count == 0 && changes.Removed.Count == 0 && changes.Modified.Count == 0)
-        {
-            markdown.AppendLine(
-                "  - The comparison reports nested automagic data changes without identifying an individual group.");
-            return;
-        }
-
         AppendNestedEntries(markdown, "Added", changes.Added, newTranslations, state, category);
         AppendNestedEntries(markdown, "Removed", changes.Removed, oldTranslations, state, category);
         if (changes.Modified.Count > 0)
@@ -1191,15 +1106,8 @@ internal static class ItemPatchNotesMarkdown
         RenderState state)
     {
         var count = CountChangedSetPieces(changes);
-        markdown.Append("#### Changed Set Pieces");
-        if (count > 0) markdown.Append(" (").Append(Invariant(count)).Append(')');
-        markdown.AppendLine();
-        if (count == 0)
-        {
-            markdown.AppendLine(
-                "The comparison reports nested set data changes without identifying an individual piece.");
-            return;
-        }
+        if (count == 0) return;
+        markdown.Append("#### Changed Set Pieces (").Append(Invariant(count)).AppendLine(")");
 
         AppendNestedSetPieceEntries(markdown, "Added", changes.Added, newTranslations, state);
         AppendNestedSetPieceEntries(markdown, "Removed", changes.Removed, oldTranslations, state);
@@ -1208,7 +1116,6 @@ internal static class ItemPatchNotesMarkdown
                          countFallback: false), StringComparer.Ordinal)
                      .ThenBy(static record => record.Key, StringComparer.Ordinal))
         {
-            AppendTraceComment(markdown, "sets", nested.Key);
             AppendHeading(markdown, 5,
                 EscapeHtml(GetDisplayNameText(nested.New, nested.Key, newTranslations, state)) + " — modified");
             markdown.AppendLine();
@@ -1230,7 +1137,6 @@ internal static class ItemPatchNotesMarkdown
                          StringComparer.Ordinal)
                      .ThenBy(static record => record.Key, StringComparer.Ordinal))
         {
-            AppendTraceComment(markdown, "sets", record.Key);
             AppendHeading(markdown, 5,
                 EscapeHtml(GetDisplayNameText(record.Record, record.Key, translations, state)) + " — " +
                 status.ToLowerInvariant());
@@ -1252,9 +1158,8 @@ internal static class ItemPatchNotesMarkdown
         markdown.Append("  - ").AppendLine(heading + ":");
         foreach (var record in records)
         {
-            AppendTraceComment(markdown, category, record.Key);
             markdown.Append("    - ").AppendLine(GetDisplayName(record.Record, record.Key, translations, state));
-            AppendVariantNames(markdown, record.VariantTypes, 3);
+            AppendVariantNames(markdown, record.VariantTypes, translations, 3);
             AppendCompleteRecord(markdown, record.Record, category, translations, state);
         }
     }
@@ -1287,9 +1192,9 @@ internal static class ItemPatchNotesMarkdown
         {
             var nameKey = TryGetString(group, "NameKey");
             var code = TryGetString(group, "Code");
-            var name = nameKey is not null ? RenderNameKey(nameKey, translations, state)
-                : code is not null ? TranslateMaybe(code, translations)
-                : "Unnamed group";
+            var name = (nameKey is not null ? RenderNameKey(nameKey, translations, state) : null)
+                       ?? (code is not null ? TryTranslate(code, translations) ?? LightEscape(code) : null)
+                       ?? "Unnamed group";
             markdown.Append("  - ").AppendLine(name);
             AppendCompleteRecord(markdown, group, "automagic", translations, state);
         }
@@ -1346,11 +1251,17 @@ internal static class ItemPatchNotesMarkdown
         }
     }
 
-    private static void AppendVariantNames(StringBuilder markdown, IReadOnlyList<string>? variants, int indent = 0)
+    private static void AppendVariantNames(
+        StringBuilder markdown,
+        IReadOnlyList<string>? variants,
+        RecipeTranslations translations,
+        int indent = 0)
     {
         if (variants is not { Count: > 0 }) return;
+        var names = variants.Select(variant => TryTranslate(variant, translations)).ToArray();
+        if (names.Any(static name => name is null)) return;
         markdown.Append(new string(' ', indent * 2)).Append("- Equipment variants: ")
-            .AppendLine(string.Join(", ", variants.Select(InlineCode)));
+            .AppendLine(string.Join(", ", names));
     }
 
     private static void AppendAffixIdentity(
@@ -1367,11 +1278,10 @@ internal static class ItemPatchNotesMarkdown
             AppendAffixIdentityField(fields, record, "ReqLevel", "Required Level", translations, state);
         else
             AppendAffixIdentityField(fields, record, "RequiredLevel", "Required Level", translations, state);
-        AppendAffixIdentityField(fields, record, "Group", "Group", translations, state);
-        AppendAffixIdentityField(fields, record, "Types", "Eligible variants", translations, state);
-        AppendAffixIdentityField(fields, record, "ETypes", "Eligible item types", translations, state);
+        AppendAffixIdentityField(fields, record, "Types", FormatFieldName("Types"), translations, state);
+        AppendAffixIdentityField(fields, record, "ETypes", FormatFieldName("ETypes"), translations, state);
         AppendAffixIdentityField(fields, record, "Class", "Class", translations, state);
-        if (fields.Count > 0) markdown.Append("- Affix variant identity: ").AppendLine(string.Join("; ", fields));
+        if (fields.Count > 0) markdown.Append("- Affix variant: ").AppendLine(string.Join("; ", fields));
     }
 
     private static void AppendAffixIdentityField(
@@ -1385,20 +1295,7 @@ internal static class ItemPatchNotesMarkdown
         if (!TryGet(record, field, out var value)) return;
         if (value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(value.GetString())) return;
         if (value.ValueKind == JsonValueKind.Array && value.GetArrayLength() == 0) return;
-        string rendered;
-        if (value.ValueKind == JsonValueKind.Array)
-        {
-            rendered = string.Join(", ", value.EnumerateArray().Select(item =>
-                item.ValueKind == JsonValueKind.String
-                    ? InlineCode(item.GetString() ?? "")
-                    : RenderValue(item, field, translations, state)));
-        }
-        else if (field == "Class" && value.ValueKind == JsonValueKind.String)
-            rendered = InlineCode(value.GetString() ?? "");
-        else
-            rendered = RenderValue(value, field, translations, state);
-
-        fields.Add(label + ": " + rendered);
+        if (RenderValue(value, field, translations, state) is { } rendered) fields.Add(label + ": " + rendered);
     }
 
     private static string GetDisplayName(
@@ -1420,12 +1317,10 @@ internal static class ItemPatchNotesMarkdown
         if (nameKey is not null)
         {
             if (translations.TryGet(nameKey, out var localizedName)) return localizedName;
-            if (!countFallback) return nameKey;
-            state.UntranslatedValues++;
-            return nameKey + " (translation unavailable)";
+            if (countFallback) state.UntranslatedValues++;
         }
 
-        if (TryGetString(record, "Name") is { } name) return name;
+        if (TryGetString(record, "Name") is { Length: > 0 } name) return name;
         if (TryGetString(record, "Index") is { } index)
             return translations.TryGet(index, out var localized) ? localized : index;
         if (TryGetString(record, "Code") is { } code) return code;
@@ -1453,20 +1348,31 @@ internal static class ItemPatchNotesMarkdown
         .Replace("<", "&lt;", StringComparison.Ordinal)
         .Replace(">", "&gt;", StringComparison.Ordinal);
 
-    private static string RenderNameKey(string key, RecipeTranslations translations, RenderState state)
+    private static string? RenderNameKey(string key, RecipeTranslations translations, RenderState state)
     {
         if (translations.TryGet(key, out var localized)) return LightEscape(localized);
         state.UntranslatedValues++;
-        return LightEscape(key) + " (translation unavailable)";
+        return null;
     }
 
-    private static string TranslateMaybe(string value, RecipeTranslations translations)
+    private static string? TryTranslate(string key, RecipeTranslations translations) =>
+        translations.TryGet(key, out var localized) && !string.IsNullOrWhiteSpace(localized)
+            ? LightEscape(localized)
+            : null;
+
+    private static string? RenderVariantName(JsonElement variant, RecipeTranslations translations, RenderState state)
     {
-        if (translations.TryGet(value, out var localized)) return LightEscape(localized);
-        return InlineCode(value);
+        if (TryGetString(variant, "NameKey") is { } nameKey && RenderNameKey(nameKey, translations, state) is { } named)
+            return named;
+        if (TryGetString(variant, "Index") is { } index && TryTranslate(index, translations) is { } localized)
+            return localized;
+        return TryGetString(variant, "Name") is { Length: > 0 } name ? LightEscape(name) : null;
     }
 
-    private static string RenderValue(
+    /// <summary>
+    /// The readable player-facing value, or null for an identifier, code or key that cannot be translated.
+    /// </summary>
+    private static string? RenderValue(
         JsonElement value,
         string fieldName,
         RecipeTranslations translations,
@@ -1476,30 +1382,42 @@ internal static class ItemPatchNotesMarkdown
         {
             var text = value.GetString() ?? "";
             if (fieldName == "RequiredClass" && string.IsNullOrWhiteSpace(text)) return "None";
-            if (text.Length == 0) return "<empty>";
-            return fieldName is "NameKey"
-                ? RenderNameKey(text, translations, state)
-                : fieldName is "Type" or "classOnly"
-                    ? TranslateMaybe(text, translations)
-                    : LightEscape(text);
+            if (string.IsNullOrWhiteSpace(text)) return null;
+            if (fieldName == "NameKey") return RenderNameKey(text, translations, state);
+            if (fieldName is "Type" or "Types" or "ETypes" or "classOnly" ||
+                fieldName.EndsWith("Code", StringComparison.Ordinal))
+                return TryTranslate(text, translations);
+            if (fieldName is "Class" or "ClassSpecific")
+                return PropertyKeyResolver.TryGetClassNameKey(text) is { } classKey
+                    ? TryTranslate(classKey, translations)
+                    : null;
+            return LightEscape(text);
         }
 
         if (value.ValueKind == JsonValueKind.Object)
         {
-            if (TryGetString(value, "NameKey") is { } nameKey) return RenderNameKey(nameKey, translations, state);
             if (IsKeyedLine(value)) return RenderPropertyLineText(value, translations, state);
-            var children = value.EnumerateObject().Select(property =>
-                FormatFieldName(property.Name) + ": " +
-                RenderValue(property.Value, property.Name, translations, state));
-            return string.Join("; ", children);
+            if (TryGet(value, "NameKey", out _) || TryGet(value, "Index", out _) || TryGet(value, "Name", out _))
+                return RenderVariantName(value, translations, state);
+            var children = value.EnumerateObject()
+                .Select(property => RenderValue(property.Value, property.Name, translations, state) is { } child
+                    ? FormatFieldName(property.Name) + ": " + child
+                    : null)
+                .OfType<string>()
+                .ToArray();
+            return children.Length > 0 ? string.Join("; ", children) : null;
         }
 
         if (value.ValueKind == JsonValueKind.Array)
         {
-            var items = value.EnumerateArray().Select(item => RenderValue(item, fieldName, translations, state));
-            return string.Join(fieldName == "Runes" ? " → " : ", ", items);
+            var items = value.EnumerateArray().Select(item => RenderValue(item, fieldName, translations, state))
+                .ToArray();
+            return items.Length == 0 || items.Any(static item => item is null)
+                ? null
+                : string.Join(fieldName == "Runes" ? " → " : ", ", items);
         }
 
+        if (value.ValueKind == JsonValueKind.Number && fieldName == "Type") return null;
         return LightEscape(RawJson(value));
     }
 
@@ -1512,22 +1430,6 @@ internal static class ItemPatchNotesMarkdown
     private static bool IsKeyedLineArray(JsonElement value) =>
         value.ValueKind == JsonValueKind.Array && value.GetArrayLength() > 0 &&
         value.EnumerateArray().All(IsKeyedLine);
-
-    private static bool HasPropertyChanges(JsonElement oldRecord, JsonElement newRecord)
-    {
-        var oldCollections = GetPropertyCollections(oldRecord).ToDictionary(static collection => collection.Path,
-            StringComparer.Ordinal);
-        var newCollections = GetPropertyCollections(newRecord).ToDictionary(static collection => collection.Path,
-            StringComparer.Ordinal);
-        return oldCollections.Keys.Concat(newCollections.Keys).Distinct(StringComparer.Ordinal).Any(path =>
-        {
-            oldCollections.TryGetValue(path, out var oldCollection);
-            newCollections.TryGetValue(path, out var newCollection);
-            return oldCollection is null || newCollection is null ||
-                   !CanonicalJson(oldCollection.Lines)
-                       .Equals(CanonicalJson(newCollection.Lines), StringComparison.Ordinal);
-        });
-    }
 
     private static bool IsPropertyChangePath(string path) =>
         path.Split('.', StringSplitOptions.RemoveEmptyEntries).Any(segment =>
@@ -1543,7 +1445,7 @@ internal static class ItemPatchNotesMarkdown
             "Group" or "Class" or "ClassOnly" or "Runes" or "MagicLvl" or "Cost" or "Stackable" or
             "Throwable" or "TwoHanded" or "Equippable";
 
-    private static string PropertyCollectionLabel(string path)
+    private static string PropertyCollectionLabel(string path, RecipeTranslations translations)
     {
         var segments = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
         var damageType =
@@ -1566,8 +1468,11 @@ internal static class ItemPatchNotesMarkdown
         {
             var start = variant.IndexOf('[') + 1;
             var end = variant.IndexOf(']', start);
-            var name = end > start ? variant[start..end] : "variant";
-            return $"{LightEscape(name)} variant properties";
+            var name = end > start && translations.TryGet(variant[start..end], out var localized) &&
+                       !string.IsNullOrWhiteSpace(localized)
+                ? localized + " variant"
+                : "Variant";
+            return $"{name} properties";
         }
 
         var parts = segments
@@ -1603,8 +1508,14 @@ internal static class ItemPatchNotesMarkdown
         "MagicLvl" => "Magic Level",
         "AverageDamage" => "Average Damage",
         "DamageTypes" => "Damage Types",
-        "ETypes" => "Eligible item types",
+        "ETypes" => "Excluded item types",
         "Types" => "Eligible types",
+        "MaxLevel" => "Maximum Level",
+        "ClassLevelReq" => "Required Class Level",
+        "ClassSpecific" => "Class-specific",
+        "NormCode" => "Normal version",
+        "UberCode" => "Exceptional version",
+        "UltraCode" => "Elite version",
         "SetBonuses" => "Set bonuses",
         "FullBonuses" => "Full set bonuses",
         "PartialBonuses" => "Partial set bonuses",
@@ -1741,20 +1652,12 @@ internal static class ItemPatchNotesMarkdown
         return result.ToString();
     }
 
-    private static bool IsAmbiguousCandidate(string key, string category, CategoryComparison comparison) =>
-        category is "magicprefix" or "magicsuffix" && key.Contains('#') &&
-        comparison.Warnings.Any(static issue => issue.Code == "ambiguous-affix-identity");
-
     private static bool IsNestedPath(string path, string field) =>
         path.StartsWith(field + "[", StringComparison.Ordinal) || string.Equals(path, field, StringComparison.Ordinal);
 
     private static bool IsRuneSequencePath(string path) =>
         path.Split('.', StringSplitOptions.RemoveEmptyEntries)
             .Any(static segment => segment == "Runes" || segment.StartsWith("Runes[", StringComparison.Ordinal));
-
-    private static void AppendTraceComment(StringBuilder markdown, string category, string key) =>
-        markdown.Append("<!-- changes.json: ").Append(category.Replace("--", "-", StringComparison.Ordinal))
-            .Append(" / ").Append(key.Replace("--", "-", StringComparison.Ordinal)).AppendLine(" -->");
 
     private static void AppendHeading(StringBuilder markdown, int level, string text) =>
         markdown.Append(new string('#', level)).Append(' ').AppendLine(LightEscape(text));

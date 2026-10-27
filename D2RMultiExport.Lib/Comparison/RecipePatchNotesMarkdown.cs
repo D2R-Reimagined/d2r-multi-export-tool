@@ -54,42 +54,21 @@ internal static class RecipePatchNotesMarkdown
         var markdown = new StringBuilder();
         markdown.AppendLine("# Recipe patch notes");
         markdown.AppendLine();
-        AppendSummary(markdown, report, category, entries, oldTranslations, newTranslations);
-        if (entries.Any(entry => HasForcedAffixQualifier(entry.OldRecord) ||
-                                 HasForcedAffixQualifier(entry.NewRecord)))
-        {
-            markdown.AppendLine(
-                "Some guaranteed affixes cannot currently be identified by name.");
-            markdown.AppendLine();
-        }
-
-        markdown.AppendLine("## Recipe identity and unmatched definitions");
-        markdown.AppendLine();
-        markdown.AppendLine(
-            "Recipe ingredients and technical conditions contribute to recipe identity, so a change can appear as an unmatched removal and addition. These entries are not automatically paired or described as confirmed additions or deletions; recipe restructuring is possible. Technical conditions are not interpreted here; see the detailed comparison.");
-        markdown.AppendLine();
-        if (migrationPairs.Added.Count > 0)
-        {
-            markdown.Append("<!-- recipe-patch-notes: omitted ")
-                .Append(ComparisonMarkdown.Invariant(migrationPairs.Added.Count))
-                .AppendLine(" removed/added pairs whose only change is the unique-jewel ingredient jew,uni to jewl,uni; see changes.json -->");
-            markdown.AppendLine();
-        }
-
         if (category?.Status != "Compared")
-        {
-            markdown.Append("## Recipe changes unavailable").AppendLine();
-            markdown.AppendLine();
-            markdown.AppendLine("The recipe category is unavailable; no change counts are inferred.");
-            markdown.AppendLine();
-        }
-        else if (entries.Count == 0)
         {
             markdown.AppendLine("## Recipe changes");
             markdown.AppendLine();
-            markdown.AppendLine(migrationPairs.Added.Count > 0
-                ? "*No player-facing recipe changes remain.*"
-                : "*No recipe changes were reported.*");
+            markdown.AppendLine("*Recipe changes are not available.*");
+            markdown.AppendLine();
+            return markdown.ToString();
+        }
+
+        AppendSummary(markdown, entries);
+        if (entries.Count == 0)
+        {
+            markdown.AppendLine("## Recipe changes");
+            markdown.AppendLine();
+            markdown.AppendLine("*No recipe changes.*");
             markdown.AppendLine();
         }
         else
@@ -287,8 +266,9 @@ internal static class RecipePatchNotesMarkdown
 
     private static string GetRecipeTitle(JsonElement record, RecipeTranslations translations, RenderContext context)
     {
-        if (TryGet(record, "Description", out var description) && !IsEmptyValue(description))
-            return RenderValue(description, translations, context);
+        if (TryGet(record, "Description", out var description) &&
+            RenderValue(description, translations, context) is { } descriptionText)
+            return descriptionText;
 
         var inputs = TryGet(record, "Inputs", out var inputValues) && inputValues.ValueKind == JsonValueKind.Array
             ? inputValues.EnumerateArray().Select(input => RenderIngredient(input, translations, context))
@@ -307,50 +287,27 @@ internal static class RecipePatchNotesMarkdown
         return "Crafting recipe";
     }
 
-    private static void AppendSummary(
-        StringBuilder markdown,
-        ComparisonReport report,
-        CategoryComparison? category,
-        IReadOnlyCollection<RecipeEntry> entries,
-        RecipeTranslations oldTranslations,
-        RecipeTranslations newTranslations)
+    private static void AppendSummary(StringBuilder markdown, IReadOnlyCollection<RecipeEntry> entries)
     {
         markdown.AppendLine("## Summary");
         markdown.AppendLine();
-
-        if (category?.Status == "Compared")
+        markdown.AppendLine(
+            "| Crafting category | Modified | Added | Removed |");
+        markdown.AppendLine("|---|---:|---:|---:|");
+        foreach (var group in entries.GroupBy(static entry => entry.Category, StringComparer.Ordinal)
+                     .OrderBy(static group => group.Key == OtherRecipesCategory ? 1 : 0)
+                     .ThenBy(static group => group.Key, StringComparer.Ordinal))
         {
-            markdown.AppendLine(
-                "| Crafting category | Modified | Added | Removed |");
-            markdown.AppendLine("|---|---:|---:|---:|");
-            foreach (var group in entries.GroupBy(static entry => entry.Category, StringComparer.Ordinal)
-                         .OrderBy(static group => group.Key == OtherRecipesCategory ? 1 : 0)
-                         .ThenBy(static group => group.Key, StringComparer.Ordinal))
-            {
-                markdown.Append("| ").Append(ComparisonMarkdown.EscapeMarkdown(group.Key)).Append(" | ")
-                    .Append(group.Count(static entry => entry.Kind == RecipeChangeKind.Modified)
-                        .ToString(CultureInfo.InvariantCulture)).Append(" | ")
-                    .Append(group.Count(static entry => entry.Kind == RecipeChangeKind.Added)
-                        .ToString(CultureInfo.InvariantCulture)).Append(" | ")
-                    .Append(group.Count(static entry => entry.Kind == RecipeChangeKind.Removed)
-                        .ToString(CultureInfo.InvariantCulture)).AppendLine(" |");
-            }
-
-            if (entries.Count == 0) markdown.AppendLine("| *No affected categories* | 0 | 0 | 0 |");
-        }
-        else
-        {
-            markdown.AppendLine(
-                "Recipe change counts are unavailable because the cube-recipe category was not compared.");
+            markdown.Append("| ").Append(ComparisonMarkdown.EscapeMarkdown(group.Key)).Append(" | ")
+                .Append(group.Count(static entry => entry.Kind == RecipeChangeKind.Modified)
+                    .ToString(CultureInfo.InvariantCulture)).Append(" | ")
+                .Append(group.Count(static entry => entry.Kind == RecipeChangeKind.Added)
+                    .ToString(CultureInfo.InvariantCulture)).Append(" | ")
+                .Append(group.Count(static entry => entry.Kind == RecipeChangeKind.Removed)
+                    .ToString(CultureInfo.InvariantCulture)).AppendLine(" |");
         }
 
-        if (oldTranslations.Status.StartsWith("unavailable", StringComparison.Ordinal) ||
-            newTranslations.Status.StartsWith("unavailable", StringComparison.Ordinal))
-            markdown.AppendLine("Some English labels could not be verified; see the detailed comparison.");
-        if (report.OldSnapshot.Errors.Count > 0 || report.NewSnapshot.Errors.Count > 0 ||
-            category?.Errors.Count > 0)
-            markdown.AppendLine("Some comparison details are unavailable; see the detailed comparison.");
-
+        if (entries.Count == 0) markdown.AppendLine("| *No affected categories* | 0 | 0 | 0 |");
         markdown.AppendLine();
     }
 
@@ -378,11 +335,11 @@ internal static class RecipePatchNotesMarkdown
                 AppendEnchantmentTargetSections(markdown, categoryGroup, oldTranslations, newTranslations, context);
             else
             {
-                AppendEntrySection(markdown, categoryGroup, RecipeChangeKind.Modified,
-                    "Confirmed matched modifications", oldTranslations, newTranslations, context);
-                AppendEntrySection(markdown, categoryGroup, RecipeChangeKind.Added, "Added recipe definitions",
+                AppendEntrySection(markdown, categoryGroup, RecipeChangeKind.Modified, "Modified recipes",
                     oldTranslations, newTranslations, context);
-                AppendEntrySection(markdown, categoryGroup, RecipeChangeKind.Removed, "Removed recipe definitions",
+                AppendEntrySection(markdown, categoryGroup, RecipeChangeKind.Added, "Added recipes",
+                    oldTranslations, newTranslations, context);
+                AppendEntrySection(markdown, categoryGroup, RecipeChangeKind.Removed, "Removed recipes",
                     oldTranslations, newTranslations, context);
             }
 
@@ -420,11 +377,11 @@ internal static class RecipePatchNotesMarkdown
         {
             ComparisonMarkdown.AppendDetailsStart(markdown,
                 $"{targetGroup.Heading} ({ComparisonMarkdown.Invariant(targetGroup.Entries.Length)})");
-            AppendEntrySection(markdown, targetGroup.Entries, RecipeChangeKind.Modified,
-                "Confirmed matched modifications", oldTranslations, newTranslations, context, 4);
-            AppendEntrySection(markdown, targetGroup.Entries, RecipeChangeKind.Added, "Added recipe definitions",
+            AppendEntrySection(markdown, targetGroup.Entries, RecipeChangeKind.Modified, "Modified recipes",
                 oldTranslations, newTranslations, context, 4);
-            AppendEntrySection(markdown, targetGroup.Entries, RecipeChangeKind.Removed, "Removed recipe definitions",
+            AppendEntrySection(markdown, targetGroup.Entries, RecipeChangeKind.Added, "Added recipes",
+                oldTranslations, newTranslations, context, 4);
+            AppendEntrySection(markdown, targetGroup.Entries, RecipeChangeKind.Removed, "Removed recipes",
                 oldTranslations, newTranslations, context, 4);
             ComparisonMarkdown.AppendDetailsEnd(markdown);
         }
@@ -454,18 +411,9 @@ internal static class RecipePatchNotesMarkdown
 
         ComparisonMarkdown.AppendDetailsStart(markdown,
             $"{heading} ({ComparisonMarkdown.Invariant(selected.Length)})");
-        var duplicateTitles = selected.GroupBy(static entry => entry.Title, StringComparer.OrdinalIgnoreCase)
-            .Where(static group => group.Count() > 1)
-            .Select(static group => group.Key)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in selected)
         {
             markdown.Append(new string('#', headingLevel + 1)).Append(' ').AppendLine(entry.Title).AppendLine();
-            AppendTrace(markdown, entry.Key);
-            if (duplicateTitles.Contains(entry.Title) && HasTechnicalConditions(entry.Record) &&
-                (kind != RecipeChangeKind.Modified ||
-                 !HasTechnicalConditionChanges(entry.OldRecord, entry.NewRecord)))
-                markdown.AppendLine("- Recipe condition distinguishes this definition; see detailed comparison.");
             AppendAssignedNotes(markdown, entry.Record, entry.Category,
                 kind == RecipeChangeKind.Removed ? oldTranslations : newTranslations, context);
             if (kind == RecipeChangeKind.Modified)
@@ -493,8 +441,6 @@ internal static class RecipePatchNotesMarkdown
 
         if (TryGet(record, "Enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False)
             markdown.AppendLine("- This recipe is disabled.");
-
-        AppendUnknownRootFields(markdown, record, context, null);
     }
 
     private static void AppendModifiedRecipe(
@@ -506,7 +452,6 @@ internal static class RecipePatchNotesMarkdown
     {
         var oldRecord = entry.OldRecord;
         var newRecord = entry.NewRecord;
-        var changesBefore = markdown.Length;
         AppendMetadataChange(markdown, oldRecord, newRecord, "Description", "Recipe description changed",
             oldTranslations,
             newTranslations, context);
@@ -515,15 +460,9 @@ internal static class RecipePatchNotesMarkdown
         AppendMetadataChange(markdown, oldRecord, newRecord, "RequiredClass", "Required class restriction changed",
             oldTranslations, newTranslations, context);
         AppendNotesChange(markdown, oldRecord, newRecord, oldTranslations, newTranslations, context);
-        AppendEnabledChange(markdown, oldRecord, newRecord, context);
+        AppendEnabledChange(markdown, oldRecord, newRecord);
         AppendInputChanges(markdown, oldRecord, newRecord, oldTranslations, newTranslations, context);
         AppendOutputChanges(markdown, oldRecord, newRecord, oldTranslations, newTranslations, context);
-        AppendOperationReview(markdown, oldRecord, newRecord);
-        AppendUnknownRootFields(markdown, newRecord, context, oldRecord);
-
-        if (markdown.Length == changesBefore)
-            AddReview(markdown, context,
-                "Some recipe changes cannot be described safely; see detailed comparison.");
     }
 
     private static void AppendDefinitionField(
@@ -534,9 +473,9 @@ internal static class RecipePatchNotesMarkdown
         RecipeTranslations translations,
         RenderContext context)
     {
-        if (!TryGet(record, field, out var value) || IsEmptyValue(value)) return;
-        markdown.Append("- ").Append(label).Append(": ")
-            .AppendLine(RenderValue(value, translations, context));
+        if (!TryGet(record, field, out var value) || IsEmptyValue(value) ||
+            RenderValue(value, translations, context) is not { } rendered) return;
+        markdown.Append("- ").Append(label).Append(": ").AppendLine(rendered);
     }
 
     private static void AppendAssignedNotes(
@@ -550,7 +489,7 @@ internal static class RecipePatchNotesMarkdown
             notes.GetArrayLength() == 0) return;
 
         var rendered = notes.EnumerateArray().Select(note => RenderValue(note, translations, context)).ToArray();
-        var labels = category == OtherRecipesCategory ? rendered : rendered.Skip(1).ToArray();
+        var labels = (category == OtherRecipesCategory ? rendered : rendered.Skip(1)).OfType<string>().ToArray();
         if (labels.Length == 0) return;
 
         markdown.Append(category == OtherRecipesCategory ? "- Assigned notes: " : "- Additional notes: ")
@@ -563,13 +502,8 @@ internal static class RecipePatchNotesMarkdown
         RecipeTranslations translations,
         RenderContext context)
     {
+        if (!TryGet(record, "Inputs", out var inputs) || inputs.ValueKind != JsonValueKind.Array) return;
         markdown.AppendLine("- Ingredients:");
-        if (!TryGet(record, "Inputs", out var inputs) || inputs.ValueKind != JsonValueKind.Array)
-        {
-            AddReview(markdown, context, "Ingredient data is missing or has an unsupported shape.", 1);
-            return;
-        }
-
         if (!inputs.EnumerateArray().Any())
         {
             markdown.AppendLine("  - None listed.");
@@ -597,11 +531,7 @@ internal static class RecipePatchNotesMarkdown
         RenderContext context,
         bool showResultNames)
     {
-        if (!TryGet(record, "Outputs", out var outputs) || outputs.ValueKind != JsonValueKind.Object)
-        {
-            AddReview(markdown, context, "Result data is missing or has an unsupported shape.", 1);
-            return;
-        }
+        if (!TryGet(record, "Outputs", out var outputs) || outputs.ValueKind != JsonValueKind.Object) return;
 
         var slots = OutputSlots.Where(slot => TryGet(outputs, slot, out _)).ToArray();
         var hasResultHeading = showResultNames || slots.Length > 1;
@@ -614,8 +544,6 @@ internal static class RecipePatchNotesMarkdown
         }
 
         if (slots.Length == 0) markdown.AppendLine("- No results listed.");
-        foreach (var property in outputs.EnumerateObject().Where(property => !OutputSlots.Contains(property.Name)))
-            AddReview(markdown, context, "Some result details are not available in the player-facing report.", 1);
     }
 
     private static void AppendOutputDefinition(
@@ -629,23 +557,17 @@ internal static class RecipePatchNotesMarkdown
         IReadOnlyList<JsonElement> inputs)
     {
         var indent = new string(' ', depth * 2);
-        if (output.ValueKind != JsonValueKind.Object)
-        {
-            AddReview(markdown, context, "A result could not be displayed because its data is incomplete.", depth);
-            return;
-        }
+        if (output.ValueKind != JsonValueKind.Object) return;
 
         if (showResultName || multipleOutputs)
             markdown.Append(indent).Append("- ")
                 .AppendLine(RenderOutputName(output, translations, context, inputs));
         var nestedIndent = new string(' ', (showResultName || multipleOutputs ? depth + 1 : depth) * 2);
-        if (TryGet(output, "OutputChance", out var chance))
-            markdown.Append(nestedIndent).Append("- Result chance: ")
-                .AppendLine(RenderValue(chance, translations, context));
+        if (TryGet(output, "OutputChance", out var chance) && RenderValue(chance, translations, context) is { } chanceText)
+            markdown.Append(nestedIndent).Append("- Result chance: ").AppendLine(chanceText);
         if (TryGet(output, "Lines", out var lines))
             AppendPropertyLines(markdown, lines, translations, context,
                 depth + (showResultName || multipleOutputs ? 1 : 0));
-        AppendUnknownOutputFields(markdown, output, context, depth + 1);
     }
 
     private static string RenderOutputName(
@@ -702,9 +624,9 @@ internal static class RecipePatchNotesMarkdown
             translations.TryGet(nameKey, out var englishValue) && englishValue == fallback.EnglishValue)
             return fallback.DisplayName;
 
-        var rendered = RenderValue(name, translations, context);
-        if (rendered == "Translation unavailable; see detailed comparison.") return "Untranslated item";
-        return RemoveRedundantRuneIndex(rendered, nameKey);
+        return RenderValue(name, translations, context) is { } rendered
+            ? RemoveRedundantRuneIndex(rendered, nameKey)
+            : "Unknown item";
     }
 
     private static string RemoveRedundantRuneIndex(string name, string? nameKey)
@@ -742,7 +664,7 @@ internal static class RecipePatchNotesMarkdown
                 continue;
             }
 
-            var text = RenderValue(qualifier, translations, context);
+            if (RenderValue(qualifier, translations, context) is not { } text) continue;
             var adjective = GetItemAdjective(text);
             if (adjective is not null)
                 adjectives.Add(adjective);
@@ -801,31 +723,6 @@ internal static class RecipePatchNotesMarkdown
             : null;
     }
 
-    private static void AppendQualifiers(
-        StringBuilder markdown,
-        JsonElement record,
-        string label,
-        RecipeTranslations translations,
-        RenderContext context,
-        int depth)
-    {
-        if (!TryGet(record, "Qualifiers", out var qualifiers)) return;
-        var indent = new string(' ', depth * 2);
-        if (qualifiers.ValueKind != JsonValueKind.Array)
-        {
-            AddReview(markdown, context, $"{label} data has an unsupported shape.", depth);
-            return;
-        }
-
-        var hasQuantity = TryGet(record, "Quantity", out _);
-        foreach (var qualifier in qualifiers.EnumerateArray())
-        {
-            if (hasQuantity && IsQuantityQualifier(qualifier)) continue;
-            markdown.Append(indent).Append("- ").Append(label).Append(": ")
-                .AppendLine(RenderValue(qualifier, translations, context));
-        }
-    }
-
     private static void AppendPropertyLines(
         StringBuilder markdown,
         JsonElement lines,
@@ -833,33 +730,13 @@ internal static class RecipePatchNotesMarkdown
         RenderContext context,
         int depth)
     {
-        if (lines.ValueKind != JsonValueKind.Array)
-        {
-            AddReview(markdown, context, "Output property data has an unsupported shape.", depth);
-            return;
-        }
-
-        var hasUntranslated = false;
+        if (lines.ValueKind != JsonValueKind.Array) return;
         foreach (var line in lines.EnumerateArray())
         {
-            var lineBefore = context.PropertyState.UntranslatedValues;
-            var rendered = ItemPatchNotesMarkdown.RenderPropertyLineText(
-                line, translations, context.PropertyState, translations.VerifiedFlagKeys,
-                translations.VerifiedTrailingValueKeys);
-            if (context.PropertyState.UntranslatedValues > lineBefore &&
-                rendered.Contains("Property description unavailable; see detailed comparison.",
-                    StringComparison.Ordinal))
-            {
-                hasUntranslated = true;
-                continue;
-            }
-
-            markdown.Append(new string(' ', depth * 2)).Append("- ").AppendLine(rendered);
+            if (ItemPatchNotesMarkdown.RenderPropertyLineText(line, translations, context.PropertyState,
+                    translations.VerifiedFlagKeys, translations.VerifiedTrailingValueKeys) is { } rendered)
+                markdown.Append(new string(' ', depth * 2)).Append("- ").AppendLine(rendered);
         }
-
-        if (hasUntranslated)
-            markdown.Append(new string(' ', depth * 2))
-                .AppendLine("- Note: Some result properties cannot be translated safely; see detailed comparison.");
     }
 
     private static void AppendInputChanges(
@@ -896,14 +773,6 @@ internal static class RecipePatchNotesMarkdown
         foreach (var index in Enumerable.Range(0, oldInputs.Count).Where(index => !oldMatched[index]))
             markdown.Append("- Removed ingredient: ")
                 .AppendLine(RenderIngredient(oldInputs[index], oldTranslations, context));
-
-        var oldOrder = oldInputs.Select(InputSignature).ToArray();
-        var newOrder = newInputs.Select(InputSignature).ToArray();
-        if (oldOrder.Length == newOrder.Length &&
-            oldOrder.Order(StringComparer.Ordinal)
-                .SequenceEqual(newOrder.Order(StringComparer.Ordinal), StringComparer.Ordinal) &&
-            !oldOrder.SequenceEqual(newOrder, StringComparer.Ordinal))
-            markdown.AppendLine("- Recipe condition changed; see detailed comparison.");
     }
 
     private static void MatchExactInputs(IReadOnlyList<JsonElement> oldInputs, IReadOnlyList<JsonElement> newInputs,
@@ -967,25 +836,13 @@ internal static class RecipePatchNotesMarkdown
         RecipeTranslations newTranslations,
         RenderContext context)
     {
-        var oldName = TryGet(oldInput, "Name", out _)
-            ? RenderItemName(oldInput, oldTranslations, context)
-            : "<missing ingredient name>";
-        var newName = TryGet(newInput, "Name", out _)
-            ? RenderItemName(newInput, newTranslations, context)
-            : "<missing ingredient name>";
-        var oldQuantity = TryGet(oldInput, "Quantity", out var oldQuantityValue)
-            ? RenderValue(oldQuantityValue, oldTranslations, context)
-            : "?";
-        var newQuantity = TryGet(newInput, "Quantity", out var newQuantityValue)
-            ? RenderValue(newQuantityValue, newTranslations, context)
-            : "?";
+        var oldName = RenderItemName(oldInput, oldTranslations, context);
+        var newName = RenderItemName(newInput, newTranslations, context);
         if (oldName != newName)
             markdown.Append("- Required ingredient: ").Append(newName).Append(" (was ").Append(oldName)
                 .AppendLine(").");
-        else if (!SameField(oldInput, newInput, "Name"))
-            markdown.Append("- Ingredient changed (still shown as ").Append(newName)
-                .AppendLine("); see detailed comparison.");
-        if (oldQuantity != newQuantity)
+        if (TryRenderQuantityChange(oldInput, newInput, oldTranslations, newTranslations, context,
+                out var oldQuantity, out var newQuantity))
             markdown.Append("- Ingredient quantity: ").Append(FormatQuantity(newQuantity, newName))
                 .Append(" (was ").Append(FormatQuantity(oldQuantity, oldName)).AppendLine(").");
         AppendQualifierChanges(markdown, oldInput, newInput, oldTranslations, newTranslations, context,
@@ -1002,11 +859,7 @@ internal static class RecipePatchNotesMarkdown
     {
         if (!TryGet(oldRecord, "Outputs", out var oldOutputs) || oldOutputs.ValueKind != JsonValueKind.Object ||
             !TryGet(newRecord, "Outputs", out var newOutputs) || newOutputs.ValueKind != JsonValueKind.Object)
-        {
-            if (!SameField(oldRecord, newRecord, "Outputs"))
-                AddReview(markdown, context, "Recipe result structure changed; review the result data.");
             return;
-        }
 
         var oldInputs = GetArray(oldRecord, "Inputs");
         var newInputs = GetArray(newRecord, "Inputs");
@@ -1038,16 +891,6 @@ internal static class RecipePatchNotesMarkdown
                 AppendOutputChange(markdown, oldOutput, newOutput, oldTranslations, newTranslations, context,
                     oldInputs, newInputs, multipleResults);
         }
-
-        foreach (var property in oldOutputs.EnumerateObject().Where(property => !OutputSlots.Contains(property.Name)))
-            AddReview(markdown, context, "Some result details are no longer available; see detailed comparison.");
-        foreach (var property in newOutputs.EnumerateObject().Where(property => !OutputSlots.Contains(property.Name)))
-        {
-            if (!TryGet(oldOutputs, property.Name, out var oldValue) ||
-                ItemPatchNotesMarkdown.CanonicalJson(oldValue) != ItemPatchNotesMarkdown.CanonicalJson(property.Value))
-                AddReview(markdown, context,
-                    "Some result details changed in a way that cannot be described safely; see detailed comparison.");
-        }
     }
 
     private static void AppendOutputChange(
@@ -1061,32 +904,15 @@ internal static class RecipePatchNotesMarkdown
         IReadOnlyList<JsonElement> newInputs,
         bool multipleResults)
     {
-        if (oldOutput.ValueKind != JsonValueKind.Object || newOutput.ValueKind != JsonValueKind.Object)
-        {
-            if (ItemPatchNotesMarkdown.CanonicalJson(oldOutput) != ItemPatchNotesMarkdown.CanonicalJson(newOutput))
-                AddReview(markdown, context, "A result changed in a way that cannot be described safely.");
-            return;
-        }
+        if (oldOutput.ValueKind != JsonValueKind.Object || newOutput.ValueKind != JsonValueKind.Object) return;
 
-        var oldName = TryGet(oldOutput, "Name", out _)
-            ? RenderOutputName(oldOutput, oldTranslations, context, oldInputs, includeQuantity: false)
-            : "<missing result name>";
-        var newName = TryGet(newOutput, "Name", out _)
-            ? RenderOutputName(newOutput, newTranslations, context, newInputs, includeQuantity: false)
-            : "<missing result name>";
+        var oldName = RenderOutputName(oldOutput, oldTranslations, context, oldInputs, includeQuantity: false);
+        var newName = RenderOutputName(newOutput, newTranslations, context, newInputs, includeQuantity: false);
         if (oldName != newName)
             markdown.Append("- Result: ").Append(newName).Append(" (was ").Append(oldName).AppendLine(").");
-        else if (!SameField(oldOutput, newOutput, "Name"))
-            markdown.Append("- Result item changed (still shown as ").Append(newName)
-                .AppendLine("); see detailed comparison.");
 
-        var oldQuantity = TryGet(oldOutput, "Quantity", out var oldQuantityValue)
-            ? RenderValue(oldQuantityValue, oldTranslations, context)
-            : "?";
-        var newQuantity = TryGet(newOutput, "Quantity", out var newQuantityValue)
-            ? RenderValue(newQuantityValue, newTranslations, context)
-            : "?";
-        if (oldQuantity != newQuantity)
+        if (TryRenderQuantityChange(oldOutput, newOutput, oldTranslations, newTranslations, context,
+                out var oldQuantity, out var newQuantity))
             markdown.Append("- Result quantity: ").Append(FormatQuantity(newQuantity, newName)).Append(" (was ")
                 .Append(FormatQuantity(oldQuantity, oldName)).AppendLine(").");
 
@@ -1096,7 +922,24 @@ internal static class RecipePatchNotesMarkdown
             oldTranslations, newTranslations, context);
         AppendOutputPropertyChanges(markdown, oldOutput, newOutput, oldTranslations, newTranslations, context,
             newName, multipleResults);
-        AppendUnknownOutputFields(markdown, newOutput, context, 0, oldOutput);
+    }
+
+    private static bool TryRenderQuantityChange(
+        JsonElement oldItem,
+        JsonElement newItem,
+        RecipeTranslations oldTranslations,
+        RecipeTranslations newTranslations,
+        RenderContext context,
+        out string oldQuantity,
+        out string newQuantity)
+    {
+        oldQuantity = TryGet(oldItem, "Quantity", out var oldValue)
+            ? RenderValue(oldValue, oldTranslations, context) ?? ""
+            : "";
+        newQuantity = TryGet(newItem, "Quantity", out var newValue)
+            ? RenderValue(newValue, newTranslations, context) ?? ""
+            : "";
+        return oldQuantity.Length > 0 && newQuantity.Length > 0 && oldQuantity != newQuantity;
     }
 
     private static string FormatQuantity(string quantity, string itemName) =>
@@ -1116,36 +959,16 @@ internal static class RecipePatchNotesMarkdown
         var newLines = GetArray(newOutput, "Lines");
         var diff = ItemPatchNotesMarkdown.DiffProperties(oldLines, newLines, oldTranslations, newTranslations,
             context.PropertyState);
-        var hasUnsafeFallback = false;
+        var resultPrefix = multipleResults ? resultName + " — " : "";
         foreach (var change in diff.Changes)
         {
-            if (change == "Property order changed.")
-            {
-                markdown.AppendLine("- Recipe condition changed; see detailed comparison.");
-                continue;
-            }
-
-            if (change.Contains("Property description unavailable; see detailed comparison.",
-                    StringComparison.Ordinal))
-            {
-                hasUnsafeFallback = true;
-                continue;
-            }
-
-            var resultPrefix = multipleResults ? resultName + " — " : "";
             if (change.StartsWith("Changed: ", StringComparison.Ordinal))
                 markdown.Append("- Changed: ").Append(resultPrefix).AppendLine(change[9..]);
             else if (change.StartsWith("Added: ", StringComparison.Ordinal))
                 markdown.Append("- Added: ").Append(resultPrefix).AppendLine(change[7..]);
             else if (change.StartsWith("Removed: ", StringComparison.Ordinal))
                 markdown.Append("- Removed: ").Append(resultPrefix).AppendLine(change[9..]);
-            else
-                AddReview(markdown, context,
-                    "A result property changed in a way that cannot be described safely; see detailed comparison.");
         }
-
-        if (hasUnsafeFallback)
-            markdown.AppendLine("- Note: Some result properties cannot be translated safely; see detailed comparison.");
     }
 
     private static void AppendQualifierChanges(
@@ -1195,19 +1018,22 @@ internal static class RecipePatchNotesMarkdown
             newMatched[newIndex] = true;
             var oldText = RenderQualifier(oldQualifiers[oldIndex], oldTranslations, context);
             var newText = RenderQualifier(newQualifiers[newIndex], newTranslations, context);
-            if (oldText == newText)
-                markdown.AppendLine("- Recipe condition changed; see detailed comparison.");
-            else
-                markdown.Append("- ").Append(labelPrefix).Append(" requirement changed: ").Append(newText)
-                    .Append(" (was ").Append(oldText).AppendLine(").");
+            if (oldText is null || newText is null || oldText == newText) continue;
+            markdown.Append("- ").Append(labelPrefix).Append(" requirement changed: ").Append(newText)
+                .Append(" (was ").Append(oldText).AppendLine(").");
         }
 
         foreach (var index in Enumerable.Range(0, newQualifiers.Count).Where(index => !newMatched[index]))
-            markdown.Append("- ").Append(labelPrefix).Append(" now requires: ")
-                .AppendLine(RenderQualifier(newQualifiers[index], newTranslations, context));
+        {
+            if (RenderQualifier(newQualifiers[index], newTranslations, context) is { } text)
+                markdown.Append("- ").Append(labelPrefix).Append(" now requires: ").AppendLine(text);
+        }
+
         foreach (var index in Enumerable.Range(0, oldQualifiers.Count).Where(index => !oldMatched[index]))
-            markdown.Append("- ").Append(labelPrefix).Append(" no longer requires: ")
-                .AppendLine(RenderQualifier(oldQualifiers[index], oldTranslations, context));
+        {
+            if (RenderQualifier(oldQualifiers[index], oldTranslations, context) is { } text)
+                markdown.Append("- ").Append(labelPrefix).Append(" no longer requires: ").AppendLine(text);
+        }
     }
 
     private static Dictionary<string, List<int>> GroupQualifiersByKey(IReadOnlyList<JsonElement> qualifiers,
@@ -1224,7 +1050,7 @@ internal static class RecipePatchNotesMarkdown
         return groups;
     }
 
-    private static string RenderQualifier(
+    private static string? RenderQualifier(
         JsonElement qualifier,
         RecipeTranslations translations,
         RenderContext context)
@@ -1246,29 +1072,6 @@ internal static class RecipePatchNotesMarkdown
         return rendered.Length > 0;
     }
 
-    private static bool HasForcedAffixQualifier(JsonElement record)
-    {
-        if (record.ValueKind != JsonValueKind.Object) return false;
-        if (GetArray(record, "Inputs").Any(HasForcedAffixQualifierOnItem)) return true;
-        if (!TryGet(record, "Outputs", out var outputs) || outputs.ValueKind != JsonValueKind.Object) return false;
-        return outputs.EnumerateObject().Any(property => HasForcedAffixQualifierOnItem(property.Value));
-    }
-
-    private static bool HasForcedAffixQualifierOnItem(JsonElement item) =>
-        GetQualifiers(item).Any(qualifier => GetKey(qualifier) is
-            SyntheticStringRegistry.Keys.CubeQualifierForcePrefixN or
-            SyntheticStringRegistry.Keys.CubeQualifierForceSuffixN);
-
-    private static string RenderQualifiersInline(
-        JsonElement record,
-        RecipeTranslations translations,
-        RenderContext context)
-    {
-        var qualifiers = GetQualifiers(record);
-        if (qualifiers.Count == 0) return "";
-        return " (" + string.Join("; ", qualifiers.Select(value => RenderValue(value, translations, context))) + ")";
-    }
-
     private static void AppendMetadataChange(
         StringBuilder markdown,
         JsonElement oldRecord,
@@ -1279,19 +1082,11 @@ internal static class RecipePatchNotesMarkdown
         RecipeTranslations newTranslations,
         RenderContext context)
     {
-        var oldValue = TryGet(oldRecord, field, out var oldFieldValue)
-            ? RenderValue(oldFieldValue, oldTranslations, context)
-            : "(none)";
-        var newValue = TryGet(newRecord, field, out var newFieldValue)
-            ? RenderValue(newFieldValue, newTranslations, context)
-            : "(none)";
-        if (oldValue == newValue)
-        {
-            if (!SameField(oldRecord, newRecord, field))
-                markdown.Append("- ").Append(label).Append(" (still shown as ").Append(newValue)
-                    .AppendLine("); see detailed comparison.");
-            return;
-        }
+        var hasOld = TryGet(oldRecord, field, out var oldFieldValue) && !IsEmptyValue(oldFieldValue);
+        var hasNew = TryGet(newRecord, field, out var newFieldValue) && !IsEmptyValue(newFieldValue);
+        var oldValue = hasOld ? RenderValue(oldFieldValue, oldTranslations, context) : "none";
+        var newValue = hasNew ? RenderValue(newFieldValue, newTranslations, context) : "none";
+        if (oldValue is null || newValue is null || oldValue == newValue) return;
 
         markdown.Append("- ").Append(label).Append(": ").Append(newValue).Append(" (was ").Append(oldValue)
             .AppendLine(").");
@@ -1306,164 +1101,31 @@ internal static class RecipePatchNotesMarkdown
         RenderContext context)
     {
         if (SameField(oldRecord, newRecord, "Notes")) return;
-        var oldNotes = TryGet(oldRecord, "Notes", out var oldValue)
+        var oldNotes = TryGet(oldRecord, "Notes", out var oldValue) && !IsEmptyValue(oldValue)
             ? RenderNotesValue(oldValue, oldTranslations, context)
-            : "(none)";
-        var newNotes = TryGet(newRecord, "Notes", out var newValue)
+            : "none";
+        var newNotes = TryGet(newRecord, "Notes", out var newValue) && !IsEmptyValue(newValue)
             ? RenderNotesValue(newValue, newTranslations, context)
-            : "(none)";
-        if (oldNotes == newNotes)
-        {
-            markdown.AppendLine("- Recipe notes changed; see detailed comparison.");
-            return;
-        }
+            : "none";
+        if (oldNotes is null || newNotes is null || oldNotes == newNotes) return;
 
         markdown.Append("- Crafting category or notes: ").Append(newNotes).Append(" (was ").Append(oldNotes)
             .AppendLine(").");
     }
 
-    private static string RenderNotesValue(JsonElement value, RecipeTranslations translations, RenderContext context) =>
-        value.ValueKind == JsonValueKind.Array
-            ? string.Join(" / ", value.EnumerateArray().Select(note => RenderValue(note, translations, context)))
-            : RenderValue(value, translations, context);
+    private static string? RenderNotesValue(JsonElement value, RecipeTranslations translations, RenderContext context)
+    {
+        if (value.ValueKind != JsonValueKind.Array) return RenderValue(value, translations, context);
+        var notes = value.EnumerateArray().Select(note => RenderValue(note, translations, context)).ToArray();
+        return notes.Any(static note => note is null) ? null : string.Join(" / ", notes);
+    }
 
-    private static void AppendEnabledChange(
-        StringBuilder markdown,
-        JsonElement oldRecord,
-        JsonElement newRecord,
-        RenderContext context)
+    private static void AppendEnabledChange(StringBuilder markdown, JsonElement oldRecord, JsonElement newRecord)
     {
         if (SameField(oldRecord, newRecord, "Enabled")) return;
         if (TryGet(newRecord, "Enabled", out var enabled) &&
             enabled.ValueKind is JsonValueKind.True or JsonValueKind.False)
             markdown.AppendLine(enabled.GetBoolean() ? "- Recipe was enabled." : "- Recipe was disabled.");
-        else
-            AddReview(markdown, context, "Recipe enabled status changed to an unsupported value.");
-    }
-
-    private static void AppendOperationReview(
-        StringBuilder markdown,
-        JsonElement oldRecord,
-        JsonElement newRecord)
-    {
-        var changed = false;
-        foreach (var field in new[] { "Op", "Param", "Value" })
-        {
-            if (SameField(oldRecord, newRecord, field)) continue;
-            changed = true;
-        }
-
-        if (changed) markdown.AppendLine("- Recipe condition changed; see detailed comparison.");
-    }
-
-
-    private static void AppendUnknownRootFields(
-        StringBuilder markdown,
-        JsonElement newRecord,
-        RenderContext context,
-        JsonElement? oldRecord)
-    {
-        if (newRecord.ValueKind != JsonValueKind.Object) return;
-        var hasUnknownChange = false;
-        foreach (var property in newRecord.EnumerateObject())
-        {
-            if (property.Name is "Id" or "Index" or "Description" or "RequiredClass" or "Class" or "NumInputs" or
-                "ResolvedInputsCount" or "Inputs" or "Outputs" or "Notes" or "Enabled" or "Op" or "Param" or "Value")
-                continue;
-            if (oldRecord is { } previous && TryGet(previous, property.Name, out var oldValue) &&
-                ItemPatchNotesMarkdown.CanonicalJson(oldValue) == ItemPatchNotesMarkdown.CanonicalJson(property.Value))
-                continue;
-            hasUnknownChange = true;
-        }
-
-        if (oldRecord is { ValueKind: JsonValueKind.Object } oldObject)
-        {
-            foreach (var property in oldObject.EnumerateObject())
-            {
-                if (property.Name is "Id" or "Index" or "Description" or "RequiredClass" or "Class" or "NumInputs" or
-                        "ResolvedInputsCount" or "Inputs" or "Outputs" or "Notes" or "Enabled" or "Op" or "Param"
-                        or "Value" ||
-                    TryGet(newRecord, property.Name, out _)) continue;
-                hasUnknownChange = true;
-            }
-        }
-
-        if (hasUnknownChange)
-            AddReview(markdown, context,
-                "Other recipe details changed in a way that cannot be described safely; see detailed comparison.");
-    }
-
-    private static void AppendUnknownInputFields(
-        StringBuilder markdown,
-        JsonElement input,
-        RenderContext context)
-    {
-        if (input.ValueKind != JsonValueKind.Object) return;
-        foreach (var property in input.EnumerateObject())
-        {
-            if (property.Name is "Name" or "Quantity" or "Qualifiers" or "RawToken") continue;
-            AddReview(markdown, context,
-                $"Unrecognized ingredient field `{property.Name}` is present; its meaning is unverified.", 2);
-        }
-    }
-
-    private static void AppendUnknownInputChanges(
-        StringBuilder markdown,
-        JsonElement oldInput,
-        JsonElement newInput,
-        RenderContext context)
-    {
-        foreach (var property in newInput.EnumerateObject())
-        {
-            if (property.Name is "Name" or "Quantity" or "Qualifiers" or "RawToken") continue;
-            if (TryGet(oldInput, property.Name, out var oldValue) &&
-                ItemPatchNotesMarkdown.CanonicalJson(oldValue) == ItemPatchNotesMarkdown.CanonicalJson(property.Value))
-                continue;
-            AddReview(markdown, context,
-                $"Unrecognized ingredient field `{property.Name}` changed; its meaning is unverified.");
-        }
-
-        foreach (var property in oldInput.EnumerateObject())
-        {
-            if (property.Name is "Name" or "Quantity" or "Qualifiers" or "RawToken" ||
-                TryGet(newInput, property.Name, out _)) continue;
-            AddReview(markdown, context,
-                $"Unrecognized ingredient field `{property.Name}` was removed; its meaning is unverified.");
-        }
-    }
-
-    private static void AppendUnknownOutputFields(
-        StringBuilder markdown,
-        JsonElement output,
-        RenderContext context,
-        int depth,
-        JsonElement? oldOutput = null)
-    {
-        if (output.ValueKind != JsonValueKind.Object) return;
-        var hasUnknownChange = false;
-        foreach (var property in output.EnumerateObject())
-        {
-            if (property.Name is "Name" or "Quantity" or "Qualifiers" or "OutputChance" or "Lines") continue;
-            if (oldOutput is { } previous && TryGet(previous, property.Name, out var oldValue) &&
-                ItemPatchNotesMarkdown.CanonicalJson(oldValue) == ItemPatchNotesMarkdown.CanonicalJson(property.Value))
-                continue;
-            hasUnknownChange = true;
-        }
-
-        if (oldOutput is { ValueKind: JsonValueKind.Object } oldObject)
-        {
-            foreach (var property in oldObject.EnumerateObject())
-            {
-                if (property.Name is "Name" or "Quantity" or "Qualifiers" or "OutputChance" or "Lines" ||
-                    TryGet(output, property.Name, out _)) continue;
-                hasUnknownChange = true;
-            }
-        }
-
-        if (hasUnknownChange)
-            AddReview(markdown, context,
-                "Other result details changed in a way that cannot be described safely; see detailed comparison.",
-                depth);
     }
 
     private static void AppendValueChange(
@@ -1479,22 +1141,18 @@ internal static class RecipePatchNotesMarkdown
         if (SameField(oldRecord, newRecord, field)) return;
         var oldValue = TryGet(oldRecord, field, out var oldFieldValue)
             ? RenderValue(oldFieldValue, oldTranslations, context)
-            : "(not recorded)";
+            : null;
         var newValue = TryGet(newRecord, field, out var newFieldValue)
             ? RenderValue(newFieldValue, newTranslations, context)
-            : "(not recorded)";
-        if (oldValue == newValue)
-        {
-            markdown.Append("- ").Append(label).Append(" changed (still shown as ").Append(newValue)
-                .AppendLine("); see detailed comparison.");
-            return;
-        }
+            : null;
+        if (oldValue is null || newValue is null || oldValue == newValue) return;
 
         markdown.Append("- ").Append(label).Append(": ").Append(newValue).Append(" (was ").Append(oldValue)
             .AppendLine(").");
     }
 
-    private static string RenderValue(JsonElement value, RecipeTranslations translations, RenderContext context)
+    /// <summary>The readable player-facing value, or null when it is empty or cannot be translated.</summary>
+    private static string? RenderValue(JsonElement value, RecipeTranslations translations, RenderContext context)
     {
         if (value.ValueKind == JsonValueKind.Object &&
             (TryGet(value, "key", out _) || TryGet(value, "nameKey", out _)))
@@ -1504,34 +1162,22 @@ internal static class RecipePatchNotesMarkdown
             var rendered = ItemPatchNotesMarkdown.RenderPropertyLineText(
                 value, translations, context.PropertyState, translations.VerifiedFlagKeys,
                 translations.VerifiedTrailingValueKeys);
-            if (rendered == "Property description unavailable; see detailed comparison.")
-                rendered = "Translation unavailable; see detailed comparison.";
-
             context.RenderedLines.Add((translations, cacheKey), rendered);
             return rendered;
         }
 
         if (value.ValueKind == JsonValueKind.Array)
-            return string.Join(", ", value.EnumerateArray().Select(item => RenderValue(item, translations, context)));
-        if (value.ValueKind == JsonValueKind.Object)
         {
-            return "Translation unavailable; see detailed comparison.";
+            var items = value.EnumerateArray().Select(item => RenderValue(item, translations, context)).ToArray();
+            return items.Length == 0 || items.Any(static item => item is null) ? null : string.Join(", ", items);
         }
 
+        if (value.ValueKind is JsonValueKind.Object or JsonValueKind.Null or JsonValueKind.Undefined) return null;
+        if (value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(value.GetString())) return null;
         return ItemPatchNotesMarkdown.LightEscape(value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? ""
             : RawJson(value));
     }
-
-    private static void AddReview(StringBuilder markdown, RenderContext context, string message, int depth = 0)
-    {
-        _ = context;
-        markdown.Append(new string(' ', depth * 2)).Append("- Note: ").AppendLine(message);
-    }
-
-    private static void AppendTrace(StringBuilder markdown, string key) =>
-        markdown.Append("<!-- changes.json: ").Append(CubeRecipeCategory).Append(" / ")
-            .Append(key.Replace("--", "-", StringComparison.Ordinal)).AppendLine(" -->");
 
     private static List<JsonElement> GetArray(JsonElement record, string field) =>
         TryGet(record, field, out var value) && value.ValueKind == JsonValueKind.Array
@@ -1579,19 +1225,13 @@ internal static class RecipePatchNotesMarkdown
         return false;
     }
 
-    private static bool HasTechnicalConditions(JsonElement record) =>
-        new[] { "Op", "Param", "Value" }.Any(field => TryGet(record, field, out _));
-
-    private static bool HasTechnicalConditionChanges(JsonElement oldRecord, JsonElement newRecord) =>
-        new[] { "Op", "Param", "Value" }.Any(field => !SameField(oldRecord, newRecord, field));
-
     private static string RawJson(JsonElement value) => value.GetRawText();
 
     private sealed class RenderContext
     {
         public ItemPatchNotesMarkdown.RenderState PropertyState { get; } = new() { ConciseRecipeText = true };
 
-        public Dictionary<(RecipeTranslations Translations, string CanonicalLine), string> RenderedLines { get; } = [];
+        public Dictionary<(RecipeTranslations Translations, string CanonicalLine), string?> RenderedLines { get; } = [];
     }
 
     private sealed record MigrationPairs(HashSet<string> Added, HashSet<string> Removed);
