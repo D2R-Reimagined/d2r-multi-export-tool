@@ -1,15 +1,15 @@
 ﻿# Security policy
 
-## Reporting a vulnerability
+## Reporting a security concern
 
-**Please do not open a public GitHub issue for security reports.**
+**Please do not open a public GitHub issue for security concerns.**
 
-Use **[GitHub private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new)**
-instead. That channel is private to the repo's security responders and
-keeps the report out of the public timeline until a fix and disclosure
-plan are in place.
-
-When reporting, please include:
+Report suspected security problems through
+**[GitHub private vulnerability reporting](https://github.com/D2R-Reimagined/d2r-multi-export-tool/security/advisories/new)**.
+That form works only while private vulnerability reporting is enabled in the
+repository settings. If it is unavailable, open a public issue asking the
+maintainers to enable it, without any vulnerability details.
+See the threat model below for what is in scope, and include:
 
 - The affected component (`D2RMultiExport.Lib`,
   `D2RMultiExport.Console`, `D2RMultiExport.Client`, the release ZIP,
@@ -18,11 +18,6 @@ When reporting, please include:
 - The version (release tag, or commit SHA if reporting against `main`).
 - A minimal reproduction or proof of concept where possible.
 - The impact you observed or believe is possible.
-
-You should expect an initial acknowledgement within roughly **7
-calendar days**. Resolution timelines vary with severity; we will keep
-the advisory updated as the fix progresses, and we will coordinate the
-public disclosure with you before publishing.
 
 ## Supported versions
 
@@ -39,35 +34,80 @@ patch branches for older versions.
 
 This is a **build-time data exporter** that runs locally on a
 contributor's or release-builder's machine. It is not a service, does
-not accept network input, does not authenticate users, and does not
-process untrusted data at runtime. The realistic security surface is
+not accept network input or authenticate users. It parses user-supplied local
+mod/CASC files, which can be malformed or crafted. The realistic security surface is
 therefore narrow but non-empty:
 
-1. **Supply-chain integrity of the export bundle.** The whole value
-   proposition of `manifest.json` is the per-file SHA-256 hashes —
-   the downstream
-   [D2R Reimagined website](https://github.com/D2R-Reimagined) trusts
-   those hashes. Anything that lets an attacker silently shift those
+1. **Supply-chain integrity of the export bundle.** Every export
+   writes `<out>/manifest.json` last (`ExportOutputs.WriteManifestAsync`):
+   the SHA-256 and byte length of each file *that run* wrote, the
+   status of each export step, `Succeeded: false` whenever the run
+   recorded an error and `Complete: false` whenever the run did not
+   succeed or a step was not `Written` or left a declared output unwritten.
+   Files left in `--out` by an earlier run or another tool are never listed.
+   In the default mode the previous manifest is deleted at the start of the
+   output phase (a destructive export keeps the previous contents, including
+   their manifest, until the replacement). A failure
+   before that phase leaves the previous bundle and manifest untouched; a
+   failure during output before manifest completion leaves no new manifest.
+   Hashes do not attest code/source versions or freshness. Anything that lets an attacker silently shift those
    hashes (transitive NuGet swap, build non-determinism, unreviewed
    changes to the bundled `Config\` tree, or compromise of the
    release workflow) is in scope. The repo mitigates this with
    deterministic builds (`<Deterministic>true</Deterministic>` in
-   `Directory.Build.props`), an SDK pinned via `global.json`, the
-   per-file SHA-256 chain written into `manifest.json` on every
-   export, and Dependabot PRs (`.github/dependabot.yml`) that surface
-   every NuGet and `actions/*` version shift for review before it
-   lands on `main`.
+   `Directory.Build.props`) and an SDK pinned via `global.json`.
+   What the manifest does **not** do: it is not signed. When checked, its hashes detect
+   accidental drift and partial or mixed bundles, not a party able to
+   rewrite both the files and the manifest. Signing is deliberately not
+   implemented: the exporter runs on a trusted build machine and the
+   bundle is published through the repository's own access control. Revisit
+   this if that threat model changes. The manifest is an export
+   integrity mechanism, not mandatory browser verification or additional
+   website requests (see [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md#manifest-schema-2-and-output-integrity)).
 2. **Supply-chain integrity of the upstream parser.** Excel `.txt`
    parsing is delegated to the
    [`D2RReimaginedTools.FileExtensions`](https://www.nuget.org/packages/D2RReimaginedTools.FileExtensions)
    NuGet package. Vulnerabilities in that package are in scope to the
    extent they affect this project's output; please also report them
-   upstream at
-   [`d2r-dotnet-tools`](https://github.com/D2R-Reimagined/d2r-dotnet-tools/security/advisories/new).
+   upstream in
+   [`d2r-dotnet-tools`](https://github.com/D2R-Reimagined/d2r-dotnet-tools).
 3. **Path / file handling in the importer and exporter.** Anything
    that lets a maliciously crafted mod source tree write outside the
    user-specified `--out` directory, traverse with `..`, follow
    symlinks unexpectedly, or DoS the tool with pathological input.
+   Every exporter writes through `ExportOutputs`, which resolves each
+   path under `--out` and refuses a rooted path, one that escapes it
+   (e.g. a sprite asset name containing `..`; compared ordinally so
+   case cannot be used to escape on a case-sensitive file system), and
+   one whose existing components below `--out` include a symbolic link
+   or junction. The same check guards every deletion, and by default the tool
+   only ever deletes files a failed step attempted in the same run plus the
+   previous `manifest.json`. The opt-in destructive export (`--destructive`,
+   desktop checkbox) generates into a hidden working directory inside `--out`
+   and, only after a run without errors, renames every previous top-level entry
+   of `--out` into a hidden backup directory there, moves the new entries in and
+   deletes the backup; links and junctions are moved or removed, never followed.
+   It is refused for drive/file-system roots, Git repository roots, user and
+   system folders (or folders containing one), the exporter's folder, and folders
+   containing or inside the source/configuration directories. A failed rename is
+   rolled back; a process killed mid-replacement can leave the previous contents
+   in the hidden backup directory. The dry run (`--dry-run`, desktop button)
+   never touches `--out`: it generates into a hidden `.d2r-dryrun-<16 hex>`
+   scratch directory inside the dry-run log directory, deletes it afterwards
+   (links removed, never followed) and keeps only `dryrun-log.txt`, written
+   through `ExportOutputs`; it deletes nothing else there except its previous
+   log, the `dryrun-errors.txt` and `extras/` report copies earlier versions kept
+   (those exact paths, and a report folder once it is empty and not a link) and
+   abandoned scratch directories of that exact name shape.
+   Abandoned-temp cleanup only examines the exact
+   same-output temp-name pattern in that file's directory; it never sweeps
+   unrelated files. The
+   `--out` directory itself may be a link (it is the user's choice).
+   On Windows/Linux the opened temp-file handle's real path is checked against
+   the real export root, and the destination is checked again before rename.
+   Known limit: the last check and rename are not atomic; a concurrent link
+   swap in that interval can escape those checks. Other platforms retain path
+   checks only. `--out` is assumed to be writable only by the exporting user.
 4. **Release-artifact integrity.** Anything that affects the
    contents of the published `D2RMultiExport-v<version>-win-x64.zip`
    beyond what the source diff would suggest (release-workflow
@@ -85,16 +125,22 @@ The following are **explicitly out of scope** as security issues
 - Performance regressions and large memory use.
 - Build failures unrelated to dependency tampering.
 
-## Verifying release artifacts
+## Verifying exported bundles
 
-Each release ships a single self-contained `win-x64` zip. To verify
-you have the artifact the release workflow produced:
+Each release ships a self-contained `win-x64` zip. An export manifest verifies
+the resulting payload; it does not authenticate that executable or ZIP:
 
-1. Run an export against your mod source.
-2. Compare the per-file SHA-256 hashes the tool wrote to
-   `<out>/manifest.json` against the hashes published by the
-   downstream consumer for the same release.
+1. Run an export against your mod source and confirm
+   `<out>/manifest.json` reports `"Succeeded": true` and `"Complete": true`
+   (`Complete` is false when an optional exporter was skipped).
+2. Verify payload hashes/lengths against the schema-2 manifest's `Files[]`.
+3. For reproducibility, compare payload entries with a trusted build using
+   identical code, mod/CASC inputs and configuration. Investigate differences
+   in those inputs before treating divergent hashes as evidence of tampering.
 
-If the hashes diverge without a corresponding source-code change in
-the diff between releases, treat it as a possible supply-chain
-incident and report via the channel above.
+Report a reproducible integrity discrepancy with a suspected security impact
+as described in [Reporting a security concern](#reporting-a-security-concern).
+
+Manifests remain unsigned local export records. The write checks above do not
+claim an atomic snapshot of filesystem namespaces against an adversary changing
+directory links during execution.

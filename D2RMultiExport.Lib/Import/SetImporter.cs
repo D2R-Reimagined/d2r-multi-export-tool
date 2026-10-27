@@ -9,12 +9,12 @@ namespace D2RMultiExport.Lib.Import;
 public sealed class SetImporter
 {
     private readonly GameData _data;
-    private readonly string _excelPath;
+    private readonly SourceRoots _sources;
     private readonly Config.ExportConfig _config;
 
-    public SetImporter(string excelPath, GameData data)
+    public SetImporter(SourceRoots sources, GameData data)
     {
-        _excelPath = excelPath;
+        _sources = sources;
         _data = data;
         _config = data.ExportConfig;
     }
@@ -57,7 +57,7 @@ public sealed class SetImporter
                 setExport.Vanilla = setExport.SetItems.Any(i => i.Vanilla == "Y") ? "Y" : "N";
 
                 // Map set-wide partial and full bonuses
-                MapSetBonuses(entry, setExport);
+                MapSetBonuses(entry, setExport, result);
 
                 // Sort full bonuses by priority descending to match old tool
                 setExport.FullBonuses = setExport.FullBonuses.OrderByDescending(p => p.Priority).ToList();
@@ -67,6 +67,11 @@ public sealed class SetImporter
             catch (Exception ex)
             {
                 result.AddError("Set", entry.Index ?? "unknown", $"Failed to process set: {ex.Message}", ex);
+            }
+            finally
+            {
+                foreach (var omission in PropertyMapper.TakeOmittedLines(_data))
+                    result.AddWarning("Set", entry.Index ?? "unknown", omission);
             }
         }
 
@@ -81,7 +86,9 @@ public sealed class SetImporter
         var setItemMap = new Dictionary<string, List<SetItemExport>>(StringComparer.OrdinalIgnoreCase);
 
         // Load raw entries for vanilla detection
-        var rawEntries = await SetItemParser.GetEntries(Path.Combine(_excelPath, "SetItems.txt"));
+        var path = _sources.Excel("setitems.txt");
+        var rawEntries = await SetItemParser.GetEntries(path);
+        var engineIndices = await EngineRowIndex.DeriveAsync(path, [.. rawEntries.Select(static entry => entry.Index)]);
         var rawIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < rawEntries.Count; i++)
         {
@@ -90,18 +97,17 @@ public sealed class SetImporter
                 rawIndexByName[idx] = i + 1;
         }
 
-        // Set quality uses the same binary table convention as uniques: the
-        // zero-based SetItems.txt row position after the legacy Expansion marker
-        // is removed. Derive it from row structure rather than the informational
-        // *ID column so later mod section headers cannot desync saved identities.
+        // Set quality uses the same binary table convention as uniques: the engine
+        // record index (EngineRowIndex), i.e. the zero-based SetItems.txt row position
+        // after the legacy Expansion marker is removed. Derive it from row structure
+        // rather than the informational *ID column so later mod section headers
+        // cannot desync saved identities.
         var saveIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var saveIndex = 0;
-        foreach (var entry in rawEntries)
+        for (var i = 0; i < rawEntries.Count; i++)
         {
-            if (string.Equals(entry.Index, "Expansion", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!string.IsNullOrWhiteSpace(entry.Index) && !saveIndexByName.ContainsKey(entry.Index))
-                saveIndexByName[entry.Index] = saveIndex;
-            saveIndex++;
+            var idx = rawEntries[i].Index;
+            if (engineIndices[i] is { } saveIndex && !string.IsNullOrWhiteSpace(idx))
+                saveIndexByName.TryAdd(idx, saveIndex);
         }
 
         foreach (var entry in _data.SetItemEntries.Values)
@@ -112,6 +118,10 @@ public sealed class SetImporter
                 // Skip rows whose `spawnable` column != 1 AND `disabled` column = 1
                 // (i.e. the row is both unreachable in-game and explicitly disabled).
                 if (entry.Spawnable != true && entry.Disabled == true) continue;
+
+                // Validate the raw prop/aprop columns before any expansion or cleanup.
+                foreach (var slot in SourceSlots(entry))
+                    PropertySourceValidator.Report(result, entry.Index ?? "unknown", "setitems.txt", null, slot, _data);
 
                 var isVanilla = (rawIndexByName.TryGetValue(entry.Index ?? "", out var rawIdx) && rawIdx <= _config.VanillaSetMaxRow);
                 entry.Vanilla = isVanilla ? 1 : 0;
@@ -149,18 +159,7 @@ public sealed class SetImporter
                             properties.AddRange(groupExpansion);
                             continue;
                         }
-                        var prop = PropertyMapper.Map(mod.Code, mod.Param, mod.Min, mod.Max, _data, export.ItemLevel);
-                        properties.Add(new CubePropertyExport
-                        {
-                            Index = i,
-                            PropertyCode = mod.Code,
-                            Priority = prop.Priority,
-                            Min = mod.Min,
-                            Max = mod.Max,
-                            Parameter = mod.Param,
-                            IsEase = mod.Code == "ease",
-                            Lines = prop.Lines
-                        });
+                        properties.AddRange(PropertyMapper.MapRows(mod.Code, mod.Param, mod.Min, mod.Max, _data, export.ItemLevel, i));
                     }
                 }
 
@@ -189,7 +188,7 @@ public sealed class SetImporter
                 // armors do — never carrying the raw English value.
                 export.Type = equipment?.Type?.Index ?? "";
                 export.Vanilla = entry.Vanilla == 1 ? "Y" : "N";
-                export.DamageArmorEnhanced = properties.Any(p => p.PropertyCode == "ac%" || p.PropertyCode == "dmg%");
+                export.DamageArmorEnhanced = properties.Any(p => _data.ExportConfig.DamageArmorEnhancedCodesSet.Contains(p.PropertyCode ?? ""));
                 export.Properties = properties;
 
                 // Additional properties (Set bonuses on the item)
@@ -236,38 +235,33 @@ public sealed class SetImporter
                         continue;
                     }
 
-                    var prop = PropertyMapper.Map(mod.Code!, mod.Param, mod.Min, mod.Max, _data, export.ItemLevel);
-
                     if (addFunc == 0)
                     {
-                        export.Properties.Add(new CubePropertyExport
-                        {
-                            Index = export.Properties.Count,
-                            PropertyCode = mod.Code,
-                            Priority = prop.Priority,
-                            Lines = prop.Lines
-                        });
+                        // Carry Min/Max/Parameter like every other row: CleanupDuplicates sums
+                        // them when this code also appears among the base properties, and a
+                        // row without them used to contribute 0 to that sum.
+                        export.Properties.AddRange(PropertyMapper.MapRows(mod.Code!, mod.Param, mod.Min, mod.Max, _data,
+                            export.ItemLevel, export.Properties.Count));
                     }
                     else
                     {
-                        // Stamp the KeyedLines for set-item per-N-items bonuses so the
-                        // wire format carries the required item count.
-                        if (numberOfItemsRequired.HasValue)
+                        // One bonus entry per column; a shorthand code (dmg-elem) yields one
+                        // row per component inside that entry.
+                        var bonusRows = PropertyMapper.MapRows(mod.Code!, mod.Param, mod.Min, mod.Max, _data, export.ItemLevel, 0);
+                        foreach (var bonusProp in bonusRows)
                         {
-                            foreach (var line in prop.Lines)
+                            // Stamp the KeyedLines for set-item per-N-items bonuses so the
+                            // wire format carries the required item count.
+                            if (numberOfItemsRequired.HasValue)
                             {
-                                line.ItemsRequired = numberOfItemsRequired;
+                                foreach (var line in bonusProp.Lines)
+                                {
+                                    line.ItemsRequired = numberOfItemsRequired;
+                                }
                             }
+                            bonusProp.NumberOfItemsRequired = numberOfItemsRequired;
                         }
-                        var bonusProp = new CubePropertyExport
-                        {
-                            Index = 0, // Since it's a list of lists with one item each?
-                            PropertyCode = mod.Code,
-                            Priority = prop.Priority,
-                            Lines = prop.Lines,
-                            NumberOfItemsRequired = numberOfItemsRequired
-                        };
-                        export.SetBonuses.Add(new List<CubePropertyExport> { bonusProp });
+                        export.SetBonuses.Add(bonusRows);
                     }
                 }
 
@@ -282,6 +276,11 @@ public sealed class SetImporter
             catch (Exception ex)
             {
                 result.AddError("SetItem", entry.Index ?? "unknown", $"Failed to process: {ex.Message}", ex);
+            }
+            finally
+            {
+                foreach (var omission in PropertyMapper.TakeOmittedLines(_data))
+                    result.AddWarning("SetItem", entry.Index ?? "unknown", omission);
             }
         }
 
@@ -325,32 +324,89 @@ public sealed class SetImporter
         }
     }
 
-    private void MapSetBonuses(D2RReimaginedTools.Models.Sets entry, SetExport set)
+    /// <summary>
+    /// Every populated SetItems.txt property column (<c>prop1</c>–<c>prop9</c>, then
+    /// <c>aprop1a</c>–<c>aprop5b</c>) as read by the typed DTO, named by its source column
+    /// for <see cref="PropertySourceValidator"/>. The parser's gap-collapsed
+    /// <see cref="D2RReimaginedTools.Models.SetItem.Properties"/> list loses the column.
+    /// </summary>
+    private static IEnumerable<SourcePropertySlot> SourceSlots(D2RReimaginedTools.Models.SetItem entry)
     {
-        // Partial bonuses (2, 3, 4, 5 items)
-        AddBonus(set.PartialBonuses, entry.PCode2a, entry.PParam2a, entry.PMin2a, entry.PMax2a, 2);
-        AddBonus(set.PartialBonuses, entry.PCode2b, entry.PParam2b, entry.PMin2b, entry.PMax2b, 2);
-        AddBonus(set.PartialBonuses, entry.PCode3a, entry.PParam3a, entry.PMin3a, entry.PMax3a, 3);
-        AddBonus(set.PartialBonuses, entry.PCode3b, entry.PParam3b, entry.PMin3b, entry.PMax3b, 3);
-        AddBonus(set.PartialBonuses, entry.PCode4a, entry.PParam4a, entry.PMin4a, entry.PMax4a, 4);
-        AddBonus(set.PartialBonuses, entry.PCode4b, entry.PParam4b, entry.PMin4b, entry.PMax4b, 4);
-        AddBonus(set.PartialBonuses, entry.PCode5a, entry.PParam5a, entry.PMin5a, entry.PMax5a, 5);
-        AddBonus(set.PartialBonuses, entry.PCode5b, entry.PParam5b, entry.PMin5b, entry.PMax5b, 5);
+        var columns = new (string Column, string? Code, string? Param, int? Min, int? Max)[]
+        {
+            ("1", entry.Prop1, entry.Par1, entry.Min1, entry.Max1),
+            ("2", entry.Prop2, entry.Par2, entry.Min2, entry.Max2),
+            ("3", entry.Prop3, entry.Par3, entry.Min3, entry.Max3),
+            ("4", entry.Prop4, entry.Par4, entry.Min4, entry.Max4),
+            ("5", entry.Prop5, entry.Par5, entry.Min5, entry.Max5),
+            ("6", entry.Prop6, entry.Par6, entry.Min6, entry.Max6),
+            ("7", entry.Prop7, entry.Par7, entry.Min7, entry.Max7),
+            ("8", entry.Prop8, entry.Par8, entry.Min8, entry.Max8),
+            ("9", entry.Prop9, entry.Par9, entry.Min9, entry.Max9),
+        };
+        foreach (var col in columns)
+        {
+            if (string.IsNullOrEmpty(col.Code)) continue;
+            yield return new SourcePropertySlot($"prop{col.Column}", $"par{col.Column}", $"min{col.Column}", $"max{col.Column}",
+                col.Code, col.Param, col.Min, col.Max);
+        }
 
-        // Full bonuses
-        AddBonus(set.FullBonuses, entry.FCode1, entry.FParam1, entry.FMin1, entry.FMax1, fullSet: true);
-        AddBonus(set.FullBonuses, entry.FCode2, entry.FParam2, entry.FMin2, entry.FMax2, fullSet: true);
-        AddBonus(set.FullBonuses, entry.FCode3, entry.FParam3, entry.FMin3, entry.FMax3, fullSet: true);
-        AddBonus(set.FullBonuses, entry.FCode4, entry.FParam4, entry.FMin4, entry.FMax4, fullSet: true);
-        AddBonus(set.FullBonuses, entry.FCode5, entry.FParam5, entry.FMin5, entry.FMax5, fullSet: true);
-        AddBonus(set.FullBonuses, entry.FCode6, entry.FParam6, entry.FMin6, entry.FMax6, fullSet: true);
-        AddBonus(set.FullBonuses, entry.FCode7, entry.FParam7, entry.FMin7, entry.FMax7, fullSet: true);
-        AddBonus(set.FullBonuses, entry.FCode8, entry.FParam8, entry.FMin8, entry.FMax8, fullSet: true);
+        var additional = new (string Column, string? Code, string? Param, int? Min, int? Max)[]
+        {
+            ("1a", entry.AProp1A, entry.APar1A, entry.AMin1A, entry.AMax1A),
+            ("1b", entry.AProp1B, entry.APar1B, entry.AMin1B, entry.AMax1B),
+            ("2a", entry.AProp2A, entry.APar2A, entry.AMin2A, entry.AMax2A),
+            ("2b", entry.AProp2B, entry.APar2B, entry.AMin2B, entry.AMax2B),
+            ("3a", entry.AProp3A, entry.APar3A, entry.AMin3A, entry.AMax3A),
+            ("3b", entry.AProp3B, entry.APar3B, entry.AMin3B, entry.AMax3B),
+            ("4a", entry.AProp4A, entry.APar4A, entry.AMin4A, entry.AMax4A),
+            ("4b", entry.AProp4B, entry.APar4B, entry.AMin4B, entry.AMax4B),
+            ("5a", entry.AProp5A, entry.APar5A, entry.AMin5A, entry.AMax5A),
+            ("5b", entry.AProp5B, entry.APar5B, entry.AMin5B, entry.AMax5B),
+        };
+        foreach (var col in additional)
+        {
+            if (string.IsNullOrEmpty(col.Code)) continue;
+            yield return new SourcePropertySlot($"aprop{col.Column}", $"apar{col.Column}", $"amin{col.Column}", $"amax{col.Column}",
+                col.Code, col.Param, col.Min, col.Max);
+        }
     }
 
-    private void AddBonus(List<CubePropertyExport> target, string? code, string? param, int? min, int? max, int? numberOfItemsRequired = null, bool fullSet = false)
+    private void MapSetBonuses(D2RReimaginedTools.Models.Sets entry, SetExport set, ImportResult<SetExport> result)
     {
+        // Partial bonuses (2, 3, 4, 5 items)
+        AddBonus(set.PartialBonuses, PartialSlot("2a", entry.PCode2a, entry.PParam2a, entry.PMin2a, entry.PMax2a), entry, result, 2);
+        AddBonus(set.PartialBonuses, PartialSlot("2b", entry.PCode2b, entry.PParam2b, entry.PMin2b, entry.PMax2b), entry, result, 2);
+        AddBonus(set.PartialBonuses, PartialSlot("3a", entry.PCode3a, entry.PParam3a, entry.PMin3a, entry.PMax3a), entry, result, 3);
+        AddBonus(set.PartialBonuses, PartialSlot("3b", entry.PCode3b, entry.PParam3b, entry.PMin3b, entry.PMax3b), entry, result, 3);
+        AddBonus(set.PartialBonuses, PartialSlot("4a", entry.PCode4a, entry.PParam4a, entry.PMin4a, entry.PMax4a), entry, result, 4);
+        AddBonus(set.PartialBonuses, PartialSlot("4b", entry.PCode4b, entry.PParam4b, entry.PMin4b, entry.PMax4b), entry, result, 4);
+        AddBonus(set.PartialBonuses, PartialSlot("5a", entry.PCode5a, entry.PParam5a, entry.PMin5a, entry.PMax5a), entry, result, 5);
+        AddBonus(set.PartialBonuses, PartialSlot("5b", entry.PCode5b, entry.PParam5b, entry.PMin5b, entry.PMax5b), entry, result, 5);
+
+        // Full bonuses
+        AddBonus(set.FullBonuses, FullSlot(1, entry.FCode1, entry.FParam1, entry.FMin1, entry.FMax1), entry, result, fullSet: true);
+        AddBonus(set.FullBonuses, FullSlot(2, entry.FCode2, entry.FParam2, entry.FMin2, entry.FMax2), entry, result, fullSet: true);
+        AddBonus(set.FullBonuses, FullSlot(3, entry.FCode3, entry.FParam3, entry.FMin3, entry.FMax3), entry, result, fullSet: true);
+        AddBonus(set.FullBonuses, FullSlot(4, entry.FCode4, entry.FParam4, entry.FMin4, entry.FMax4), entry, result, fullSet: true);
+        AddBonus(set.FullBonuses, FullSlot(5, entry.FCode5, entry.FParam5, entry.FMin5, entry.FMax5), entry, result, fullSet: true);
+        AddBonus(set.FullBonuses, FullSlot(6, entry.FCode6, entry.FParam6, entry.FMin6, entry.FMax6), entry, result, fullSet: true);
+        AddBonus(set.FullBonuses, FullSlot(7, entry.FCode7, entry.FParam7, entry.FMin7, entry.FMax7), entry, result, fullSet: true);
+        AddBonus(set.FullBonuses, FullSlot(8, entry.FCode8, entry.FParam8, entry.FMin8, entry.FMax8), entry, result, fullSet: true);
+    }
+
+    private static SourcePropertySlot PartialSlot(string column, string? code, string? param, int? min, int? max) =>
+        new($"PCode{column}", $"PParam{column}", $"PMin{column}", $"PMax{column}", code, param, min, max);
+
+    private static SourcePropertySlot FullSlot(int column, string? code, string? param, int? min, int? max) =>
+        new($"FCode{column}", $"FParam{column}", $"FMin{column}", $"FMax{column}", code, param, min, max);
+
+    private void AddBonus(List<CubePropertyExport> target, SourcePropertySlot slot, D2RReimaginedTools.Models.Sets entry,
+        ImportResult<SetExport> result, int? numberOfItemsRequired = null, bool fullSet = false)
+    {
+        var (code, param, min, max) = (slot.Code, slot.Parameter, slot.Min, slot.Max);
         if (string.IsNullOrEmpty(code)) return;
+        PropertySourceValidator.Report(result, entry.Index ?? "unknown", "sets.txt", null, slot, _data);
         if (PropertyMapper.IsIgnored(code, _data.ExportConfig)) return;
         // propertygroups.txt reference on a set partial/full bonus → expand
         // into the parent KeyedLine. The (N Items) / (full set) metadata is
@@ -371,25 +427,17 @@ public sealed class SetImporter
             }
             return;
         }
-        var prop = PropertyMapper.Map(code, param, min, max, _data, 0);
-        // Stamp each KeyedLine so consumers can render their own localized
-        // "(N Items)" / "(full set)" labels.
-        foreach (var line in prop.Lines)
+        foreach (var row in PropertyMapper.MapRows(code, param, min, max, _data, 0, target.Count))
         {
-            if (numberOfItemsRequired.HasValue) line.ItemsRequired = numberOfItemsRequired;
-            if (fullSet) line.FullSet = true;
+            // Stamp each KeyedLine so consumers can render their own localized
+            // "(N Items)" / "(full set)" labels.
+            foreach (var line in row.Lines)
+            {
+                if (numberOfItemsRequired.HasValue) line.ItemsRequired = numberOfItemsRequired;
+                if (fullSet) line.FullSet = true;
+            }
+            row.NumberOfItemsRequired = numberOfItemsRequired;
+            target.Add(row);
         }
-        target.Add(new CubePropertyExport
-        {
-            Index = target.Count,
-            PropertyCode = code,
-            Priority = prop.Priority,
-            Min = min,
-            Max = max,
-            Parameter = param,
-            IsEase = code == "ease",
-            Lines = prop.Lines,
-            NumberOfItemsRequired = numberOfItemsRequired
-        });
     }
 }

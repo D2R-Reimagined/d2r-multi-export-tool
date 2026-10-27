@@ -92,14 +92,13 @@ public sealed class MultiLanguageTranslationService
     }
 
     /// <summary>
-    /// Loads every <c>*.json</c> under <paramref name="dir"/> using the dotnet-tools parser
-    /// and folds it into the in-memory dictionaries. Missing dirs are silently skipped.
+    /// Loads the <c>*.json</c> files directly in <paramref name="dir"/> (see
+    /// <see cref="SourceRoots.StringFiles"/>) using the dotnet-tools parser and folds them
+    /// into the in-memory dictionaries. Missing dirs are silently skipped.
     /// </summary>
     public async Task LoadFromDirectoryAsync(string? dir)
     {
-        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir)) return;
-
-        foreach (var path in Directory.GetFiles(dir, "*.json", SearchOption.AllDirectories))
+        foreach (var path in SourceRoots.StringFiles(dir))
         {
             var parser = new TranslationFileParser(path);
             List<TranslatableString> entries;
@@ -117,7 +116,8 @@ public sealed class MultiLanguageTranslationService
     }
 
     /// <summary>
-    /// Loads every <c>*.json</c> under <paramref name="dir"/> into the side
+    /// Loads the <c>*.json</c> files directly in <paramref name="dir"/> (see
+    /// <see cref="SourceRoots.StringFiles"/>) into the side
     /// <see cref="_fallbackByLang"/> dictionary instead of the primary bundle. Use this
     /// for the read-only CASC base strings: only entries that turn out to be referenced
     /// by the exported documents are later promoted to the per-language output via
@@ -125,9 +125,7 @@ public sealed class MultiLanguageTranslationService
     /// </summary>
     public async Task LoadFallbackFromDirectoryAsync(string? dir)
     {
-        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir)) return;
-
-        foreach (var path in Directory.GetFiles(dir, "*.json", SearchOption.AllDirectories))
+        foreach (var path in SourceRoots.StringFiles(dir))
         {
             var parser = new TranslationFileParser(path);
             List<TranslatableString> entries;

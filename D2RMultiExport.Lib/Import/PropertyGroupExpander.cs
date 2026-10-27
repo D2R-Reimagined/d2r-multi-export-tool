@@ -63,56 +63,55 @@ public static class PropertyGroupExpander
 
             try
             {
-                var resolved = PropertyMapper.Map(sub.Property, sub.Parameter, sub.Min, sub.Max, data, itemLevel);
-
-                // Skip rows that produced no keyed line and aren't recognised in
-                // Properties.txt — same gate as the main MapProperties loop, so
-                // unknown sub-property codes don't leak through silently.
-                if (resolved.Lines.Count == 0
-                    && !data.Properties.ContainsKey(sub.Property)
-                    && !PropertyCleanup.IsSplitElementalCode(sub.Property, data.ExportConfig))
-                    continue;
-
-                // Stamp the per-row ChanceN value on every line resolved for
-                // this sub-property. The parent's PickMode tells the consumer
-                // how to interpret the value; we don't repeat it on each child.
-                // chance==0 / null means "always-on" — leave the field unset.
-                foreach (var line in resolved.Lines)
+                foreach (var resolved in PropertyMapper.MapExpanded(sub.Property, sub.Parameter, sub.Min, sub.Max, data,
+                             itemLevel))
                 {
-                    if (sub.Chance is > 0)
-                        line.Chance = sub.Chance;
+                    var component = resolved.PropertyCode;
+                    // Skip rows that produced no keyed line and aren't recognised in
+                    // Properties.txt — same gate as the main MapProperties loop, so
+                    // unknown sub-property codes don't leak through silently.
+                    if (resolved.Lines.Count == 0
+                        && !data.Properties.ContainsKey(component)
+                        && !PropertyCleanup.IsSplitElementalCode(component, data.ExportConfig))
+                        continue;
 
-                    // Mod-added class-restricted random-skill-tab groups
-                    // (e.g. `skilltab-war` on Wraithstep) wrap a `skilltab`
-                    // sub-property whose Min/Max parameter range doesn't
-                    // resolve to a single tab id, so BuildSkillTab falls back
-                    // to strSkillTabBonusClassOnly with an empty class slot.
-                    // Mirror the doc-generator's hardcoded Wraithstep
-                    // workaround by rewriting such children into a
-                    // "+N Random Skill Tab (<Class> Only)" line scoped to
-                    // the configured class. The mapping lives in
-                    // export-config.json → customSkillTabAliases (parent
-                    // group code → 3-letter CharStats class code).
-                    if (data.ExportConfig.CustomSkillTabAliases.TryGetValue(group.Code, out var aliasClassCode)
-                        && data.CharStatsByCode.ContainsKey(aliasClassCode)
-                        && (line.Key == Translation.SyntheticStringRegistry.Keys.SkillTabBonusClassOnly
-                            || line.Key == Translation.SyntheticStringRegistry.Keys.SkillTabRandomClassOnly))
+                    // Stamp the per-row ChanceN value on every line resolved for
+                    // this sub-property. The parent's PickMode tells the consumer
+                    // how to interpret the value; we don't repeat it on each child.
+                    // chance==0 / null means "always-on" — leave the field unset.
+                    foreach (var line in resolved.Lines)
                     {
-                        var bonus = (line.Args.Length > 0 && line.Args[0] is int v)
-                            ? v
-                            : (sub.Min ?? sub.Max ?? 0);
-                        line.Key = Translation.SyntheticStringRegistry.Keys.SkillTabRandomClassOnly;
-                        line.Args = [bonus];
-                        line.ClassOnly = Translation.PropertyKeyResolver.TryGetClassOnlyKey(aliasClassCode);
-                    }
+                        if (sub.Chance is > 0)
+                            line.Chance = sub.Chance;
 
-                    children.Add(line);
+                        // Mod-added class-restricted random-skill-tab groups
+                        // (e.g. `skilltab-war` on Wraithstep) wrap a `skilltab`
+                        // sub-property whose Min/Max parameter range doesn't
+                        // resolve to a single tab id, so BuildSkillTab falls back
+                        // to strSkillTabBonusClassOnly with an empty class slot.
+                        // Mirror the doc-generator's hardcoded Wraithstep
+                        // workaround by rewriting such children into a
+                        // "+N Random Skill Tab (<Class> Only)" line scoped to
+                        // the configured class. The mapping lives in
+                        // export-config.json → customSkillTabAliases (parent
+                        // group code → 3-letter CharStats class code).
+                        if (data.ExportConfig.CustomSkillTabAliases.TryGetValue(group.Code, out var aliasClassCode)
+                            && data.CharStatsByCode.ContainsKey(aliasClassCode)
+                            && (line.Key == Translation.SyntheticStringRegistry.Keys.SkillTabBonusClassOnly
+                                || line.Key == Translation.SyntheticStringRegistry.Keys.SkillTabRandomClassOnly))
+                        {
+                            line.Key = Translation.SyntheticStringRegistry.Keys.SkillTabRandomClassOnly;
+                            line.Args = line.Args.TakeWhile(static arg => arg is int or double).ToArray();
+                            line.ClassOnly = Translation.PropertyKeyResolver.TryGetClassOnlyKey(aliasClassCode);
+                        }
+
+                        children.Add(line);
+                    }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Skip unresolvable sub-properties; the import-report's main
-                // MapProperties loop catches the rest.
+                throw new InvalidOperationException($"propertygroups.txt '{group.Code}', property '{sub.Property}': {ex.Message}", ex);
             }
         }
 

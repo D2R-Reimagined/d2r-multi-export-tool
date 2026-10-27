@@ -30,6 +30,12 @@ public static class SyntheticStringRegistry
         public const string SkillTabBonusClassOnly   = "strSkillTabBonusClassOnly";     // "+%d to %s (%s Only)"
         public const string SkillTabRandomClassOnly  = "strSkillTabRandomClassOnly";    // "+%d Random Skill Tab" (the "(Class Only)" suffix is appended via KeyedLine.ClassOnly)
         public const string DamageMergedRange        = "strDamageMergedRange";          // "Adds %d-%d to %d-%d Damage" (level-scaled, no game equivalent)
+        public const string FireDamageRolls          = "strFireDamageRolls";
+        public const string ColdDamageRolls          = "strColdDamageRolls";
+        public const string LightningDamageRolls     = "strLightningDamageRolls";
+        public const string PoisonDamageRolls        = "strPoisonDamageRolls";
+        public const string DurabilityRolls          = "strDurabilityRolls";
+        public const string DurabilityBonus          = "strDurabilityBonus";
         public const string SkillCharges             = "strSkillCharges";               // "Level %d %s (%d/%d Charges)"
         public const string ChanceToCastOnAttack     = "strChanceToCastOnAttack";       // "%d%% Chance to cast level %d %s on attack"
         public const string ChanceToCastOnStriking   = "strChanceToCastOnStriking";     // "%d%% Chance to cast level %d %s on striking"
@@ -95,6 +101,7 @@ public static class SyntheticStringRegistry
         public const string WeaponDamageGenericRange = "strWeaponDamageGenericRange";   // "Damage: %d-%d to %d-%d"
         public const string DefenseRangeRange        = "strDefenseRangeRange";          // "Defense: %d-%d to %d-%d"
         public const string ElementalDamage          = "strElementalDamage";            // "Elemental Damage: %d to %d"
+        public const string ElementalDamageRange     = "strElementalDamageRange";       // "Elemental Damage: %d-%d to %d-%d"
         public const string GemSocketsTier           = "strGemSocketsTier";             // "(%d-%d): %d"  (level-range : sockets)
         public const string GemSocketsOpen           = "strGemSocketsOpen";             // "(%d+): %d"
         public const string SmiteDamage              = "strSmiteDamage";                // "Smite Damage: %d to %d"

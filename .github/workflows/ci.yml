@@ -34,5 +34,19 @@ jobs:
       - name: Build (Release)
         run: dotnet build .\D2RMultiExport.sln -c Release --no-restore -p:TreatWarningsAsErrors=false
 
-      # No automated test project exists today (see docs\TESTING.md).
-      # Add `dotnet test` here once one is added.
+      # Level A/B deterministic regressions (docs/TESTING.md). Both real-data
+      # cases explicitly skip here; required Level C remains a local/release gate.
+      - name: Library tests (Release)
+        run: dotnet test .\D2RMultiExport.Tests\D2RMultiExport.Tests.csproj -c Release --no-build
+
+      - name: Setup Python for independent property-audit tests
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Property-audit tests
+        run: python -m unittest discover -s tools -p test_property_range_audit.py -v
+
+      # Headless desktop regressions; real-data tests skip without local source roots.
+      - name: Desktop tests (Release)
+        run: dotnet test .\D2RMultiExport.Client.Tests\D2RMultiExport.Client.Tests.csproj -c Release --no-build

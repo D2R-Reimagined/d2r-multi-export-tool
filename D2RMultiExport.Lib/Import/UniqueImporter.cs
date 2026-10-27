@@ -12,11 +12,11 @@ namespace D2RMultiExport.Lib.Import;
 public sealed class UniqueImporter
 {
     private readonly GameData _data;
-    private readonly string _excelPath;
+    private readonly SourceRoots _sources;
 
-    public UniqueImporter(string excelPath, GameData data)
+    public UniqueImporter(SourceRoots sources, GameData data)
     {
-        _excelPath = excelPath;
+        _sources = sources;
         _data = data;
     }
 
@@ -26,9 +26,12 @@ public sealed class UniqueImporter
         var config = _data.ExportConfig;
 
         IList<D2RReimaginedTools.Models.UniqueItem> rawEntries;
+        int?[] engineIndices;
         try
         {
-            rawEntries = await UniqueItemsParser.GetEntries(Path.Combine(_excelPath, "UniqueItems.txt"));
+            var path = _sources.Excel("uniqueitems.txt");
+            rawEntries = await UniqueItemsParser.GetEntries(path);
+            engineIndices = await EngineRowIndex.DeriveAsync(path, [.. rawEntries.Select(static entry => entry.Index)]);
         }
         catch (Exception ex)
         {
@@ -45,22 +48,25 @@ public sealed class UniqueImporter
                 rawIndexByName[idx] = i + 1; // 1-based including header
         }
 
-        // The binary unique ID is the zero-based UniqueItems.txt row position after
-        // the game's legacy Expansion marker is removed. Other section-header rows
-        // still consume IDs, so neither the physical row nor the informational *ID
-        // column is authoritative once the mod adds section headers.
+        // The binary unique ID is the engine record index (EngineRowIndex): the
+        // zero-based UniqueItems.txt row position after the game's legacy Expansion
+        // marker is removed. Other section-header rows (Rings, Armor, ...) still
+        // consume IDs, so neither the physical row nor the informational *ID column
+        // is authoritative once the mod adds section headers.
         var saveIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var saveIndex = 0;
-        foreach (var entry in rawEntries)
+        for (var i = 0; i < rawEntries.Count; i++)
         {
-            if (string.Equals(entry.Index, "Expansion", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!string.IsNullOrWhiteSpace(entry.Index) && !saveIndexByName.ContainsKey(entry.Index))
-                saveIndexByName[entry.Index] = saveIndex;
-            saveIndex++;
+            var idx = rawEntries[i].Index;
+            if (engineIndices[i] is { } saveIndex && !string.IsNullOrWhiteSpace(idx))
+                saveIndexByName.TryAdd(idx, saveIndex);
         }
 
+        // 1-based position among the parsed data rows (header excluded, blank lines not
+        // counted), reported with property-line diagnostics; not a physical line number.
+        var parsedRow = 0;
         foreach (var entry in rawEntries)
         {
+            parsedRow++;
             var name = entry.Index ?? "";
             try
             {
@@ -79,7 +85,7 @@ public sealed class UniqueImporter
                 var baseEq = EquipmentHelper.GetBaseEquipment(code, _data);
 
                 // Map properties
-                var properties = MapProperties(entry, name, result, entry.Level);
+                var properties = MapProperties(entry, name, result, entry.Level, parsedRow);
 
                 var equipment = EquipmentHelper.MapToExport(baseEq, name, properties, _data, config, entry.Level);
 
@@ -124,7 +130,7 @@ public sealed class UniqueImporter
                     RequiredLevel = entry.LevelRequirement,
                     Code = code,
                     Properties = properties,
-                    DamageArmorEnhanced = properties.Any(p => p.PropertyCode == "ac%" || p.PropertyCode == "dmg%"),
+                    DamageArmorEnhanced = properties.Any(p => config.DamageArmorEnhancedCodesSet.Contains(p.PropertyCode ?? "")),
                     Equipment = equipment?.ToSlim()
                 };
 
@@ -133,6 +139,12 @@ public sealed class UniqueImporter
             catch (Exception ex)
             {
                 result.AddError("Unique", name, $"Failed to process: {ex.Message}", ex);
+            }
+            finally
+            {
+                // Omissions MapProperties did not attribute to a slot (e.g. a later re-map).
+                foreach (var omission in PropertyMapper.TakeOmittedLines(_data))
+                    result.AddWarning("Unique", name, $"uniqueitems.txt parsed row {parsedRow}: {omission}");
             }
         }
 
@@ -143,7 +155,7 @@ public sealed class UniqueImporter
     }
 
 
-    private List<CubePropertyExport> MapProperties(D2RReimaginedTools.Models.UniqueItem entry, string itemName, ImportResult<UniqueExport> result, int itemLevel)
+    private List<CubePropertyExport> MapProperties(D2RReimaginedTools.Models.UniqueItem entry, string itemName, ImportResult<UniqueExport> result, int itemLevel, int parsedRow)
     {
         var properties = new List<CubePropertyExport>();
         if (entry.Properties == null) return [];
@@ -152,6 +164,10 @@ public sealed class UniqueImporter
         {
             var prop = entry.Properties[i];
             if (string.IsNullOrEmpty(prop.Property)) continue;
+            var slot = i + 1;
+            PropertySourceValidator.Report(result, itemName, "uniqueitems.txt", parsedRow,
+                new SourcePropertySlot($"prop{slot}", $"par{slot}", $"min{slot}", $"max{slot}", prop.Property, prop.Parameter, prop.Min, prop.Max),
+                _data);
             if (PropertyMapper.IsIgnored(prop.Property, _data.ExportConfig)) continue;
 
             try
@@ -163,71 +179,28 @@ public sealed class UniqueImporter
                     continue;
                 }
 
-                // charm-property resolves directly via Properties.txt → stat charm_weight
-                // (no property group expansion needed)
-
-                // Expand dmg-elem into fire, cold, lightning (matching old code's GetProperties)
-                if (string.Equals(prop.Property, "dmg-elem", StringComparison.OrdinalIgnoreCase))
+                // Keep raw values through the shared expansion path, including
+                // direct damage components and poison rates.
+                foreach (var row in PropertyMapper.MapRows(prop.Property, prop.Parameter, prop.Min, prop.Max, _data, itemLevel, i))
                 {
-                    foreach (var elem in new[] { "dmg-fire", "dmg-cold", "dmg-ltng" })
-                    {
-                        var elemResolved = PropertyMapper.Map(elem, prop.Parameter, prop.Min, prop.Max, _data, itemLevel);
-                        properties.Add(new CubePropertyExport
-                        {
-                            Index = i,
-                            PropertyCode = elem,
-                            Priority = elemResolved.Priority,
-                            Min = prop.Min,
-                            Max = prop.Max,
-                            Parameter = prop.Parameter,
-                            Lines = elemResolved.Lines
-                        });
-                    }
-                    continue;
+                    // Retain known calculation-only and split component rows even
+                    // when they have no tooltip until cleanup/equipment calculation.
+                    if (row.Lines.Count == 0
+                        && !_data.Properties.ContainsKey(row.PropertyCode!)
+                        && !PropertyCleanup.IsSplitElementalCode(row.PropertyCode, _data.ExportConfig))
+                        continue;
+
+                    properties.Add(row);
                 }
-
-                // Expand multi-stat elemental properties into separate min/max/len entries
-                // so MergeElementalTriplets can aggregate them properly
-                if (PropertyMapper.TryExpandElemental(prop.Property, prop.Parameter, prop.Min, prop.Max, _data, itemLevel, i, out var expanded))
-                {
-                    properties.AddRange(expanded);
-                    continue;
-                }
-
-                var resolved = PropertyMapper.Map(prop.Property, prop.Parameter, prop.Min, prop.Max, _data, itemLevel);
-
-                // Skip properties that didn't resolve to any keyed line AND aren't
-                // recognised in Properties.txt — i.e. truly unknown property codes
-                // (the legacy English path used to render these as bare numbers).
-                // Exceptions:
-                //  • Split elemental damage codes (pois-min/max/len, cold-min/max/len,
-                //    fire-min/max, ltng-min/max) resolve to no keyed line because their
-                //    ItemStatCost rows have empty descstrpos (descfunc 0); they must
-                //    reach PropertyCleanup.MergeElementalTriplets to be aggregated
-                //    into dmg-pois / dmg-cold / dmg-fire / dmg-ltng entries.
-                //  • Known property codes (e.g. "dur", "indestruct") that have no
-                //    keyed-line template are still consumed by DamageArmorCalculator
-                //    and stripped afterwards via IsPostCalcFiltered.
-                if (resolved.Lines.Count == 0
-                    && !_data.Properties.ContainsKey(prop.Property)
-                    && !PropertyCleanup.IsSplitElementalCode(prop.Property, _data.ExportConfig))
-                    continue;
-
-                properties.Add(new CubePropertyExport
-                {
-                    Index = i,
-                    PropertyCode = prop.Property,
-                    Priority = resolved.Priority,
-                    Min = prop.Min,
-                    Max = prop.Max,
-                    Parameter = prop.Parameter,
-                    IsEase = prop.Property == "ease",
-                    Lines = resolved.Lines
-                });
             }
             catch (Exception ex)
             {
                 result.AddWarning("Unique", itemName, $"Failed to map property '{prop.Property}': {ex.Message}");
+            }
+            finally
+            {
+                foreach (var omission in PropertyMapper.TakeOmissions(_data))
+                    result.AddWarning("Unique", itemName, DescribeSlotOmission(omission, prop, i + 1, parsedRow));
             }
         }
 
@@ -235,6 +208,28 @@ public sealed class UniqueImporter
         properties = PropertyCleanup.CleanupDuplicates(properties, _data, itemLevel);
 
         return properties;
+    }
+
+    /// <summary>
+    /// Reports an omitted property line against the <c>uniqueitems.txt</c>
+    /// <c>prop/par/min/max</c> slot that produced it, with the raw cells and, when mapping
+    /// changed them (expansion, property group, parameter fallback), the mapped values.
+    /// </summary>
+    private static string DescribeSlotOmission(OmittedPropertyLine omission, D2RReimaginedTools.Models.ItemProperty prop, int slot, int parsedRow)
+    {
+        var unchanged = string.Equals(omission.PropertyCode, prop.Property, StringComparison.OrdinalIgnoreCase)
+                        && (omission.Parameter ?? "") == (prop.Parameter ?? "")
+                        && omission.Min == prop.Min && omission.Max == prop.Max;
+        var reason = unchanged ? omission.Reason($"min{slot}", $"max{slot}") : omission.Reason();
+        return $"Property line omitted for prop{slot} '{prop.Property}':"
+               + $"\n    Source:   uniqueitems.txt parsed row {parsedRow}; par{slot}={OmittedPropertyLine.Cell(prop.Parameter)}, "
+               + $"min{slot}={OmittedPropertyLine.Cell(prop.Min)}, max{slot}={OmittedPropertyLine.Cell(prop.Max)}"
+               + (unchanged
+                   ? ""
+                   : $"\n    Mapped:   '{omission.PropertyCode}' param {OmittedPropertyLine.Cell(omission.Parameter)}, "
+                     + $"min {OmittedPropertyLine.Cell(omission.Min)}, max {OmittedPropertyLine.Cell(omission.Max)}")
+               + $"\n    Template: {omission.DescribeTemplate()} needs a value, but {reason}."
+               + "\n    Action: the line was omitted; no value was invented.";
     }
 
     // The propertygroups.txt expansion helper used to live here as

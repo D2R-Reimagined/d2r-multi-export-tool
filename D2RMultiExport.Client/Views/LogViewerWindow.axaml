@@ -1,0 +1,53 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:D2RMultiExport.Client.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="700"
+        x:Class="D2RMultiExport.Client.Views.LogViewerWindow"
+        x:DataType="vm:LogViewerViewModel"
+        Icon="/Assets/icon.ico"
+        Title="Pipeline log"
+        Width="1000" Height="700"
+        MinWidth="600" MinHeight="400"
+        WindowStartupLocation="CenterOwner">
+
+    <Grid Margin="10" RowDefinitions="Auto,*,Auto">
+
+        <!-- ─── Search, filters and actions ─────────────────────────── -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,8">
+            <TextBox Grid.Column="0" x:Name="SearchBox"
+                     Text="{Binding SearchText}"
+                     PlaceholderText="Search the log (case-insensitive, Ctrl+F)"
+                     Margin="0,0,10,0"/>
+            <CheckBox Grid.Column="1" x:Name="ShowInfoBox" IsChecked="{Binding ShowInfo}" Content="Info" Margin="0,0,8,0"/>
+            <CheckBox Grid.Column="2" x:Name="ShowWarningsBox" IsChecked="{Binding ShowWarnings}" Content="Warnings" Margin="0,0,8,0"/>
+            <CheckBox Grid.Column="3" x:Name="ShowErrorsBox" IsChecked="{Binding ShowErrors}" Content="Errors" Margin="0,0,8,0"/>
+            <CheckBox Grid.Column="4" x:Name="FollowBox" IsChecked="{Binding FollowTail}" Content="Follow"
+                      ToolTip.Tip="Keep scrolling to the newest line while an export is running." Margin="0,0,12,0"/>
+            <Button Grid.Column="5" x:Name="CopyAllButton" Content="Copy All" Click="CopyAll_Click" Margin="0,0,6,0"
+                    ToolTip.Tip="Copies the complete log (filters do not apply)."/>
+            <Button Grid.Column="6" x:Name="SaveButton" Content="Save..." Click="Save_Click" Margin="0,0,6,0"
+                    ToolTip.Tip="Saves the complete log to a text file."/>
+            <Button Grid.Column="7" x:Name="CloseButton" Content="Close" Click="Close_Click" IsCancel="True"/>
+        </Grid>
+
+        <!-- Read-only TextBox: free scrolling, mouse/keyboard selection and Ctrl+C. -->
+        <TextBox Grid.Row="1" x:Name="LogText"
+                 Text="{Binding VisibleText, Mode=OneWay}"
+                 IsReadOnly="True"
+                 AcceptsReturn="True"
+                 TextWrapping="NoWrap"
+                 FontFamily="Consolas, Menlo, Monospace"
+                 FontSize="12"
+                 Background="#111"
+                 Foreground="#DDD"
+                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="2,6,2,0">
+            <TextBlock Grid.Column="0" x:Name="SummaryText" Text="{Binding Summary}" Foreground="#B0B0B0"/>
+            <TextBlock Grid.Column="1" x:Name="ActionStatus" Foreground="#B0B0B0"/>
+        </Grid>
+    </Grid>
+</Window>

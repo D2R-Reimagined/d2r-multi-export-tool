@@ -29,10 +29,17 @@ public sealed record PipelineProgress(int Current, int Total, string Message)
 /// </summary>
 public sealed class D2RMultiExportPipeline
 {
-    private readonly string _excelPath;
-    private readonly string _translationsPath;
-    private readonly string _exportPath;
+    private readonly string? _exportPath;
     private readonly string _configPath;
+
+    /// <summary>
+    /// The resolved Mod Data / CASC Data roots. Every importer and exporter reads through it,
+    /// so all of them agree on where an input lives.
+    /// </summary>
+    public SourceRoots Sources { get; }
+
+    /// <summary>Per-identifier sprite/icon diagnostics of the last run (<c>extras/asset-report.txt</c>).</summary>
+    public AssetDiagnostics AssetDiagnostics { get; private set; } = new();
 
     public PipelineResult Result { get; } = new();
     public GameData? Data { get; private set; }
@@ -67,6 +74,52 @@ public sealed class D2RMultiExportPipeline
     public bool ContinueOnException { get; set; }
 
     /// <summary>
+    /// When <c>true</c>, a run without errors replaces <em>all</em> existing contents of the
+    /// export directory, including files this tool never wrote. The run is generated into a
+    /// hidden working directory first, so a run that records errors, throws or cannot complete
+    /// the replacement leaves the previous contents in place (see
+    /// <see cref="DestructiveReplacement"/>). Refused for dangerous locations
+    /// (<see cref="FindDestructiveExportDanger"/>). When <c>false</c> (default) the run writes
+    /// directly into the export directory and leaves every file it does not write untouched.
+    /// </summary>
+    public bool DestructiveExport { get; set; }
+
+    /// <summary>
+    /// When <c>true</c>, the complete export runs into a hidden scratch directory inside
+    /// <see cref="DryRunLogDirectory"/> and is discarded afterwards; the export directory is
+    /// never touched (and may be omitted) and <see cref="DestructiveExport"/> is ignored. Only
+    /// <see cref="DryRunExport.LogFileName"/>, with every recorded error and warning, is kept in
+    /// <see cref="DryRunLogDirectory"/>, and only when there is one; the <c>extras/</c> reports
+    /// are discarded with the rest of the export (see <see cref="DryRunExport"/>).
+    /// </summary>
+    public bool DryRun { get; set; }
+
+    /// <summary>
+    /// Where a <see cref="DryRun"/> keeps its log; <c>null</c> selects
+    /// <see cref="DryRunExport.DefaultLogDirectory"/> (<c>test-output/dryrun</c> of the repository).
+    /// </summary>
+    public string? DryRunLogDirectory { get; set; }
+
+    /// <summary>Full path of the log of the last dry run (written only when it recorded errors or warnings).</summary>
+    public string? DryRunLogFilePath { get; private set; }
+
+    private const string MissingTranslationsReportPath = "extras/missing-translations.txt";
+    private const string CascFallbackReportPath = "extras/casc-fallback-report.txt";
+    private const string AssetReportPath = "extras/asset-report.txt";
+    private const string SourceReportPath = "extras/source-report.txt";
+    private const string ImportReportPath = "extras/import-report.txt";
+
+    /// <summary>
+    /// The diagnostic reports every run writes to <c>extras/</c>, in write order. A
+    /// <see cref="DryRun"/> discards them; it only removes the copies earlier versions kept at
+    /// the same relative paths in its log directory.
+    /// </summary>
+    public static readonly IReadOnlyList<string> ExtrasReportPaths =
+    [
+        MissingTranslationsReportPath, CascFallbackReportPath, AssetReportPath, SourceReportPath, ImportReportPath
+    ];
+
+    /// <summary>
     /// Optional progress sink that receives one human-readable status line per
     /// phase boundary plus a per-error/warning line. The Avalonia GUI binds
     /// this to its log panel; the console front-end leaves it null and relies
@@ -84,11 +137,6 @@ public sealed class D2RMultiExportPipeline
     /// </summary>
     public IProgress<PipelineProgress>? StructuredProgress { get; set; }
 
-    /// <summary>Optional path to the read-only CASC base strings (fills any keys missing from mod overrides).</summary>
-    public string? BaseStringsPath { get; set; }
-
-    /// <summary>Optional extracted vanilla D2R data root used as the sprite fallback beneath mod overrides.</summary>
-    public string? BaseAssetsPath { get; set; }
 
     /// <summary>
     /// Total number of milestone phases reported via <see cref="ReportPhase"/>
@@ -132,6 +180,132 @@ public sealed class D2RMultiExportPipeline
     }
 
     /// <summary>
+    /// Runs one export step in isolation. Its warnings go to <see cref="Result"/> under
+    /// <c>Export/&lt;producer&gt;</c>; an exception is recorded as an error but never escapes,
+    /// so later exporters and the extras reports still run. The outcome is recorded for
+    /// <c>manifest.json</c>, which lists only files written in <em>this</em> run.
+    /// <para>
+    /// Deletion is limited to what the step itself attempted: on failure, every path the
+    /// step tried to write during this run is invalidated (its set is incomplete, and an
+    /// attempted path may still hold an earlier run's copy). A skipped step, or a declared
+    /// output the step never attempted, is left untouched on disk and reported as
+    /// <c>NotWritten</c> instead of being vouched for. No directory is ever scanned.
+    /// </para>
+    /// </summary>
+    private async Task RunExportStepAsync(
+        ExportOutputs outputs,
+        string producer,
+        IReadOnlyList<string> declaredOutputs,
+        Func<Action<string>, Task> export)
+    {
+        outputs.Producer = producer;
+        void Warn(string message)
+        {
+            Result.AddWarning("Export", producer, message);
+            Report($"[WARN] {producer}: {message}");
+        }
+
+        try
+        {
+            await export(Warn);
+        }
+        catch (Exception ex)
+        {
+            Result.AddError("Export", producer, $"Export step failed: {ex.Message}", ex);
+            Report($"[ERROR] Export/{producer}: {ex.Message}");
+            var removed = InvalidateFailedStep(outputs, producer, static _ => true);
+            _exportSteps.Add(new ExportStepResult(producer, ExportStepStatus.Failed, [],
+                [.. declaredOutputs.Where(path => !removed.Contains(path, StringComparer.OrdinalIgnoreCase))],
+                removed, ex.Message));
+            _failedExportSteps.Add(producer);
+            return;
+        }
+        finally
+        {
+            ReportOmittedPropertyLines(Warn);
+            outputs.Producer = "";
+        }
+
+        var written = outputs.Files.Where(f => f.Producer == producer).Select(static f => f.Path).ToList();
+        var notWritten = declaredOutputs.Where(path => !outputs.WasWritten(path)).ToList();
+        if (written.Count == 0)
+        {
+            _exportSteps.Add(new ExportStepResult(producer, ExportStepStatus.Skipped, [], notWritten, [],
+                "No output: a required input was absent (see extras/import-report.txt). Existing files were left untouched."));
+            return;
+        }
+        foreach (var path in notWritten)
+            Report($"  {path} was not produced by this run; any existing copy was left untouched.");
+        _exportSteps.Add(new ExportStepResult(producer, ExportStepStatus.Written, written, notWritten, [], null));
+    }
+
+    /// <summary>
+    /// Deletes the paths <paramref name="producer"/> attempted to write during this run
+    /// (and only those, narrowed by <paramref name="filter"/>). A deletion failure is
+    /// recorded rather than thrown, so the remaining steps and reports still run.
+    /// </summary>
+    private List<string> InvalidateFailedStep(ExportOutputs outputs, string producer, Func<string, bool> filter)
+    {
+        try
+        {
+            var removed = outputs.InvalidateAttempted(producer, filter).ToList();
+            foreach (var path in removed)
+                Report($"  Removed {path}: {producer} failed after attempting to write it.");
+            return removed;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            Result.AddError("Export", producer, $"Could not remove the outputs of the failed step: {ex.Message}", ex);
+            Report($"[ERROR] Export/{producer}: could not remove its outputs: {ex.Message}");
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Writes one diagnostic report as its own manifest step. A failure is recorded and only
+    /// that report's attempted path is removed; it never stops the remaining reports or the
+    /// manifest, and the pipeline still fails at the end.
+    /// </summary>
+    private async Task RunReportStepAsync(ExportOutputs outputs, string path, Func<Task> write)
+    {
+        var producer = outputs.Producer;
+        outputs.Producer = path;
+        try
+        {
+            await write();
+            _exportSteps.Add(new ExportStepResult(path, ExportStepStatus.Written, [path], [], [], null));
+        }
+        catch (Exception ex)
+        {
+            Result.AddError("Extras", path, $"Report could not be written: {ex.Message}", ex);
+            Report($"[ERROR] Extras/{path}: {ex.Message}");
+            var removed = InvalidateFailedStep(outputs, path,
+                attempted => string.Equals(attempted, path, StringComparison.OrdinalIgnoreCase));
+            _exportSteps.Add(new ExportStepResult(path, ExportStepStatus.Failed, [], removed.Count > 0 ? [] : [path], removed, ex.Message));
+            _failedExportSteps.Add(path);
+        }
+        finally
+        {
+            outputs.Producer = producer;
+        }
+    }
+
+    private readonly List<ExportStepResult> _exportSteps = [];
+    private readonly List<string> _failedExportSteps = [];
+
+    /// <summary>
+    /// Reports property lines omitted for an unresolved template placeholder that no
+    /// importer row claimed (see <see cref="PropertyMapper.TakeOmittedLines"/>).
+    /// </summary>
+    private void ReportOmittedPropertyLines(Action<string> warn)
+    {
+        if (Data is null) return;
+        foreach (var omission in PropertyMapper.TakeOmittedLines(Data))
+            warn(omission);
+    }
+
+
+    /// <summary>
     /// Runs an importer through <see cref="RunPhaseAsync"/>, merges its
     /// <see cref="ImportResult{T}"/> into the pipeline result, assigns the
     /// imported collection back onto <see cref="GameData"/> via
@@ -153,27 +327,190 @@ public sealed class D2RMultiExportPipeline
         {
             var r = await import();
             Result.Merge(r);
+            ReportOmittedPropertyLines(message => Result.AddWarning(category, fileId, message));
             assignCollection(r.Items);
             Report($"  {summaryLabel}: {r.Items.Count} {singularItemNoun}(s), {r.Errors.Count} issue(s)");
         });
     }
 
-    public D2RMultiExportPipeline(string excelPath, string translationsPath, string exportPath, string? configPath = null)
+    /// <summary>
+    /// Creates a pipeline over the two source roots. <paramref name="modDataPath"/> is the mod's
+    /// <c>data</c> directory (or the folder containing it); <paramref name="cascDataPath"/> is the
+    /// extracted vanilla <c>data</c> directory (<c>data/</c> or CascView's <c>data/data/</c>
+    /// nesting are both recognised), or <c>null</c> to run without vanilla fallback. Throws
+    /// <see cref="SourceLayoutException"/> with an actionable message for an unsupported layout.
+    /// </summary>
+    public D2RMultiExportPipeline(string modDataPath, string? cascDataPath, string? exportPath, string? configPath = null)
     {
-        _excelPath = Path.GetFullPath(excelPath);
-        _translationsPath = Path.GetFullPath(translationsPath);
-        _exportPath = Path.GetFullPath(exportPath);
-        _configPath = configPath ?? Path.Combine(AppContext.BaseDirectory, "Config");
+        // A dry run needs no export directory; any other run refuses to start without one.
+        _exportPath = string.IsNullOrWhiteSpace(exportPath) ? null : Path.GetFullPath(exportPath);
+        _configPath = Path.GetFullPath(configPath ?? Path.Combine(AppContext.BaseDirectory, "Config"));
+        Sources = SourceRoots.Create(modDataPath, cascDataPath, Path.Combine(_configPath, "CASC_DATA"));
     }
 
     /// <summary>
+    /// Why a destructive export into the export directory is refused, or <c>null</c> when it
+    /// is allowed (see <see cref="DestructiveReplacement.FindDanger"/>).
+    /// </summary>
+    public string? FindDestructiveExportDanger() => _exportPath is null ? "No export directory was given." : DestructiveReplacement.FindDanger(_exportPath,
+    [
+        ("the Mod Data Directory", Sources.ModDataRoot),
+        ("the CASC Data Directory", Sources.CascDataRoot),
+        ("the configuration directory", _configPath),
+    ]);
+
+    /// <summary>
     /// Runs the full pipeline: load config → load translations → load data → import models → export.
+    /// With <see cref="DestructiveExport"/>, the export directory is replaced only after the
+    /// run completed without errors.
     /// </summary>
     public async Task RunAsync()
     {
+        if (DryRun)
+        {
+            await RunDryRunAsync();
+            return;
+        }
+        if (_exportPath is null)
+            throw new InvalidOperationException("An export directory is required unless DryRun is set.");
+        if (!DestructiveExport)
+        {
+            await RunCoreAsync(_exportPath);
+            return;
+        }
+
+        if (FindDestructiveExportDanger() is { } danger)
+            throw new InvalidOperationException($"Destructive export refused: {danger} Nothing was changed.");
+        DestructiveReplacementResult replacement;
+        try
+        {
+            replacement = await DestructiveReplacement.RunAsync(_exportPath, async working =>
+            {
+                await RunCoreAsync(working);
+                return !Result.HasErrors;
+            });
+        }
+        catch (IOException ex)
+        {
+            Result.AddError("Export", "destructive-export", ex.Message, ex);
+            Report($"[ERROR] Export/destructive-export: {ex.Message}");
+            return;
+        }
+        if (replacement.Warning is { } warning)
+        {
+            Result.AddWarning("Export", "destructive-export", warning);
+            Report($"[WARN] destructive-export: {warning}");
+        }
+        Report($"Destructive export: {replacement.Message}");
+    }
+
+    /// <summary>
+    /// Runs the full pipeline into a discarded scratch directory (<see cref="DryRunExport"/>),
+    /// keeping only a log of the recorded errors and warnings.
+    /// </summary>
+    private async Task RunDryRunAsync()
+    {
+        var logDirectory = Path.GetFullPath(string.IsNullOrWhiteSpace(DryRunLogDirectory)
+            ? DryRunExport.DefaultLogDirectory()
+            : DryRunLogDirectory);
+        DryRunLogFilePath = Path.Combine(logDirectory, DryRunExport.LogFileName);
+        Report($"Dry run: the export is discarded; errors and warnings are logged to '{logDirectory}'.");
+        await DryRunExport.RunAsync(logDirectory, ExtrasReportPaths, RunCoreAsync, RenderDryRunLog, RecordDryRunOutcome);
+        Report($"Dry run: {Result.ErrorCount} error(s), {Result.WarningCount} warning(s), "
+            + $"{ReferencedMissingKeyCount} missing translation key(s).");
+    }
+
+    /// <summary>
+    /// Records a dry run's own warnings (for example a scratch directory that could not be
+    /// deleted); also called when the run threw.
+    /// </summary>
+    private void RecordDryRunOutcome(DryRunResult outcome)
+    {
+        if (outcome.Warning is { } warning)
+        {
+            Result.AddWarning("Export", "dry-run", warning);
+            Report($"[WARN] dry-run: {warning}");
+        }
+        Report($"Dry run: {outcome.Message}");
+    }
+
+    /// <summary>
+    /// The dry-run log: every recorded error, with its exception detail, plus an exception that
+    /// ended the run without having been recorded, followed by every recorded warning.
+    /// <c>null</c> when there is nothing to log.
+    /// </summary>
+    private string? RenderDryRunLog(Exception? failure)
+    {
+        var errors = Result.AllErrors.Where(static e => e.Severity == ImportErrorSeverity.Error).ToList();
+        var warnings = Result.AllErrors.Where(static e => e.Severity == ImportErrorSeverity.Warning).ToList();
+        // A phase failure that aborted the run was recorded before it was rethrown.
+        var unrecorded = failure is not null && !errors.Any(e => ReferenceEquals(e.Exception, failure)) ? failure : null;
+        if (errors.Count == 0 && warnings.Count == 0 && unrecorded is null) return null;
+
+        var total = errors.Count + (unrecorded is null ? 0 : 1);
+        var lines = new List<string>
+        {
+            $"=== Dry Run Log: {total} error(s), {warnings.Count} warning(s) ===",
+            $"Generated {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}. The export was discarded.",
+        };
+        lines.AddRange(Sources.Describe());
+        if (total > 0)
+        {
+            lines.Add("");
+            lines.Add("=== Errors ===");
+        }
+        foreach (var group in errors.GroupBy(static e => e.Category))
+        {
+            lines.Add("");
+            lines.Add($"--- {group.Key} ---");
+            foreach (var error in group)
+            {
+                lines.Add($"  {error}");
+                if (error.Exception is { } ex) lines.Add(Indent(ex.ToString()));
+            }
+        }
+        if (unrecorded is not null)
+        {
+            lines.Add("");
+            lines.Add("--- Fatal ---");
+            lines.Add($"  [ERROR] [Fatal] pipeline: {unrecorded.Message}");
+            lines.Add(Indent(unrecorded.ToString()));
+        }
+        if (warnings.Count > 0)
+        {
+            lines.Add("");
+            lines.Add("=== Warnings ===");
+        }
+        foreach (var group in warnings.GroupBy(static e => e.Category))
+        {
+            lines.Add("");
+            lines.Add($"--- {group.Key} ---");
+            foreach (var warning in group)
+                lines.Add($"  {warning}");
+        }
+        return string.Join("\n", lines) + "\n";
+
+        static string Indent(string text) =>
+            string.Join("\n", text.ReplaceLineEndings("\n").Split('\n').Select(static line => "      " + line));
+    }
+
+    private async Task RunCoreAsync(string exportPath)
+    {
         ValidatePaths();
         _phaseIndex = 0;
+        AssetDiagnostics = new AssetDiagnostics();
         ReportPhase("Starting export pipeline...");
+        foreach (var line in Sources.Describe()) Report($"  {line}");
+        foreach (var note in SourceRoots.ValidateModRoot(Sources.ModDataRoot).Notes) Report($"  {note}");
+        if (Sources.CascDataRoot is { } cascRoot)
+        {
+            foreach (var note in SourceRoots.ValidateCascRoot(cascRoot).Notes) Report($"  {note}");
+        }
+        else
+        {
+            Result.AddWarning("Sources", "casc", "No CASC Data Directory configured: files the mod does not ship (vanilla sprites, "
+                + "base strings, vanilla tables) are unavailable and the affected outputs are reduced or skipped.");
+        }
 
         // 1. Load configuration
         ReportPhase("Loading configuration...");
@@ -195,7 +532,7 @@ public sealed class D2RMultiExportPipeline
         var translations = new TranslationService();
         await RunPhaseAsync("Translations", "mod-strings", async () =>
         {
-            var jsonFiles = Directory.GetFiles(_translationsPath, "*.json", SearchOption.AllDirectories);
+            var jsonFiles = SourceRoots.StringFiles(Sources.ModStringsDirectory);
             if (jsonFiles.Length > 0)
             {
                 await translations.LoadD2RTranslationsAsync(jsonFiles);
@@ -225,8 +562,14 @@ public sealed class D2RMultiExportPipeline
         var multiLang = new MultiLanguageTranslationService();
         await RunPhaseAsync("Translations", "multi-lang", async () =>
         {
-            await multiLang.LoadFromDirectoryAsync(_translationsPath);          // mod overrides (primary)
-            await multiLang.LoadFallbackFromDirectoryAsync(BaseStringsPath);    // CASC base (reference-only)
+            var cascStrings = Sources.CascStringsDirectory;
+            Sources.TrackDirectory(SourceRoots.StringsDirectory + " (mod)", Sources.ModStringsDirectory, SourceOrigin.Mod);
+            Sources.TrackDirectory(SourceRoots.StringsDirectory + " (casc)", cascStrings, SourceOrigin.Casc);
+            if (cascStrings is null)
+                Result.AddWarning("Translations", "casc-strings",
+                    "No CASC local/lng/strings directory: keys the mod does not override cannot fall back to vanilla text.");
+            await multiLang.LoadFromDirectoryAsync(Sources.ModStringsDirectory);   // mod overrides (primary)
+            await multiLang.LoadFallbackFromDirectoryAsync(cascStrings);           // CASC base (reference-only)
 
             // Synthetic seed already loaded above for the enUS-only descfunc resolver;
             // reuse the cached value here instead of re-parsing the file.
@@ -244,15 +587,17 @@ public sealed class D2RMultiExportPipeline
             ExportConfig = exportConfig,
             StatOverrideConfig = statOverrideConfig,
             Translations = translations,
+            TemplateLookup = key => multiLang.TryGetForLanguage("enUS", key, out var template) ? template : null,
         };
 
         // 4. Load all game data files
         ReportPhase("Loading game data files...");
         await RunPhaseAsync("DataLoader", "excel-files", async () =>
         {
-            var dataLoader = new DataLoader(_excelPath, Data, Result);
+            var dataLoader = new DataLoader(Sources, Data, Result);
             await dataLoader.LoadAllAsync();
         });
+        ReportOmittedPropertyLines(message => Result.AddWarning("DataLoader", "excel-files", message));
 
         // 4b. Auto-seed itemtype-code translation keys. The exported JSON emits
         //     each itemtypes.txt row as `${code}itype` (e.g. "axe" → "axeitype")
@@ -314,19 +659,19 @@ public sealed class D2RMultiExportPipeline
         // Each phase follows the same load → merge errors → assign collection
         // pattern; RunImportPhaseAsync collapses that boilerplate.
         await RunImportPhaseAsync("Unique",     "UniqueItems.txt", "uniques",      "item",   "Uniques",
-            () => new UniqueImporter(_excelPath, Data).ImportAsync(),
+            () => new UniqueImporter(Sources, Data).ImportAsync(),
             r => Data.Uniques = r);
 
         await RunImportPhaseAsync("Runeword",   "runes.txt",       "runewords",    "item",   "Runewords",
-            () => new RunewordImporter(_excelPath, Data).ImportAsync(),
+            () => new RunewordImporter(Sources, Data).ImportAsync(),
             r => Data.Runewords = r);
 
         await RunImportPhaseAsync("Set",        "setitems.txt",    "sets",         "item",   "Sets",
-            () => new SetImporter(_excelPath, Data).ImportAsync(),
+            () => new SetImporter(Sources, Data).ImportAsync(),
             r => Data.Sets = r);
 
         await RunImportPhaseAsync("CubeRecipe", "cubemain.txt",    "cube recipes", "recipe", "Cube recipes",
-            () => new CubeRecipeImporter(_excelPath, Data)
+            () => new CubeRecipeImporter(Sources, Data)
                   {
                       EarlyStopSentinelEnabled = EarlyStopSentinelEnabled,
                       CubeRecipeUseDescription = CubeRecipeUseDescription
@@ -334,44 +679,47 @@ public sealed class D2RMultiExportPipeline
             r => Data.CubeRecipes = r);
 
         await RunImportPhaseAsync("SkillDescription", "skilldesc.txt", "skill descriptions", "skill", "Skill descriptions",
-            () => new SkillDescriptionImporter(Data, exportConfig.SkillDescriptionBonusLevels).ImportAsync(),
+            () => new SkillDescriptionImporter(Data).ImportAsync(),
             r => Data.SkillDescriptions = r.ToDictionary(static set => set.SkillId));
 
-        // 6. Export — key-based bundle is the only output. The website consumes
-        //    keyed/*.json + strings/{lang}.json × 13 and uses manifest.json
-        //    for cache-busting.
-        if (!Directory.Exists(_exportPath))
-            Directory.CreateDirectory(_exportPath);
+        // 6. Export — the website consumes keyed/*.json + strings/{lang}.json × 13.
+        //    manifest.json records the run's output integrity.
+        Directory.CreateDirectory(exportPath);
+        var outputs = new ExportOutputs(exportPath);
+        _exportSteps.Clear();
+        _failedExportSteps.Clear();
+        // A manifest describes one complete run. Remove the previous one up front so a
+        // run that dies during output leaves no manifest rather than a stale one that
+        // vouches for files this run may have replaced or removed.
+        outputs.RemovePreviousManifest();
 
+        // Each exporter is its own step: a failure or a missing optional input costs that
+        // exporter's output only, never the later exporters or the reports below.
         ReportPhase("Writing keyed JSON bundle...");
-        await RunPhaseAsync("Export", "keyed/*.json", async () =>
-        {
-            await KeyedJsonExporter.ExportAsync(_exportPath, Data, PrettyPrintJson);
-            await LootFilterExporter.ExportAsync(_exportPath, _excelPath, multiLang, PrettyPrintJson);
-            await DropCalculatorExporter.ExportAsync(_exportPath, _excelPath, exportConfig);
-            await AttackSpeedExporter.ExportAsync(_exportPath, _excelPath, Data);
-            await MonsterHealthExporter.ExportAsync(_exportPath, _excelPath, exportConfig);
-            await ItemPresentationExporter.ExportAsync(
-                _exportPath,
-                _excelPath,
-                BaseAssetsPath,
-                Data,
-                PrettyPrintJson);
-            await SkillIconExporter.ExportAsync(
-                _exportPath,
-                _excelPath,
-                BaseAssetsPath,
-                Data);
-            await ItemStatPresentationExporter.ExportAsync(
-                _exportPath,
-                _excelPath,
-                Data,
-                PrettyPrintJson);
-            await RareNameExporter.ExportAsync(
-                _exportPath,
-                _excelPath,
-                PrettyPrintJson);
-        });
+        // Skill icons first: keyed/skills.json references only the icons this step wrote.
+        Data.ExportedSkillIcons = null;
+        await RunExportStepAsync(outputs, SkillIconExporter.Producer, [],
+            warn => SkillIconExporter.ExportAsync(outputs, Sources, Data, AssetDiagnostics, warn, Report));
+        await RunExportStepAsync(outputs, "keyed-core", KeyedJsonExporter.OutputPaths,
+            _ => KeyedJsonExporter.ExportAsync(outputs, Data, PrettyPrintJson, multiLang.ContainsKeyOrFallback));
+        await RunExportStepAsync(outputs, "loot-filter.json", [LootFilterExporter.OutputPath],
+            warn => LootFilterExporter.ExportAsync(outputs, Sources, multiLang, PrettyPrintJson, warn));
+        await RunExportStepAsync(outputs, "drop-calculator.json", [DropCalculatorExporter.OutputPath],
+            warn => DropCalculatorExporter.ExportAsync(outputs, Sources, Data, PrettyPrintJson, warn));
+        await RunExportStepAsync(outputs, "ias-calculator.json", [AttackSpeedExporter.OutputPath],
+            warn => AttackSpeedExporter.ExportAsync(outputs, Sources, Data, PrettyPrintJson, warn));
+        await RunExportStepAsync(outputs, "health-calculator.json", [MonsterHealthExporter.OutputPath],
+            warn => MonsterHealthExporter.ExportAsync(outputs, Sources, Data, PrettyPrintJson, warn));
+        await RunExportStepAsync(outputs, ItemPresentationExporter.Producer, [ItemPresentationExporter.OutputPath],
+            warn => ItemPresentationExporter.ExportAsync(outputs, Sources, Data, PrettyPrintJson, AssetDiagnostics, warn, Report));
+        await RunExportStepAsync(outputs, "item-stat-presentation.json", [ItemStatPresentationExporter.OutputPath],
+            warn => ItemStatPresentationExporter.ExportAsync(outputs, Sources, Data, PrettyPrintJson, warn));
+        await RunExportStepAsync(outputs, "rare-names.json", [RareNameExporter.OutputPath],
+            warn => RareNameExporter.ExportAsync(outputs, Sources, PrettyPrintJson, warn));
+
+        // Every Sprite/Icon a keyed document references must be a file this run wrote; an
+        // earlier run's copy on disk does not count.
+        await RunPhaseAsync("Completeness", "asset-references", () => VerifyAssetReferencesAsync(outputs));
 
         // 6a. Compute the set of every string that actually appears as a value inside
         //     keyed/*.json. The keyed wire format embeds translation keys only in
@@ -382,7 +730,8 @@ public sealed class D2RMultiExportPipeline
         //         per-language bundles (so quest dialogue and other unrelated CASC
         //         strings are not exported);
         //       - scope the missing-translations audit to keys translators can act on.
-        var referencedKeys = await CollectReferencedKeysAsync(Path.Combine(_exportPath, "keyed"));
+        var keySources = await CollectKeyReferencesAsync(outputs);
+        var referencedKeys = new HashSet<string>(keySources.Keys, StringComparer.Ordinal);
         // Always-include synthetic keys: rendered by the website but never embedded as
         // a value inside keyed/*.json (e.g. the per-character-level suffix is
         // appended client-side after t(key,args), so it is invisible to the harvester).
@@ -409,26 +758,21 @@ public sealed class D2RMultiExportPipeline
         multiLang.FilterToReferenced(augmentedReferenced);
 
         ReportPhase("Writing per-language string bundles...");
-        await RunPhaseAsync("Export", "strings/*.json", async () =>
-        {
-            await LanguageBundleExporter.ExportAsync(_exportPath, multiLang, PrettyPrintJson);
-        });
+        await RunExportStepAsync(outputs, "strings",
+            [.. MultiLanguageTranslationService.AllLanguages.Select(LanguageBundleExporter.OutputPath)],
+            _ => LanguageBundleExporter.ExportAsync(outputs, multiLang, PrettyPrintJson));
+
         // 7. Write extras (import report + missing-translations audit).
-        var extrasDir = Path.Combine(_exportPath, "extras");
-        if (!Directory.Exists(extrasDir))
-            Directory.CreateDirectory(extrasDir);
-
         ReportPhase("Writing extras (audit reports)...");
-        await RunPhaseAsync("Extras", "import-report.txt", async () =>
-        {
-            await Result.WriteReportAsync(Path.Combine(extrasDir, "import-report.txt"));
-        });
+        outputs.Producer = "extras";
 
-        ReferencedMissingKeyCount = translations.MissingKeys.Count(referencedKeys.Contains);
-        await RunPhaseAsync("Extras", "missing-translations.txt", async () =>
-        {
-            await translations.WriteMissingKeysReportAsync(Path.Combine(extrasDir, "missing-translations.txt"), referencedKeys);
-        });
+        // Audit actual display references, including keys no importer happened to probe.
+        // The final enUS bundle is the website's fallback for every other language.
+        var displayKeySources = await CollectKeyReferencesAsync(outputs, displayOnly: true);
+        var missingKeys = FindMissingDisplayKeys(displayKeySources, multiLang);
+        ReferencedMissingKeyCount = missingKeys.Count;
+        await RunReportStepAsync(outputs, MissingTranslationsReportPath,
+            () => WriteMissingKeysReportAsync(outputs, MissingTranslationsReportPath, missingKeys, displayKeySources));
 
         // Dumps every key whose value(s) had to be sourced from CASC base strings
         // (i.e. referenced by the export but not supplied by the mod's own
@@ -436,10 +780,35 @@ public sealed class D2RMultiExportPipeline
         // residual set into Config/synthetic-strings.json instead of relying on
         // the bundled CASC fallback. The report is purely informational and does
         // not affect the keyed/strings outputs.
-        await RunPhaseAsync("Extras", "casc-fallback-report.txt", async () =>
+        await RunReportStepAsync(outputs, CascFallbackReportPath,
+            () => WriteCascFallbackReportAsync(outputs, CascFallbackReportPath, multiLang));
+
+        await RunReportStepAsync(outputs, AssetReportPath,
+            () => outputs.WriteTextAsync(AssetReportPath, AssetDiagnostics.Render()));
+
+        await RunReportStepAsync(outputs, SourceReportPath,
+            () => outputs.WriteTextAsync(SourceReportPath, RenderSourceReport()));
+
+        // The import report is written last among the extras so it also records any
+        // failure of the two audits above; nothing after it adds diagnostics.
+        await RunReportStepAsync(outputs, ImportReportPath,
+            () => outputs.WriteTextAsync(ImportReportPath, Result.GenerateReport()));
+        outputs.Producer = "";
+
+        // manifest.json is the run's seal: it is written last and lists only files this run
+        // produced (with SHA-256). Succeeded = false whenever an error was recorded; Complete
+        // is additionally false when any step was skipped or left a declared output
+        // unwritten, so a consumer can refuse a partial or mixed bundle.
+        await RunPhaseAsync("Export", ExportOutputs.ManifestFileName, () =>
+            outputs.WriteManifestAsync(!Result.HasErrors, _exportSteps, PrettyPrintJson));
+
+        if (_failedExportSteps.Count > 0 && !ContinueOnException)
         {
-            await WriteCascFallbackReportAsync(Path.Combine(extrasDir, "casc-fallback-report.txt"), multiLang);
-        });
+            throw new InvalidOperationException(
+                $"Export step(s) failed: {string.Join(", ", _failedExportSteps)}. "
+                + "The outputs they attempted were removed; the remaining exports, extras/import-report.txt and "
+                + "manifest.json (Succeeded = false) were still written.");
+        }
 
         if (Result.HasErrors)
         {
@@ -488,43 +857,81 @@ public sealed class D2RMultiExportPipeline
         // that contain translation keys, so no extra entries are needed.
         "code",
         "Sprite",
-        "Id", "Group", "Condition", "Quality", "Kind", "TreasureClass", "QuestFlag", "QuestFlagEx",
+        "Id", "Group", "Condition", "Quality", "Kind", "TreasureClass", "QuestFlag", "QuestFlagEx", "stat",
         "Hash", "Token", "WeaponClass", "TwoHandClass", "Types", "Mode", "Sequence", "IncludeTypes", "ExcludeTypes",
         "RollbackCalc", "HitsCalc", "SelfSpeedCalc",
         "Restrict", "States", "FormTokens",
         "MonProp", "MonsterIds",
         // UnHoarder runtime selectors must remain literal; NameKey is still audited.
         "BaseNameSelector", "TypeNameSelector", "TypeCode", "TypeCode2", "ParentCode", "ParentCode2",
+        // Raw English rendered verbatim when the sibling NameKey is absent (the
+        // monster-only skills.txt rows, the non-combat monstats.txt rows). Auditing it
+        // would re-report exactly the identifiers NameKey was made nullable to drop.
+        "FallbackName",
     };
 
-    private static async Task<IReadOnlySet<string>> CollectReferencedKeysAsync(string keyedDir)
+    /// <summary>
+    /// Maps every referenced key to the <c>keyed/*.json</c> file names it appears in.
+    /// The provenance is what makes <c>missing-translations.txt</c> readable: a key that
+    /// only ever shows up in <c>item-stat-presentation.json</c> is a monster-skill
+    /// identifier the game itself never translated, not something a translator can fix.
+    /// </summary>
+    /// <remarks>
+    /// Only <c>keyed/*.json</c> files written by <em>this</em> run are harvested. Reading
+    /// the directory instead would let a stale document from an earlier export (or from an
+    /// exporter that was skipped this time) promote keys into the bundles and the audit.
+    /// </remarks>
+    internal static async Task<Dictionary<string, SortedSet<string>>> CollectKeyReferencesAsync(ExportOutputs outputs, bool displayOnly = false)
     {
-        var referenced = new HashSet<string>(StringComparer.Ordinal);
-        if (!Directory.Exists(keyedDir))
-            return referenced;
+        var referenced = new Dictionary<string, SortedSet<string>>(StringComparer.Ordinal);
+        var keyedFiles = outputs.Files
+            .Select(static file => file.Path)
+            .Where(static path => path.StartsWith("keyed/", StringComparison.OrdinalIgnoreCase)
+                && path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                && path.IndexOf('/', "keyed/".Length) < 0)
+            .OrderBy(static path => path, StringComparer.Ordinal);
 
-        foreach (var path in Directory.EnumerateFiles(keyedDir, "*.json", SearchOption.TopDirectoryOnly))
+        foreach (var path in keyedFiles)
         {
-            await using var stream = File.OpenRead(path);
+            await using var stream = File.OpenRead(outputs.GetFullPath(path));
             using var doc = await System.Text.Json.JsonDocument.ParseAsync(stream);
-            CollectStrings(doc.RootElement, referenced);
+            CollectStrings(doc.RootElement, Path.GetFileName(path), referenced, displayOnly);
         }
 
         return referenced;
     }
 
-    private static void CollectStrings(System.Text.Json.JsonElement element, HashSet<string> sink)
+    /// <summary>Display keys missing from the final enUS bundle (the site's language fallback).</summary>
+    internal static List<string> FindMissingDisplayKeys(
+        IReadOnlyDictionary<string, SortedSet<string>> references,
+        MultiLanguageTranslationService translations)
+        => references.Keys.Where(key => !translations.ContainsKey(key))
+            .OrderBy(static key => key, StringComparer.Ordinal).ToList();
+
+    private static void CollectStrings(
+        System.Text.Json.JsonElement element,
+        string sourceFile,
+        Dictionary<string, SortedSet<string>> sink,
+        bool displayOnly = false,
+        bool isDisplayValue = false)
     {
         switch (element.ValueKind)
         {
             case System.Text.Json.JsonValueKind.String:
                 var s = element.GetString();
-                if (!string.IsNullOrEmpty(s))
-                    sink.Add(s);
+                if ((!displayOnly || isDisplayValue) && !string.IsNullOrEmpty(s))
+                {
+                    if (!sink.TryGetValue(s, out var files))
+                    {
+                        files = new SortedSet<string>(StringComparer.Ordinal);
+                        sink[s] = files;
+                    }
+                    files.Add(sourceFile);
+                }
                 break;
             case System.Text.Json.JsonValueKind.Array:
                 foreach (var item in element.EnumerateArray())
-                    CollectStrings(item, sink);
+                    CollectStrings(item, sourceFile, sink, displayOnly, isDisplayValue);
                 break;
             case System.Text.Json.JsonValueKind.Object:
                 foreach (var prop in element.EnumerateObject())
@@ -535,18 +942,151 @@ public sealed class D2RMultiExportPipeline
                     // strings tables).
                     if (IdentifierOnlyProperties.Contains(prop.Name))
                         continue;
-                    CollectStrings(prop.Value, sink);
+                    var display = isDisplayValue || prop.Name is "key" or "nameKey" or "pluralKey" or "classOnly" or "args" or "CompositeKeys"
+                        || prop.Name.EndsWith("Key", StringComparison.Ordinal)
+                        // Core item identities are translation keys; type indices are identifiers.
+                        || (prop.Name == "Index" && (element.TryGetProperty("Lines", out _)
+                            || element.TryGetProperty("SetItems", out _)));
+                    CollectStrings(prop.Value, sourceFile, sink, displayOnly, display);
                 }
                 break;
         }
     }
 
+    /// <summary>
+    /// Writes <c>extras/missing-translations.txt</c>: every display key referenced by an
+    /// exported keyed document that the final enUS fallback bundle cannot resolve.
+    /// </summary>
+    private static async Task WriteMissingKeysReportAsync(
+        ExportOutputs outputs,
+        string exportPath,
+        IReadOnlyList<string> missingKeys,
+        IReadOnlyDictionary<string, SortedSet<string>> keySources)
+    {
+        if (missingKeys.Count == 0)
+        {
+            // Always overwrite any stale report so re-runs reflect the current state.
+            await outputs.WriteTextAsync(exportPath, "=== Missing Translation Keys (0) ===\n");
+            return;
+        }
+
+        var lines = new List<string>
+        {
+            $"=== Missing Translation Keys ({missingKeys.Count}) ===",
+            "Display keys referenced by keyed/*.json that neither the mod's own strings, the",
+            "CASC base strings (--casc-data) nor Config/synthetic-strings.json",
+            "resolve. Grouped by the exported document that referenced them.",
+            "",
+            "Scope: explicit display keys, keyed-line arguments and core item identity keys.",
+            "Structural identifiers and FallbackName literals are excluded; every language",
+            "may fall back to the final enUS bundle.",
+            ""
+        };
+
+        var groups = missingKeys
+            .GroupBy(key => keySources.TryGetValue(key, out var files)
+                ? string.Join(", ", files)
+                : "(unreferenced)")
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key, StringComparer.Ordinal);
+
+        foreach (var group in groups)
+        {
+            lines.Add($"--- {group.Key} ({group.Count()}) ---");
+            lines.AddRange(group.OrderBy(key => key, StringComparer.Ordinal).Select(key => $"  {key}"));
+            lines.Add("");
+        }
+
+        await outputs.WriteTextAsync(exportPath, string.Join("\n", lines));
+    }
+
     private void ValidatePaths()
     {
-        if (!Directory.Exists(_excelPath))
-            throw new DirectoryNotFoundException($"Excel directory not found: {_excelPath}");
-        if (!Directory.Exists(_translationsPath))
-            throw new DirectoryNotFoundException($"Translations directory not found: {_translationsPath}");
+        if (!Directory.Exists(Sources.ModExcelDirectory))
+            throw new SourceLayoutException($"Mod Data Directory: '{Sources.ModDataRoot}' has no '{SourceRoots.ExcelDirectory}' folder.");
+        if (!Directory.Exists(Sources.ModStringsDirectory))
+            throw new SourceLayoutException(
+                $"Mod Data Directory: '{Sources.ModDataRoot}' has no '{SourceRoots.StringsDirectory}' folder (expected '{Sources.ModStringsDirectory}'). "
+                + "The mod's own strings are the primary translation source.");
+    }
+
+    /// <summary>
+    /// Checks every <c>Sprite</c> / <c>Icon</c> value in the keyed documents written this run
+    /// against the files this run wrote. A dangling reference is an error: the website would
+    /// request an image that is either absent or a leftover from another export.
+    /// </summary>
+    private async Task VerifyAssetReferencesAsync(ExportOutputs outputs)
+    {
+        var references = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in outputs.Files.Select(static f => f.Path)
+                     .Where(static p => p.StartsWith("keyed/", StringComparison.OrdinalIgnoreCase)
+                                        && p.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                     .ToList())
+        {
+            await using var stream = File.OpenRead(outputs.GetFullPath(path));
+            using var doc = await System.Text.Json.JsonDocument.ParseAsync(stream);
+            CollectAssetReferences(doc.RootElement, path, references);
+        }
+
+        var dangling = references.Where(r => !outputs.WasWritten(r.Key)).ToList();
+        foreach (var group in dangling.GroupBy(static r => r.Value))
+        {
+            Result.AddError("Completeness", group.Key,
+                $"{group.Count()} asset reference(s) do not resolve to a file written by this run. First: "
+                + string.Join(", ", group.Select(static r => r.Key).Take(5)));
+        }
+        Report($"  Asset references: {references.Count} distinct, {dangling.Count} dangling.");
+    }
+
+    private static void CollectAssetReferences(System.Text.Json.JsonElement element, string document, Dictionary<string, string> sink)
+    {
+        switch (element.ValueKind)
+        {
+            case System.Text.Json.JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray()) CollectAssetReferences(item, document, sink);
+                break;
+            case System.Text.Json.JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (property.Name is "Sprite" or "Icon" && property.Value.ValueKind == System.Text.Json.JsonValueKind.String
+                        && property.Value.GetString() is { Length: > 0 } value)
+                    {
+                        sink.TryAdd(value, document);
+                    }
+                    else
+                    {
+                        CollectAssetReferences(property.Value, document, sink);
+                    }
+                }
+                break;
+        }
+    }
+
+    /// <summary>
+    /// <c>extras/source-report.txt</c>: the two roots and, for every tracked input, the root
+    /// that supplied it (or every location searched when none did).
+    /// </summary>
+    private string RenderSourceReport()
+    {
+        var lookups = Sources.Lookups;
+        var lines = new List<string>
+        {
+            $"=== Source Report: {lookups.Count} input(s), "
+            + $"{lookups.Count(static l => l.Origin == SourceOrigin.Mod)} mod, "
+            + $"{lookups.Count(static l => l.Origin == SourceOrigin.Casc)} CASC, "
+            + $"{lookups.Count(static l => l.Origin == SourceOrigin.Bundled)} bundled, "
+            + $"{lookups.Count(static l => l.Origin == SourceOrigin.None)} not found ===",
+        };
+        lines.AddRange(Sources.Describe());
+        lines.Add("Precedence: the mod's copy, else the CASC copy (bundled reference tables last).");
+        lines.Add("");
+        foreach (var lookup in lookups)
+        {
+            lines.Add(lookup.Path is null
+                ? $"  [missing] {lookup.RelativePath}  searched {lookup.DescribeSearch()}"
+                : $"  [{lookup.Origin.ToString().ToLowerInvariant()}] {lookup.RelativePath}  {lookup.Path}");
+        }
+        return string.Join("\n", lines) + "\n";
     }
 
     /// <summary>
@@ -556,12 +1096,12 @@ public sealed class D2RMultiExportPipeline
     /// (omitted when all 13 languages fell through, which is the common case).
     /// Sorted alphabetically by key for stable diffs across runs.
     /// </summary>
-    private static async Task WriteCascFallbackReportAsync(string exportPath, MultiLanguageTranslationService multiLang)
+    private static async Task WriteCascFallbackReportAsync(ExportOutputs outputs, string exportPath, MultiLanguageTranslationService multiLang)
     {
         var promotions = multiLang.LastFallbackPromotions;
         if (promotions.Count == 0)
         {
-            await File.WriteAllTextAsync(exportPath, "=== CASC-sourced Translation Keys (0) ===\n");
+            await outputs.WriteTextAsync(exportPath, "=== CASC-sourced Translation Keys (0) ===\n");
             return;
         }
 
@@ -589,6 +1129,6 @@ public sealed class D2RMultiExportPipeline
                 lines.Add($"  {key}  [{string.Join(", ", langs)}]");
         }
 
-        await File.WriteAllTextAsync(exportPath, string.Join("\n", lines));
+        await outputs.WriteTextAsync(exportPath, string.Join("\n", lines));
     }
 }

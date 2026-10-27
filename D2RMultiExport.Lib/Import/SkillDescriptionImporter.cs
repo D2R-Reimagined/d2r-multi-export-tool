@@ -15,9 +15,15 @@ namespace D2RMultiExport.Lib.Import;
 /// <see cref="SkillCalculator"/>. A line whose calc the evaluator cannot resolve is dropped
 /// and reported as a warning rather than shipped with a guessed number.
 /// </summary>
-public sealed class SkillDescriptionImporter(GameData data, int bonusLevels)
+public sealed class SkillDescriptionImporter(GameData data)
 {
     private readonly ImportResult<SkillDescriptionSet> _result = new();
+
+    /// <summary>
+    /// Highest character level the <c>ulvl</c> axis is solved to, and the level the flat
+    /// tables of a <c>ulvl</c>-sensitive line are solved at.
+    /// </summary>
+    private readonly int _characterLevels = Math.Max(data.ExportConfig.SkillDescriptionCharacterLevels, 1);
 
     public Task<ImportResult<SkillDescriptionSet>> ImportAsync()
     {
@@ -27,14 +33,21 @@ public sealed class SkillDescriptionImporter(GameData data, int bonusLevels)
         {
             if (!data.SkillDescs.TryGetValue(skill.SkillDesc ?? "", out var desc)) continue;
 
-            var maxLevel = Math.Max(skill.MaxLevel, 1) + Math.Max(bonusLevels, 0);
+            // A character can only spend `maxlvl` hard points, but +skills gear pushes the
+            // effective level far past that, so the tables run to the configured ceiling
+            // and the bonus axis takes whatever is left over.
+            var hardCap = Math.Max(skill.MaxLevel, 1);
+            var maxLevel = Math.Max(data.ExportConfig.SkillDescriptionMaxLevel, hardCap);
+            var bonus = maxLevel - hardCap;
             var set = new SkillDescriptionSet
             {
                 SkillId = skill.Id,
                 MaxLevel = maxLevel,
-                Stats = Build(skill, desc.DescriptionLines, maxLevel),
-                Details = Build(skill, desc.DetailLines, maxLevel),
-                Synergies = Build(skill, desc.SynergyLines, maxLevel)
+                HardPointCap = hardCap,
+                CharacterLevelCap = _characterLevels,
+                Stats = Build(skill, desc.DescriptionLines, hardCap, bonus),
+                Details = Build(skill, desc.DetailLines, hardCap, bonus),
+                Synergies = Build(skill, desc.SynergyLines, hardCap, bonus)
             };
 
             if (!set.IsEmpty) _result.AddItem(set);
@@ -43,7 +56,7 @@ public sealed class SkillDescriptionImporter(GameData data, int bonusLevels)
         return Task.FromResult(_result);
     }
 
-    private List<SkillDescriptionLine> Build(SkillEntry skill, List<SkillDescLine> lines, int maxLevel)
+    private List<SkillDescriptionLine> Build(SkillEntry skill, List<SkillDescLine> lines, int hardCap, int bonusCap)
     {
         var built = new List<SkillDescriptionLine>();
         foreach (var line in lines)
@@ -59,11 +72,11 @@ public sealed class SkillDescriptionImporter(GameData data, int bonusLevels)
                 continue;
             }
 
-            if (!TryBuildLine(skill, line, layout, maxLevel, out var built1))
+            if (!TryBuildLine(skill, line, layout, hardCap, bonusCap, out var built1, out var reason))
             {
                 _result.AddWarning("SkillDescription", skill.Skill,
                     $"Skipped '{line.TextA}' (function {line.Function}): could not evaluate "
-                    + $"'{Describe(line)}'.");
+                    + $"'{Describe(line)}' — {reason ?? "no reason recorded"}.");
                 continue;
             }
 
@@ -89,14 +102,13 @@ public sealed class SkillDescriptionImporter(GameData data, int bonusLevels)
         SkillEntry skill,
         SkillDescLine line,
         SkillDescFunction layout,
-        int maxLevel,
-        out SkillDescriptionLine built)
+        int hardCap,
+        int bonusCap,
+        out SkillDescriptionLine built,
+        out string? reason)
     {
-        built = new SkillDescriptionLine
-        {
-            Key = line.TextA!,
-            Scale = ResolveDamageScale(skill, line)
-        };
+        reason = null;
+        built = new SkillDescriptionLine { Key = line.TextA! };
 
         if (layout.NameArg && !string.IsNullOrWhiteSpace(line.TextB))
             built.Args = [line.TextB];
@@ -106,20 +118,147 @@ public sealed class SkillDescriptionImporter(GameData data, int bonusLevels)
         var slots = SlotCount(layout.Layout, line);
         if (slots == 0) return true;
 
+        var maxLevel = hardCap + bonusCap;
         var tables = new List<double>[slots];
         for (var slot = 0; slot < slots; slot++) tables[slot] = new List<double>(maxLevel);
 
+        // First pass: the flat per-effective-level table, every level treated as a hard
+        // point. This is what the overwhelming majority of lines need, and it is also what
+        // tells us whether the line reads `blvl` at all.
+        var hardSoftSensitive = false;
+        var characterLevelSensitive = false;
+        var allocationSensitive = false;
+        var reads = new List<(ICalcScope Scope, string Symbol)>();
         for (var level = 1; level <= maxLevel; level++)
         {
-            var context = new SkillCalcContext { Skill = skill, Data = data, Level = level };
-            if (!TryEvaluateSlots(line, layout.Layout, context, out var values)) return false;
-            if (values.Length != slots) return false;
+            var levels = new CalcLevels(level, level, _characterLevels);
+            var context = Context(skill, levels, (scope, symbol) => reads.Add((scope, symbol)));
+            if (!TryEvaluateSlots(line, layout.Layout, context, out var values))
+            {
+                reason = context.Trace.Reason;
+                return false;
+            }
+            if (values.Length != slots)
+            {
+                reason = $"the description function wants {slots} value(s) but the row supplies {values.Length}";
+                return false;
+            }
             for (var slot = 0; slot < slots; slot++) tables[slot].Add(values[slot]);
+            hardSoftSensitive |= levels.UsedBaseLevel;
+            characterLevelSensitive |= levels.UsedCharacterLevel;
+            allocationSensitive |= levels.UsedUnallocatedSkill;
         }
 
         built.Values = [.. tables.Select(Trim)];
+        if (allocationSensitive) built.ValuesCalc = SourceExpressions(skill, layout.Layout, line, slots, data);
+        ApplyDamageScale(skill, built, reads);
+
+        if (hardSoftSensitive)
+        {
+            var grid = BuildGrid(skill, line, layout, hardCap, bonusCap, slots);
+            if (grid.Count > 0) built.Values2D = grid;
+        }
+
+        if (characterLevelSensitive)
+        {
+            var grid = BuildCharacterLevelGrid(skill, line, layout, maxLevel, slots);
+            if (grid.Count > 0) built.ValuesUlvl = grid;
+        }
+
         return true;
     }
+
+    /// <summary>
+    /// Re-solves a <c>ulvl</c>-sensitive line over the (skill level, character level) grid.
+    /// The caster's character level is a third quantity neither skill-level axis can stand
+    /// in for — <c>Thorns</c>' returned damage is <c>edmn * (ulvl + 100)/100</c>, so a
+    /// level-1 Paladin and a level-99 one read the same tooltip line differently at the same
+    /// skill level. A save-file viewer knows the number exactly; a planner needs an input.
+    /// </summary>
+    private List<double[][]> BuildCharacterLevelGrid(
+        SkillEntry skill,
+        SkillDescLine line,
+        SkillDescFunction layout,
+        int maxLevel,
+        int slots)
+    {
+        var grids = new List<double[]>[slots];
+        for (var slot = 0; slot < slots; slot++) grids[slot] = new List<double[]>(maxLevel);
+
+        for (var level = 1; level <= maxLevel; level++)
+        {
+            var rows = new List<double>[slots];
+            for (var slot = 0; slot < slots; slot++) rows[slot] = new List<double>(_characterLevels);
+
+            for (var character = 1; character <= _characterLevels; character++)
+            {
+                var levels = new CalcLevels(level, level, character);
+                if (!TryEvaluateSlots(line, layout.Layout, Context(skill, levels), out var values)
+                    || values.Length != slots)
+                {
+                    // The flat pass already succeeded at every level, so this cannot
+                    // normally happen; fall back to the flat table rather than ship a hole.
+                    return [];
+                }
+                for (var slot = 0; slot < slots; slot++) rows[slot].Add(values[slot]);
+            }
+
+            for (var slot = 0; slot < slots; slot++) grids[slot].Add(Trim(rows[slot]));
+        }
+
+        return [.. grids.Select(TrimRows)];
+    }
+
+    /// <summary>
+    /// Re-solves a <c>blvl</c>-sensitive line over the (hard points, bonus levels) grid.
+    /// D2 pays soft points from <c>+skills</c> gear at a different rate than points the
+    /// character spent, so one number per effective level cannot describe the line — a
+    /// geared character and a fully invested one land on the same index but not the same
+    /// value.
+    ///
+    /// Row <c>0</c> is kept deliberately: an oskill granted purely by an item has no hard
+    /// points, and the game renders it as all-soft.
+    /// </summary>
+    private List<double[][]> BuildGrid(
+        SkillEntry skill,
+        SkillDescLine line,
+        SkillDescFunction layout,
+        int hardCap,
+        int bonusCap,
+        int slots)
+    {
+        var grids = new List<double[]>[slots];
+        for (var slot = 0; slot < slots; slot++) grids[slot] = new List<double[]>(hardCap + 1);
+
+        for (var hard = 0; hard <= hardCap; hard++)
+        {
+            var rowBonusCap = hardCap + bonusCap - hard;
+            var rows = new List<double>[slots];
+            for (var slot = 0; slot < slots; slot++) rows[slot] = new List<double>(rowBonusCap + 1);
+
+            for (var bonus = 0; bonus <= rowBonusCap; bonus++)
+            {
+                // A skill at zero total levels is not castable; the game still solves its
+                // tooltip at level 1, and so does the flat table, so match that.
+                var levels = new CalcLevels(Math.Max(hard + bonus, 1), hard, _characterLevels);
+                if (!TryEvaluateSlots(line, layout.Layout, Context(skill, levels), out var values)
+                    || values.Length != slots)
+                {
+                    // The flat pass already succeeded at every level, so this cannot
+                    // normally happen; fall back to the flat table rather than ship a hole.
+                    return [];
+                }
+                for (var slot = 0; slot < slots; slot++) rows[slot].Add(values[slot]);
+            }
+
+            for (var slot = 0; slot < slots; slot++) grids[slot].Add(Trim(rows[slot]));
+        }
+
+        return [.. grids.Select(TrimRows)];
+    }
+
+    private SkillCalcContext Context(SkillEntry skill, CalcLevels levels, Action<ICalcScope, string>? observer = null)
+        => new() { Skill = skill, Data = data, Levels = levels, Trace = new CalcTrace { ObserveIntrinsic = observer } };
 
     /// <summary>
     /// Solves one level's worth of arguments for a description function. Note that the
@@ -189,6 +328,43 @@ public sealed class SkillDescriptionImporter(GameData data, int bonusLevels)
         }
     }
 
+    /// <summary>
+    /// The source cell behind each numeric argument of a line whose numbers read another
+    /// skill's allocation, which the isolated preview pins at zero points — the Druid summons'
+    /// <c>min(clc6+(skill('Raven'.clc5)-blvl),pa10)</c> synergy cap solves to 0 at every level.
+    /// The website re-evaluates these against live ranks, in this skill's own scope, exactly as
+    /// it does <c>Calculation.ElementalDamage</c>.
+    ///
+    /// An argument the layout combines from two cells (a divisor or a sum) is not one integer
+    /// expression, so it stays null and keeps its solved table. Null when no argument has one.
+    /// </summary>
+    private static List<string?>? SourceExpressions(
+        SkillEntry skill,
+        string layout,
+        SkillDescLine line,
+        int slots,
+        GameData data)
+    {
+        var single = string.IsNullOrWhiteSpace(line.CalcB);
+        string?[] calcs = layout switch
+        {
+            "singleValue" => [Source(line.CalcA, skill, data)],
+            "twoValues" => single
+                ? [Source(line.CalcA, skill, data)]
+                : [Source(line.CalcA, skill, data), Source(line.CalcB, skill, data)],
+            "valueWithDivisor" or "sumOfValues" => [single ? Source(line.CalcA, skill, data) : null],
+            _ => []
+        };
+        return calcs.Length == slots && calcs.Any(static calc => calc is not null) ? [.. calcs] : null;
+    }
+
+    /// <summary>A calc cell as the evaluator reads it, minus the spreadsheet's quoting.</summary>
+    private static string? Source(string? cell, SkillEntry skill, GameData data)
+    {
+        var expression = cell?.Trim().Trim('"');
+        return expression is null ? null : SkillCalcPointerExpander.Expand(expression, skill, data);
+    }
+
     private static int SlotCount(string layout, SkillDescLine line) => layout switch
     {
         "singleValue" => 1,
@@ -216,42 +392,94 @@ public sealed class SkillDescriptionImporter(GameData data, int bonusLevels)
         return [.. values.Take(last + 1)];
     }
 
+    /// <summary>The same trim applied to the hard-point axis of a grid.</summary>
+    private static double[][] TrimRows(List<double[]> rows)
+    {
+        var last = rows.Count - 1;
+        while (last > 0 && rows[last].AsSpan().SequenceEqual(rows[last - 1])) last--;
+        return [.. rows.Take(last + 1)];
+    }
+
     private static string Describe(SkillDescLine line)
         => string.IsNullOrWhiteSpace(line.CalcB) ? line.CalcA ?? "" : $"{line.CalcA} / {line.CalcB}";
 
-    private static string? ResolveDamageScale(SkillEntry skill, SkillDescLine line)
+    /// <summary>
+    /// Works out which <c>*SymPerCalc</c> percentage applies to a line, so the website can
+    /// re-evaluate it against live ranks instead of the exporter guessing an allocation.
+    ///
+    /// A line that reads the skill's own damage columns scales by the skill's own column,
+    /// named by <see cref="SkillDescriptionLine.Scale"/> alone. A line whose damage comes
+    /// from a *missile* — most of Reimagined's headline spells deal their damage through
+    /// one — scales by that missile's column instead, which lives on the
+    /// <c>missiles.txt</c> row and is otherwise never exported: without it the website
+    /// applies no bonus at all and the synergy terms inside it
+    /// (<c>moltenboulderfirepath</c>'s <c>skill('Summon Fenris'.blvl)</c>,
+    /// <c>royalstrikemeteor</c>'s <c>skill('Fists of Fire'.blvl)</c>) silently count zero.
+    /// </summary>
+    private static void ApplyDamageScale(
+        SkillEntry skill,
+        SkillDescriptionLine built,
+        List<(ICalcScope Scope, string Symbol)> reads)
     {
-        if (ReferencesAny(skill, [line.CalcA, line.CalcB], ["pnma", "pxma", "pnms", "pxms"]))
-            return "physical";
-        if (ReferencesAny(skill, [line.CalcA, line.CalcB], ["edmn", "edmx", "edns", "edxs", "enma", "exma", "enms", "exms"]))
-            return "elemental";
-        if (ReferencesAny(skill, [line.CalcA, line.CalcB], ["edln"]))
-            return "elementalLength";
-        return null;
+        // Observe the existing evaluator: it follows table aliases/formulas and quoted
+        // references in their real scopes, with the same recursion guards and diagnostics.
+        foreach (var (scope, symbol) in reads)
+        {
+            string? scale = scope is MissileCalcContext
+                ? MissilePhysicalFields.Contains(symbol) ? "physical"
+                    : MissileElementalFields.Contains(symbol) ? "elemental" : null
+                : PhysicalSymbols.Contains(symbol) ? "physical"
+                    : ElementalSymbols.Contains(symbol) ? "elemental"
+                    : symbol.Equals("edln", StringComparison.OrdinalIgnoreCase) ? "elementalLength" : null;
+            if (scale is null) continue;
+
+            if (scope is SkillCalcContext skillScope)
+            {
+                if (skillScope.Skill.Id == skill.Id)
+                {
+                    built.Scale = scale;
+                    return;
+                }
+                var source = skillScope.Skill.SourceRow;
+                var percentage = scale switch
+                {
+                    "physical" => source?.DmgSymPerCalc,
+                    "elemental" => source?.EDmgSymPerCalc,
+                    _ => source?.ELenSymPerCalc
+                };
+                if (string.IsNullOrWhiteSpace(percentage)) continue;
+                // Bind the other row's parameters before the client evaluates this in
+                // the describing skill's context. Keep quoted synergy references live.
+                var context = new SkillCalcContext { Skill = skillScope.Skill, Data = skillScope.Data, Levels = skillScope.Levels };
+                if (!CalcExpression.TryBindParameters(percentage, context, out var bound)) continue;
+                built.Scale = scale;
+                built.ScaleCalc = bound;
+                return;
+            }
+
+            var calc = scope switch
+            {
+                MissileCalcContext missile => scale == "physical"
+                    ? missile.Row.DamageSymPerCalculation : missile.Row.ElementalDamageSymPerCalculation,
+                _ => null
+            };
+            if (string.IsNullOrWhiteSpace(calc)) continue;
+            built.Scale = scale;
+            built.ScaleCalc = calc.Trim().Trim('"');
+            return;
+        }
     }
 
-    private static bool ReferencesAny(
-        SkillEntry skill,
-        IEnumerable<string?> expressions,
-        IReadOnlyCollection<string> symbols)
-    {
-        var pending = new Stack<string>(expressions.Where(static value => !string.IsNullOrWhiteSpace(value))!);
-        var visitedCalcs = new HashSet<int>();
-        while (pending.TryPop(out var expression))
-        {
-            var tokens = System.Text.RegularExpressions.Regex.Matches(expression, @"\b[a-zA-Z]+\d*\b")
-                .Select(static match => match.Value);
-            foreach (var token in tokens)
-            {
-                if (symbols.Contains(token, StringComparer.OrdinalIgnoreCase)) return true;
-                if (!token.StartsWith("clc", StringComparison.OrdinalIgnoreCase)
-                    || !int.TryParse(token[3..], out var index)
-                    || index is < 1 or > 10
-                    || !visitedCalcs.Add(index)) continue;
-                var nested = SkillCalcSource.Calc(skill.SourceRow, index);
-                if (!string.IsNullOrWhiteSpace(nested)) pending.Push(nested);
-            }
-        }
-        return false;
-    }
+    /// <summary>The skill-row damage symbols, per <c>skillcalc.txt</c>.</summary>
+    private static readonly HashSet<string> PhysicalSymbols =
+        new(["pnma", "pxma", "pnms", "pxms"], StringComparer.OrdinalIgnoreCase);
+
+    private static readonly HashSet<string> ElementalSymbols =
+        new(["edmn", "edmx", "edns", "edxs", "enma", "exma", "enms", "exms"], StringComparer.OrdinalIgnoreCase);
+
+    private static readonly HashSet<string> MissileElementalFields =
+        new(["edmn", "edmx", "edns", "edxs"], StringComparer.OrdinalIgnoreCase);
+
+    private static readonly HashSet<string> MissilePhysicalFields =
+        new(["damn", "damx", "dmns", "dmxs"], StringComparer.OrdinalIgnoreCase);
 }

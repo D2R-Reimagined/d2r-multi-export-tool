@@ -12,8 +12,10 @@ namespace D2RMultiExport.Lib.Exporters;
 /// </summary>
 internal static class SkillTreeExporter
 {
+    public const string OutputPath = "keyed/skills.json";
+
     public static async Task ExportAsync(
-        string keyedDir,
+        ExportOutputs outputs,
         GameData data,
         JsonSerializerOptions options)
     {
@@ -27,9 +29,7 @@ internal static class SkillTreeExporter
 
         if (classes.Count == 0) return;
 
-        var path = Path.Combine(keyedDir, "skills.json");
-        await using var stream = File.Create(path);
-        await JsonSerializer.SerializeAsync(stream, classes, options);
+        await outputs.WriteJsonAsync(OutputPath, classes, options);
     }
 
     private static KeyedSkillClass MapClass(
@@ -38,7 +38,8 @@ internal static class SkillTreeExporter
         GameData data)
     {
         var className = data.ResolveClassName(classCode);
-        var classSkills = skills.OrderBy(static skill => skill.Id).ToList();
+        var classSkills = skills.Where(skill => IsExported(skill, data))
+            .OrderBy(static skill => skill.Id).ToList();
 
         return new KeyedSkillClass
         {
@@ -64,6 +65,13 @@ internal static class SkillTreeExporter
         };
     }
 
+    internal static bool IsExported(SkillEntry skill, GameData data)
+        => !string.IsNullOrWhiteSpace(skill.CharClass)
+           && data.SkillDescs.TryGetValue(skill.SkillDesc ?? "", out var desc)
+           && desc.Page is >= 1 and <= 3
+           && desc.Row > 0
+           && desc.Column > 0;
+
     private static KeyedSkill MapSkill(SkillEntry skill, GameData data)
     {
         data.SkillDescs.TryGetValue(skill.SkillDesc ?? "", out var desc);
@@ -75,12 +83,17 @@ internal static class SkillTreeExporter
             Descriptions = descriptions,
             Id = skill.Id,
             Code = skill.Skill,
-            NameKey = skill.NameKey,
+            // Only class skills reach this exporter and every one of them has a
+            // skilldesc `str name`, so the fallback is defensive rather than live.
+            NameKey = skill.NameKey ?? skill.Skill,
             ElementType = NullIfWhiteSpace(skill.SourceRow?.EType),
             ShortDescriptionKey = desc?.ShortString,
             DescriptionKey = desc?.LongString,
+            // Only an icon this run wrote: a convention-built path would point at a stale or
+            // absent file whenever the icon step skipped or failed for this class.
             Icon = desc?.IconCel is >= 0 && !string.IsNullOrWhiteSpace(skill.CharClass)
-                ? $"sprites/skills/{skill.CharClass!.ToLowerInvariant()}-{desc.IconCel.Value}.webp"
+                   && data.ExportedSkillIcons?.Contains(SkillIconExporter.IconPath(skill.CharClass!, desc.IconCel.Value)) == true
+                ? SkillIconExporter.IconPath(skill.CharClass!, desc.IconCel.Value)
                 : null,
             Row = desc?.Row ?? 0,
             Column = desc?.Column ?? 0,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using D2RMultiExport.Lib.Config;
+using D2RMultiExport.Lib.Import;
 using D2RMultiExport.Lib.Translation;
 
 namespace D2RMultiExport.Lib.Models;
@@ -42,6 +43,22 @@ public sealed class GameData
     public List<MagicAffixEntry> AutoMagics { get; } = [];
     public Dictionary<string, D2RReimaginedTools.Models.Sets> SetEntries { get; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, D2RReimaginedTools.Models.SetItem> SetItemEntries { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, D2RReimaginedTools.Models.Missiles> Missiles { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// <c>missiles.txt</c> rows by engine record index — the number a weapon's numeric
+    /// <c>missiletype</c> names. Never the informational <c>*ID</c> column or the row name.
+    /// </summary>
+    public Dictionary<int, D2RReimaginedTools.Models.Missiles> MissilesByIndex { get; } = [];
+
+    /// <summary>
+    /// The <c>skillcalc.txt</c> / <c>misscalc.txt</c> symbol vocabularies backing
+    /// <c>SkillCalculator</c> and <c>MissileCalculator</c>. Empty when neither the mod nor
+    /// the bundled <c>Config/CASC_DATA</c> copy could be found, in which case the
+    /// calculators fall back to the quantities they define in code.
+    /// </summary>
+    public CalcCodeTable SkillCalcCodes { get; set; } = CalcCodeTable.Empty;
+    public CalcCodeTable MissileCalcCodes { get; set; } = CalcCodeTable.Empty;
 
     // Model collections (populated during ImportModel phase)
     public List<UniqueExport> Uniques { get; set; } = [];
@@ -50,11 +67,32 @@ public sealed class GameData
     public List<CubeRecipeExport> CubeRecipes { get; set; } = [];
 
     /// <summary>
-    /// Per-level skill description lines, keyed by <c>skills.txt</c> <c>*Id</c>. Populated
+    /// Per-level skill description lines, keyed by <see cref="SkillEntry.Id"/>. Populated
     /// by <see cref="Import.SkillDescriptionImporter"/> and attached to each skill by
     /// <c>SkillTreeExporter</c>.
     /// </summary>
     public Dictionary<int, SkillDescriptionSet> SkillDescriptions { get; set; } = [];
+
+    /// <summary>
+    /// Skill icon paths (<c>sprites/skills/…</c>) the current run actually wrote, set by
+    /// <c>SkillIconExporter</c> before <c>keyed/skills.json</c> is produced. <c>null</c> when
+    /// the icon step has not run, in which case no <c>Icon</c> is emitted.
+    /// </summary>
+    public HashSet<string>? ExportedSkillIcons { get; set; }
+
+    /// <summary>
+    /// Resolves the enUS template behind a keyed-line key. The pipeline supplies the final
+    /// bundle lookup (mod, synthetic, then CASC fallback); when <c>null</c>,
+    /// <see cref="Translations"/> is used.
+    /// </summary>
+    public Func<string, string?>? TemplateLookup { get; set; }
+
+    /// <summary>
+    /// Property lines <see cref="Import.PropertyMapper"/> omitted because their template
+    /// needs a value the source row does not supply. Importers take them into their row's
+    /// warnings; the pipeline reports any remainder under the step that mapped them.
+    /// </summary>
+    public List<OmittedPropertyLine> OmittedPropertyLines { get; } = [];
 
     /// <summary>
     /// Resolves a 3-letter class code (e.g. "sor") or full class name to the display class name.
@@ -75,9 +113,10 @@ public sealed class GameData
     /// <c>Parameter</c> field) to a <see cref="SkillEntry"/>. Skill parameters
     /// can come through as either a string skill identifier (the
     /// <c>skills.txt</c> <c>Skill</c> column, e.g. <c>"Fire Bolt"</c>) or as a
-    /// numeric row index / id (e.g. cube recipes pull <c>Mod{i}Param</c> raw
+    /// numeric engine skill id (e.g. cube recipes pull <c>Mod{i}Param</c> raw
     /// from <c>cubemain.txt</c>, which often references the skill by its
-    /// <c>*Id</c>). Numeric values take precedence and are looked up via
+    /// <c>skills.txt</c> record index, <see cref="SkillEntry.Id"/>). Numeric values
+    /// take precedence and are looked up via
     /// <see cref="SkillsById"/>; otherwise we fall back to the name-keyed
     /// <see cref="Skills"/> dictionary. Returns <c>null</c> when the parameter
     /// is empty or cannot be resolved.

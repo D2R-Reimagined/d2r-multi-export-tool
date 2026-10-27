@@ -14,28 +14,39 @@ companion D2R Reimagined website.
 - Resolves each property (stat, skill grant, class restriction,
   damage/defense roll, requirement, etc.) to a translation **key** plus
   finalized numeric arguments.
-- Writes a bundle of `keyed/*.json` (one file per content family) and
-  `strings/<lang>.json` (one per supported D2R locale), plus an
-  `extras/` audit folder.
+- Exports [skill trees and calculated descriptions](docs/SKILL-CALCULATIONS.md),
+  [drop](docs/DROP-CALCULATOR.md), [IAS](docs/IAS-CALCULATOR.md) and
+  [monster-health](docs/HEALTH-CALCULATOR.md) calculator data, and
+  [loot-filter data](docs/LOOT-FILTER.md).
+- Supplies item presentation and stat-display metadata, rare-name lists,
+  and converted WebP item art, skill icons and inventory UI art.
+- Writes `keyed/*.json` content and calculator documents,
+  `strings/<lang>.json` (one per supported D2R locale), converted assets
+  under `sprites/`, and an `extras/` audit folder.
 
 ## Why it works this way
 
 The downstream website renders item pages in 13 languages and switches
-locale with a single extra fetch. That only works if the bulk JSON
-contains no baked English sentences:
+locale with a single extra fetch. Display text uses translation keys,
+with the documented exceptions below:
 
-- Every player-facing field in `keyed/*.json` is either a translation
-  key string or a `KeyedLine` object `{ key, args }` whose `args` are
-  primitives, nested `KeyedLine`s, or `KeyedLineArg` records.
+- Localized display text in `keyed/*.json` uses translation key strings
+  or `KeyedLine` objects `{ key, args }` whose `args` are primitives,
+  nested `KeyedLine`s, or `KeyedLineArg` records.
 - All numeric arithmetic — ED%, ethereal ×1.5, durability adjustments,
   smite/kick damage, elemental durations, requirement reductions, charm
   weight, per-character-level scaling, etc. — is finalized here, in C#.
-  The client only performs positional `%d` / `%s` substitution against
-  `strings/<lang>.json`.
-- Three structural exceptions ship raw English by design (cube recipe
-  `Description`, the `PType` Prefix/Suffix discriminator, and the
-  `RequiredClass` literal used for class-required-equipment validation).
-  See `AGENTS.md` for the full rule set.
+  The client substitutes positional `%d` / `%s` against `strings/<lang>.json`;
+  skill consumers also select precomputed axes and apply explicitly exported
+  live synergy percentages. Calculator bundles expose inputs for website calculations.
+- Raw English is retained for optional cube recipe `Description`, the
+  `PType` Prefix/Suffix discriminator, and the `RequiredClass` literal
+  used for class-required-equipment validation.
+- Existing unnamed skill and untranslated monster contracts can omit
+  `NameKey` and retain raw `FallbackName`; consumers display the fallback
+  when the key is absent. See the
+  [name contracts](docs/WEBSITE-INTEGRATION.md#existing-name-and-asset-contracts)
+  and [AGENTS.md](AGENTS.md) for the translation rules.
 
 Lookup data (item-code allow/deny lists, stat-display overrides,
 class-name validation, vanilla row counts, cube-recipe note keys, etc.)
@@ -49,43 +60,53 @@ importer code, so content tweaks don't require a code change.
 | `D2RMultiExport.Lib` | Core import / translation / export pipeline. Game-data parsing, property resolution, damage & defense math, synthetic-string registry, and JSON writers. |
 | `D2RMultiExport.Console` | Headless CLI front-end (`export` command). |
 | `D2RMultiExport.Client` | Avalonia desktop GUI front-end for running exports interactively. |
-| `D2RMultiExport.Lib\Config` | Bundled config: `export-config.json`, `synthetic-strings.json`, `stat-overrides.json`, `class-ranges.json`, plus the canonical `CASC_DATA\runes.txt`. |
+| `D2RMultiExport.Lib\Config` | Bundled config: `export-config.json`, `synthetic-strings.json`, `stat-overrides.json`, `class-ranges.json`, description layouts and canonical `CASC_DATA\runes.txt`, `skillcalc.txt`, `misscalc.txt`. |
 
 The pipeline runs **load → import → resolve → export → audit** and is
-orchestrated from `D2RMultiExportPipeline.cs`. Per-row failures are
-collected into `ImportResult<T>` rather than thrown; only fatal load
-failures abort the run (unless `--continue-on-exception` is passed).
+orchestrated from `D2RMultiExportPipeline.cs`. Importers collect per-row
+failures in `ImportResult<T>`. Phase exceptions are recorded and abort
+by default; `--continue-on-exception` permits continuation.
+
+Exporter exceptions are isolated so later exporters and reports still run.
+If the output phase finishes, `manifest.json` is written last, recording
+whether the run succeeded and was complete. Failed exporter steps then
+throw unless `--continue-on-exception` is set; the CLI returns a failure
+exit code for recorded errors either way. An abort before the output phase
+can leave the previous bundle and manifest untouched. See
+[TESTING.md](docs/TESTING.md) for run and report behavior.
 
 Excel `.txt` parsing is delegated to the
 [`D2RReimaginedTools.FileExtensions`](https://www.nuget.org/packages/D2RReimaginedTools.FileExtensions)
 NuGet package; this repo only consumes the strongly-typed row DTOs it
 returns. Parser bugs (wrong column mapping, missing columns, row-count
 mismatches, etc.) are fixed upstream in the sibling `d2r-dotnet-tools`
-repo rather than worked around inline here — see `AGENTS.md` →
-*External parsing dependency* for the local-debug swap recipe.
+repo rather than worked around inline here — see
+[CONTRIBUTING.md](CONTRIBUTING.md#parser-dependency) for the local-debug swap recipe.
 
 ## Intended use
 
 This tool is purpose-built to produce the JSON bundle the D2R Reimagined
 website consumes. The `keyed/*.json` schema, CLI flags, and config
-shape exist to serve that one consumer and may change whenever the mod
-or the site needs them to. It is not a general-purpose D2R data dumper.
+shape exist to serve that one consumer. Breaking wire changes require
+coordination with the website. Cube recipe `Id` values are a published
+stable contract; changes that rotate them require a coordinated migration.
+See the [integration contracts](docs/WEBSITE-INTEGRATION.md) and
+[stable cube recipe identity](docs/WEBSITE-INTEGRATION.md#stable-cube-recipe-identity).
+It is not a general-purpose D2R data dumper.
 
 ## Prerequisites
 
 - .NET SDK **10.0**
 - A D2R mod source tree containing `data\global\excel\*.txt` and
   `data\local\lng\strings\*.json`
-- Optional: a CASC dump of the base game's `local\lng\strings`
-  directory, used to fill in keys the mod doesn't override. The repo
-  does not ship Blizzard's verbatim string tables. If
-  `extras\missing-translations.txt` reports keys after a run, extract
-  `data\local\lng\strings\*.json` from a D2R install with CascView and
-  pass that directory via `--base-strings`.
-- Optional: an extracted vanilla D2R `data` root. Pass it with
-  `--base-assets` to export vanilla item art beneath any matching mod
-  overrides. The exporter decodes D2R's SpA1 `.sprite` files and writes
-  quality-92 WebP files; it does not redistribute source game assets.
+- Strongly recommended: a CascView extraction of the base game's `data` tree
+  (`data\` or the nested `data\data\`), passed as `--casc-data`. It provides
+  available vanilla HD sprites, base strings and tables as fallbacks for
+  files the mod does not ship. IAS deliberately reads `global/animdata.d2`
+  from the mod only; vanilla animation timings are never substituted
+  ([IAS inputs](docs/IAS-CALCULATOR.md#inputs)). The exporter decodes D2R's
+  SpA1 `.sprite` files and writes quality-92 WebP files; it does not
+  redistribute source game assets.
 
 ## Releases
 
@@ -95,7 +116,7 @@ Release as
 `D2RMultiExport-v<version>-win-x64.zip`. The zip's top-level folder is
 `D2RMultiExport\` and contains the CLI (`D2RMultiExport.Console.exe`),
 the Avalonia GUI (`D2RMultiExport.Client.exe`), the bundled `Config\`
-tree, `LICENSE.txt`, and a short `README.txt`. Both executables are
+tree, `LICENSE.txt`, `AUTHORS.md` and a short `README.txt`. Both executables are
 self-contained, single-file `win-x64` builds — no .NET install
 required.
 
@@ -103,14 +124,12 @@ See [`docs/RELEASING.md`](docs/RELEASING.md) for the full procedure.
 
 ### Windows SmartScreen on first launch
 
-The published `.exe` files are not code-signed. Windows SmartScreen
-will therefore show a blue "Windows protected your PC" warning the
-first time each one runs after extraction. Click **More info** →
-**Run anyway** to dismiss it. The warning is expected for unsigned
-self-contained .NET single-file binaries downloaded from GitHub
-Releases and will subside automatically once enough downloads
-accumulate against a given release. If that warning is unacceptable
-in your environment, build the tool yourself from source instead
+The published `.exe` files are not code-signed. Because they are unsigned
+and downloaded from GitHub Releases, Windows SmartScreen *may* show a blue
+"Windows protected your PC" warning the first time each one runs after
+extraction; whether it appears depends on Windows reputation policy. If it
+does, click **More info** → **Run anyway** to dismiss it. If that warning is
+unacceptable in your environment, build the tool yourself from source instead
 of downloading the prebuilt zip.
 
 ## Build
@@ -120,7 +139,9 @@ dotnet build .\D2RMultiExport.sln
 ```
 
 The **Build Check** workflow (`.github/workflows/ci.yml`, status
-context `build-check`) runs the same command on every pull request.
+context `build-check`) is manual-only (`workflow_dispatch`). It builds Release
+and runs the library, Python auditor and headless desktop tests without private
+game data; build/test locally before submission ([TESTING.md](docs/TESTING.md)).
 
 ## Run — CLI
 
@@ -128,27 +149,126 @@ The console tool exposes a single `export` command.
 
 | Option | Aliases | Description |
 |---|---|---|
-| `--excel` | `-e` | Path to the mod's `data\global\excel` directory |
-| `--mod-strings` | `--translations`, `-t` | Path to the mod's `data\local\lng\strings` directory |
-| `--out` | `--export`, `-o` | Output directory for the generated bundle |
-| `--base-strings` | `-b` | *(optional)* Path to a CASC dump of the base-game `local\lng\strings` dir, used as fallback for keys the mod doesn't override |
-| `--base-assets` | | *(optional)* Path to an extracted vanilla D2R data root; matching Reimagined sprites override vanilla assets and referenced item art is converted to WebP |
+| `--mod-data` | `-m` | The mod's `data` directory (or the folder containing it) |
+| `--casc-data` | `-c` | *(optional, recommended)* The extracted vanilla `data` directory (`data\`, `data\data\`, or the extraction root) |
+| `--out` | `--export`, `-o` | Output directory for the generated bundle (not needed with `--dry-run`) |
 | `--config` | | *(optional)* Override the bundled `Config\` directory |
+| `--destructive` | | Replace **all** existing contents of `--out` with only this export after a run without errors (default `false`; see [Export modes](#export-modes)) |
+| `--dry-run` | | Run the full export into a scratch directory and discard it, `extras\` reports included; only a log of every error and warning is kept (default `false`; see [Export modes](#export-modes)). Cannot be combined with `--destructive` |
+| `--dry-run-logs` | | *(optional)* Directory for the dry-run log (default `test-output\dryrun` of the repository containing the exporter) |
 | `--pretty` | | Pretty-print JSON (default `true`) |
 | `--early-stop` | | Stop importing `CubeMain.txt` at the first sentinel row (default `true`) |
 | `--cube-recipe-descriptions` | | Include the raw English `Description` column from `CubeMain.txt` on each cube recipe (default `false`) |
 | `--continue-on-exception` | | Continue past per-phase failures instead of aborting the run; failures are still recorded in `extras\import-report.txt` (default `false`) |
 
+### Source roots
+
+`SourceRoots` derives every input from these two directories:
+
+| Root | Accepted selections | Must contain |
+|---|---|---|
+| `--mod-data` | the mod's `data\` folder, or the folder containing it | `global\excel` and `local\lng\strings` |
+| `--casc-data` | the CASC `data\` root, the extraction root containing `data\`, or CascView's nested `data\data\` | any of `global\excel`, `hd\global`, `local\lng\strings` |
+
+Every input resolves as *mod copy, else CASC copy* (bundled reference tables last
+where supported). Without `--casc-data`, vanilla sprites, CASC base strings (the
+only source for keys the mod does not override, such as town NPC names, controller
+action labels and object names) and any table the mod does not ship are
+unavailable: they are reported, never substituted. The only input deliberately
+read from the mod root alone is `global\animdata.d2`
+([IAS inputs](docs/IAS-CALCULATOR.md#inputs)).
+
 Example:
 
 ```powershell
 dotnet run --project .\D2RMultiExport.Console -- export `
-  --excel        "..\d2r-reimagined-mod\data\global\excel" `
-  --mod-strings  "..\d2r-reimagined-mod\data\local\lng\strings" `
-  --base-strings "<path-to-CascView-extracted-strings>" `
-  --base-assets  "<path-to-extracted-D2R-data-root>" `
-  --out          ".\test-output"
+  --mod-data  "..\d2r-reimagined-mod" `
+  --casc-data "<path-to-CascView-extraction>" `
+  --out       ".\test-output"
 ```
+
+An unsupported directory is rejected up front (exit code 3) with the selected path,
+the expected relative location and what was found. `extras\source-report.txt` lists
+which root supplied every input; `extras\asset-report.txt` explains every unresolved
+sprite.
+
+### Migrating from the old CLI arguments
+
+The per-folder arguments of earlier versions have been removed; the CLI now rejects
+them as unrecognized options. Select the two data roots instead and let
+`SourceRoots` derive every input:
+
+| Old argument | Replacement |
+|---|---|
+| `--excel` / `-e` (`data\global\excel`) | `--mod-data`: the mod's `data\` folder (or the folder containing it); `global\excel` is derived from it |
+| `--mod-strings` / `--translations` / `-t` (`data\local\lng\strings`) | `--mod-data`: `local\lng\strings` is derived from the same root |
+| `--base-strings` / `-b` (CASC `local\lng\strings`) | `--casc-data`: the CASC `data\` root; base strings are derived from it |
+| `--base-assets` (extracted vanilla data root) | `--casc-data`: the same root also supplies vanilla sprites and tables |
+
+`--out` / `--export` / `-o`, `--config`, `--pretty`, `--early-stop`,
+`--cube-recipe-descriptions` and `--continue-on-exception` are unchanged;
+`--destructive` is new ([Export modes](#export-modes)).
+For example, a former
+`export --excel <mod>\data\global\excel --mod-strings <mod>\data\local\lng\strings --base-strings <casc>\data\data\local\lng\strings --base-assets <casc>\data\data --out <out>`
+invocation becomes:
+
+```powershell
+dotnet run --project .\D2RMultiExport.Console -- export `
+  --mod-data  "<mod>\data" `
+  --casc-data "<casc>\data\data" `
+  --out       "<out>"
+```
+
+The release build accepts the same options:
+`D2RMultiExport.Console.exe export --mod-data <mod> --casc-data <casc-extraction> --out <out>`.
+
+### Export modes
+
+`--out` (the GUI's **Output Files Directory**) is the one and only destination. It
+can be any directory, including the website checkout's `static\data`: export, then
+review and commit the website changes. There is no separate install step.
+
+- **Default:** the run writes directly into `--out`. Files with matching paths are
+  overwritten, new files are created, and every other file is left untouched;
+  extra or obsolete files never block an export. `manifest.json` lists only the
+  files this run generated.
+- **Destructive** (`--destructive`, or the GUI's **Destructive export — replace all
+  existing destination contents** checkbox): the run is generated in full inside a
+  hidden `.d2r-export-new-*` working directory in `--out` first. Only a run without
+  errors then replaces the previous contents: every existing entry, including
+  obsolete and unrelated files, is moved into a hidden `.d2r-export-old-*` directory,
+  the new export is moved in, and the old copy is deleted. A run with errors, an
+  aborted run or a failed rename leaves (or restores) the previous contents, and the
+  run's reports are then only in the log or console output. Skipped optional outputs
+  are simply absent afterwards. Destructive exports are refused for a drive or
+  file-system root, a Git repository root (a folder containing `.git`), user and
+  system folders or any folder containing one, the exporter's own folder, and any
+  folder containing or inside the Mod Data, CASC Data or configuration directory.
+- **Dry run** (`--dry-run`, or the GUI's **Dry Run** button): the complete export
+  (every importer, exporter, audit and the manifest) runs inside a hidden
+  `.d2r-dryrun-*` scratch directory in the dry-run log directory and is deleted
+  afterwards, whether the run succeeded, recorded errors or aborted. `--out` is
+  never read or written and may be omitted. The `extras\` reports are discarded with
+  the rest of the export; no `extras\` folder is created in the log directory. The
+  only file kept is `dryrun-log.txt`, which lists every recorded error (with its
+  exception detail) followed by every warning, written only when the run recorded
+  an error or a warning, including a run that aborted. Each dry run first removes
+  the previous `dryrun-log.txt`, plus the `dryrun-errors.txt` and `extras\` report
+  copies earlier versions kept there (those exact five report paths, and the
+  `extras\` folder once it is empty; nothing else in the log directory), so the
+  folder always reflects the latest run. The console
+  and the GUI log list every error and warning and print the error, warning and
+  missing-translation counts. The log directory is `--dry-run-logs` (the GUI's **Dry-run Log Directory**),
+  by default `test-output\dryrun` of the repository containing the exporter (or
+  below the exporter's own folder outside a checkout). Exit code `1` means the run
+  recorded errors. `--continue-on-exception` still decides whether the first failed
+  phase aborts the run.
+
+The default and destructive modes create, move or delete nothing outside `--out`;
+a dry run touches only its log directory. A destructive run killed mid-replacement
+can leave the hidden working directories behind; the next destructive export removes
+them with the other previous contents. A dry run killed mid-run can leave its scratch
+directory behind; the next dry run removes it.
 
 On success the tool prints `Export completed successfully.` along with
 the number of `enUS` keys loaded and a count of any referenced-but-
@@ -161,47 +281,46 @@ missing translation keys (full list written to
 dotnet run --project .\D2RMultiExport.Client
 ```
 
-The Avalonia window provides folder pickers for the same paths, a
-"Continue on exception" toggle, and a scrollable log panel that streams
-import/export pipeline progress and per-phase issues live.
+The Avalonia window has folder pickers for the Mod Data, CASC Data and output
+directories (each validated as you type, with the reason when a selection is not a
+supported layout), a remembered **Destructive export** checkbox (off by default; see
+[Export modes](#export-modes)), a remembered **Dry-run Log Directory**, a "Continue
+on exception" toggle, the **Import and Export** and **Dry Run** buttons (a dry run
+needs no Output Files Directory) and a live log panel. Clicking
+the log opens a non-modal viewer with the complete log of the current run —
+including the full import report once it ends — with search, Info/Warnings/Errors
+filters, free selection, Copy All and Save. It can stay open during an export.
 
 ## Output layout
 
 ```
 <out>/
-├── keyed/
-│   ├── armors.json
-│   ├── weapons.json
-│   ├── magicprefix.json
-│   ├── magicsuffix.json
-│   ├── runewords.json
-│   ├── sets.json
-│   ├── uniques.json
-│   ├── item-presentation.json
-│   └── cube-recipes.json
+├── manifest.json          # schema 2; current-run payload hashes and step status
+├── keyed/                 # 16 potential content/calculator/presentation JSON documents
 ├── sprites/
-│   ├── items/              # referenced vanilla + mod item art as WebP
-│   └── ui/
-│       └── inventory.webp  # Reimagined inventory/equipment panel
-├── strings/
-│   ├── enUS.json
-│   ├── deDE.json
-│   ├── esES.json
-│   ├── esMX.json
-│   ├── frFR.json
-│   ├── itIT.json
-│   ├── jaJP.json
-│   ├── koKR.json
-│   ├── plPL.json
-│   ├── ptBR.json
-│   ├── ruRU.json
-│   ├── zhCN.json
-│   └── zhTW.json
-└── extras/                # audit artifacts (not shipped to the website)
+│   ├── items/             # successfully converted item art as WebP
+│   ├── skills/            # successfully converted skill icons
+│   └── ui/inventory.webp
+├── strings/               # enUS plus 12 other D2R locales, flat key/text maps
+└── extras/
     ├── import-report.txt
     ├── missing-translations.txt
-    └── synthetic-strings.txt
+    ├── casc-fallback-report.txt
+    ├── source-report.txt
+    └── asset-report.txt
 ```
+
+Missing optional inputs can omit individual documents; consult `manifest.json`
+for current-run files and completeness.
+
+In the default mode the exporter leaves skipped/stale/unrelated files untouched;
+only the manifest identifies files produced by its output phase.
+A destructive export leaves only the manifest and the files it lists. Hashes verify
+payload integrity, not source freshness or release authenticity. No browser
+manifest requests or cache checks are required.
+
+Website-facing wire contracts, stable recipe ids and the manifest
+contract are documented in [WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md).
 
 ## License
 

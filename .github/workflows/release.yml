@@ -115,7 +115,7 @@ jobs:
           Self-contained win-x64 build. No .NET install required.
 
           Run the headless exporter:
-              D2RMultiExport.Console.exe export --excel <path> --mod-strings <path> --out <out>
+              D2RMultiExport.Console.exe export --mod-data <mod> --casc-data <casc-extraction> --out <out>
 
           Or launch the GUI:
               D2RMultiExport.Client.exe
@@ -137,7 +137,10 @@ jobs:
             'Config\synthetic-strings.json',
             'Config\stat-overrides.json',
             'Config\class-ranges.json',
-            'Config\CASC_DATA\runes.txt'
+            'Config\skill-desc-functions.json',
+            'Config\CASC_DATA\runes.txt',
+            'Config\CASC_DATA\skillcalc.txt',
+            'Config\CASC_DATA\misscalc.txt'
           )
           $missing = @()
           foreach ($r in $required) {

@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using D2RMultiExport.Lib.Models;
 using D2RMultiExport.Lib.Translation;
+using D2RReimaginedTools.TextFileParsers;
 
 namespace D2RMultiExport.Lib.Exporters;
 
@@ -13,24 +14,18 @@ namespace D2RMultiExport.Lib.Exporters;
 /// </summary>
 public static class ItemStatPresentationExporter
 {
-    private static readonly IReadOnlyDictionary<string, string> CompositeKeys =
-        new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["PhysicalDamage"] = "strModMinDamageRange",
-            ["FireDamage"] = "strModFireDamageRange",
-            ["ColdDamage"] = "strModColdDamageRange",
-            ["LightningDamage"] = "strModLightningDamageRange",
-            ["MagicDamage"] = "strModMagicDamageRange",
-            ["PoisonDamage"] = "strModPoisonDamageRange"
-        };
+    public const string OutputPath = "keyed/item-stat-presentation.json";
 
     public static async Task ExportAsync(
-        string exportDir,
-        string excelPath,
+        ExportOutputs outputs,
+        SourceRoots sources,
         GameData data,
-        bool prettyPrint = true)
+        bool prettyPrint,
+        Action<string> warn)
     {
-        var stats = ReadStats(Path.Combine(excelPath, "itemstatcost.txt"));
+        if (!ExcelInputs.RequireAll(sources, OutputPath, warn, "itemstatcost.txt")) return;
+
+        var stats = await ReadStatsAsync(sources.Excel("itemstatcost.txt"), warn);
         var skills = data.SkillsById.Values
             .OrderBy(static skill => skill.Id)
             .ToDictionary(
@@ -49,61 +44,51 @@ public static class ItemStatPresentationExporter
         {
             Stats = stats,
             Skills = skills,
-            CompositeKeys = CompositeKeys
+            CompositeKeys = data.ExportConfig.ItemStatCompositeKeys
         };
 
-        var keyedDir = Path.Combine(exportDir, "keyed");
-        Directory.CreateDirectory(keyedDir);
         var options = new JsonSerializerOptions
         {
             WriteIndented = prettyPrint,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
-        await using var stream = File.Create(Path.Combine(keyedDir, "item-stat-presentation.json"));
-        await JsonSerializer.SerializeAsync(stream, bundle, options);
+        await outputs.WriteJsonAsync(OutputPath, bundle, options);
     }
 
-    private static Dictionary<string, ItemStatPresentation> ReadStats(string path)
+    /// <summary>
+    /// Reads the display columns through the upstream <see cref="ItemStatCostParser"/> (the
+    /// project's header-mapped parser) rather than splitting the file by hand. A repeated
+    /// <c>Stat</c> keeps the last row, as the game's own table load does, and is reported.
+    /// </summary>
+    private static async Task<Dictionary<string, ItemStatPresentation>> ReadStatsAsync(string path, Action<string> warn)
     {
-        using var reader = new StreamReader(path);
-        var header = reader.ReadLine()?.Split('\t')
-            ?? throw new InvalidDataException($"'{path}' does not contain an ItemStatCost header.");
-        var columns = header
-            .Select((name, index) => (name, index))
-            .ToDictionary(static column => column.name, static column => column.index, StringComparer.OrdinalIgnoreCase);
         var result = new Dictionary<string, ItemStatPresentation>(StringComparer.OrdinalIgnoreCase);
-
-        while (reader.ReadLine() is { } line)
+        foreach (var row in await ItemStatCostParser.GetEntries(path))
         {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var values = line.Split('\t');
-            var stat = Read(values, columns, "Stat");
-            if (string.IsNullOrWhiteSpace(stat)) continue;
+            var stat = Clean(row.Stat);
+            if (stat is null) continue;
+            if (result.ContainsKey(stat))
+                warn($"itemstatcost.txt: duplicate Stat '{stat}'; the last row wins.");
 
             result[stat] = new ItemStatPresentation
             {
-                Priority = ReadInt(values, columns, "descpriority"),
-                Function = ReadInt(values, columns, "descfunc"),
-                ValueMode = ReadInt(values, columns, "descval"),
-                PositiveKey = Read(values, columns, "descstrpos"),
-                NegativeKey = Read(values, columns, "descstrneg"),
-                SecondaryKey = Read(values, columns, "descstr2"),
-                ValueShift = ReadInt(values, columns, "ValShift") ?? 0
+                Priority = ParseInt(row.DescPriority),
+                Function = ParseInt(row.DescFunc),
+                ValueMode = ParseInt(row.DescVal),
+                PositiveKey = Clean(row.DescStrPos),
+                NegativeKey = Clean(row.DescStrNeg),
+                SecondaryKey = Clean(row.DescStr2),
+                ValueShift = ParseInt(row.ValShift) ?? 0
             };
         }
 
         return result;
     }
 
-    private static string? Read(string[] values, IReadOnlyDictionary<string, int> columns, string name)
-    {
-        if (!columns.TryGetValue(name, out var index) || index >= values.Length) return null;
-        return string.IsNullOrWhiteSpace(values[index]) ? null : values[index].Trim();
-    }
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static int? ReadInt(string[] values, IReadOnlyDictionary<string, int> columns, string name) =>
-        int.TryParse(Read(values, columns, name), out var value) ? value : null;
+    private static int? ParseInt(string? value) => int.TryParse(Clean(value), out var parsed) ? parsed : null;
 }
 
 public sealed class ItemStatPresentationBundle
@@ -126,7 +111,14 @@ public sealed class ItemStatPresentation
 
 public sealed class ItemStatSkillPresentation
 {
-    public required string NameKey { get; init; }
+    /// <summary>
+    /// Translation key for the skill's name, or <c>null</c> for the monster-only rows
+    /// of <c>skills.txt</c> that carry no <c>skilldesc</c> row and therefore no
+    /// <c>str name</c>. Consumers must render <see cref="FallbackName"/> when absent.
+    /// </summary>
+    public string? NameKey { get; init; }
+
+    /// <summary>Raw English name, always present. Never a translation key.</summary>
     public required string FallbackName { get; init; }
     public required string LineKey { get; init; }
     public string? ClassOnlyKey { get; init; }
