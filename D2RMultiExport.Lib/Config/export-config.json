@@ -602,9 +602,10 @@
     "$cubeGrabberSentinelsNote": "Early-stop sentinel codes for CubeMain.txt (formerly hardcoded in CubeRecipeImporter.GrabberSentinels). Once Input1 and Output both fall in this set the importer enters skip-but-continue mode.",
     "cubeGrabberSentinels": [ "agr", "tgr", "sgr", "egr", "mgr", "rgr", "kgr" ],
 
-    "$cubeSocketPunchNote": "Post-sentinel allow-list for the socket-punch carve-out (formerly hardcoded in CubeRecipeImporter.SocketPunchEquipTokens / SocketPunchJewelQualities). Helm/Torso/Shield/Weapon + jewel × {mag|rar|uni} → useitem with Mod1 = sock.",
+    "$cubeSocketPunchNote": "Post-sentinel allow-list for the socket-punch carve-out (formerly hardcoded in CubeRecipeImporter.SocketPunchEquipTokens / SocketPunchJewelQualities). Helm/Torso/Shield/Weapon + jewel × {mag|rar|uni} → useitem with Mod1 = sock. `jewelTokens` lists the accepted Input2 main tokens: the `jew` item code and the `jewl` item type that the crafted/unique socket-punch rows use.",
     "cubeSocketPunch": {
         "equipTokens":    [ "helm", "tors", "shld", "weap" ],
+        "jewelTokens":    [ "jew", "jewl" ],
         "jewelQualities": [ "mag", "rar", "uni" ]
     },
 
