@@ -43,7 +43,7 @@ internal sealed class SnapshotReader
         void AddFileWarning(string code, string message) =>
             warnings.Add(new ComparisonIssue { Code = code, Message = message });
 
-        if (!_manifestValid || Info.Succeeded != true) return new SnapshotFileResult(null, errors, warnings);
+        if (!_manifestValid) return new SnapshotFileResult(null, errors, warnings);
 
         var matchingSteps = _steps.Where(step => step.Producer == requiredProducer).ToList();
         if (matchingSteps.Count != 1)
@@ -221,8 +221,12 @@ internal sealed class SnapshotReader
         {
             Info = SetSucceeded(Info, succeeded);
             if (!succeeded)
-                AddError("snapshot-failed",
-                    "The export manifest records Succeeded=false; its data is not safe to compare.");
+                Info.Warnings.Add(new ComparisonIssue
+                {
+                    Code = "snapshot-failed",
+                    Message =
+                        "The export manifest records Succeeded=false. Only category files explicitly listed as written by this run can be compared."
+                });
         }
         else
             AddError("missing-manifest-succeeded", "manifest.json has no boolean Succeeded value.");

@@ -23,14 +23,29 @@ internal static class RecipePatchNotesMarkdown
             ["rvs"] = ("35%", "Rejuvenation Potion")
         };
 
+    /// <summary>
+    /// Verified cubemain.txt migration of the unique-jewel ingredient from base item code <c>jew</c> (name key
+    /// <c>jew</c>) to item-type code <c>jewl</c> (name key <c>jewlitype</c>). It rotates content-derived recipe
+    /// ids without changing the recipe, so an otherwise identical one-to-one removed/added pair is omitted from
+    /// the player-facing notes only; <c>jew</c> and <c>jewl</c> are not treated as equivalent anywhere else.
+    /// </summary>
+    private static readonly (string OldCode, string OldNameKey, string NewCode, string NewNameKey, string Quality)
+        UniqueJewelMigration = ("jew", "jew", "jewl", "jewlitype", "uni");
+
+    private static readonly string UniqueJewelMigrationNewName = ItemPatchNotesMarkdown.CanonicalJson(
+        JsonSerializer.SerializeToElement(new { key = UniqueJewelMigration.NewNameKey, args = Array.Empty<object>() }));
+
     public static async Task<string> RenderAsync(ComparisonReport report)
     {
         var oldTranslations = await RecipeTranslations.LoadAsync(report.OldSnapshot);
         var newTranslations = await RecipeTranslations.LoadAsync(report.NewSnapshot);
         var context = new RenderContext();
         var category = report.Categories.FirstOrDefault(item => item.Category == CubeRecipeCategory);
+        var migrationPairs = category?.Status == "Compared"
+            ? FindUniqueJewelMigrationPairs(category)
+            : new MigrationPairs([], []);
         var entries = category?.Status == "Compared"
-            ? BuildEntries(category, oldTranslations, newTranslations, context)
+            ? BuildEntries(category, migrationPairs, oldTranslations, newTranslations, context)
             : [];
         var sections = new StringBuilder();
         if (category?.Status == "Compared")
@@ -53,6 +68,13 @@ internal static class RecipePatchNotesMarkdown
         markdown.AppendLine(
             "Recipe ingredients and technical conditions contribute to recipe identity, so a change can appear as an unmatched removal and addition. These entries are not automatically paired or described as confirmed additions or deletions; recipe restructuring is possible. Technical conditions are not interpreted here; see the detailed comparison.");
         markdown.AppendLine();
+        if (migrationPairs.Added.Count > 0)
+        {
+            markdown.Append("<!-- recipe-patch-notes: omitted ")
+                .Append(ComparisonMarkdown.Invariant(migrationPairs.Added.Count))
+                .AppendLine(" removed/added pairs whose only change is the unique-jewel ingredient jew,uni to jewl,uni; see changes.json -->");
+            markdown.AppendLine();
+        }
 
         if (category?.Status != "Compared")
         {
@@ -65,7 +87,9 @@ internal static class RecipePatchNotesMarkdown
         {
             markdown.AppendLine("## Recipe changes");
             markdown.AppendLine();
-            markdown.AppendLine("*No recipe changes were reported.*");
+            markdown.AppendLine(migrationPairs.Added.Count > 0
+                ? "*No player-facing recipe changes remain.*"
+                : "*No recipe changes were reported.*");
             markdown.AppendLine();
         }
         else
@@ -76,6 +100,7 @@ internal static class RecipePatchNotesMarkdown
 
     private static List<RecipeEntry> BuildEntries(
         CategoryComparison category,
+        MigrationPairs migrationPairs,
         RecipeTranslations oldTranslations,
         RecipeTranslations newTranslations,
         RenderContext context)
@@ -85,15 +110,134 @@ internal static class RecipePatchNotesMarkdown
         foreach (var record in category.ModifiedRecords)
             entries.Add(CreateEntry(RecipeChangeKind.Modified, record.Key, record.NewRowIndex, record.New,
                 record.Old, record.New, newTranslations, context));
-        foreach (var record in category.AddedRecords)
+        foreach (var record in category.AddedRecords.Where(record => !migrationPairs.Added.Contains(record.Key)))
             entries.Add(CreateEntry(RecipeChangeKind.Added, record.Key, record.RowIndex, record.Record,
                 default, record.Record, newTranslations, context));
-        foreach (var record in category.RemovedRecords)
+        foreach (var record in category.RemovedRecords.Where(record => !migrationPairs.Removed.Contains(record.Key)))
             entries.Add(CreateEntry(RecipeChangeKind.Removed, record.Key, record.RowIndex, record.Record,
                 record.Record, default, oldTranslations, context));
 
         return entries;
     }
+
+    /// <summary>
+    /// Pairs removed and added records that are identical except for their identity, index and the
+    /// <see cref="UniqueJewelMigration"/> ingredient substitution. Only signatures shared by exactly one removed
+    /// and one added record are paired; anything ambiguous or otherwise different stays visible.
+    /// </summary>
+    private static MigrationPairs FindUniqueJewelMigrationPairs(CategoryComparison category)
+    {
+        var removedBySignature = GroupByMigrationSignature(category.RemovedRecords, oldSide: true);
+        var addedBySignature = GroupByMigrationSignature(category.AddedRecords, oldSide: false);
+        var pairs = new MigrationPairs([], []);
+        foreach (var (signature, removedKeys) in removedBySignature)
+        {
+            if (removedKeys.Count != 1 || !addedBySignature.TryGetValue(signature, out var addedKeys) ||
+                addedKeys.Count != 1) continue;
+            pairs.Removed.Add(removedKeys[0]);
+            pairs.Added.Add(addedKeys[0]);
+        }
+
+        return pairs;
+    }
+
+    private static Dictionary<string, List<string>> GroupByMigrationSignature(
+        IEnumerable<RecordEntry> records,
+        bool oldSide)
+    {
+        var groups = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var record in records)
+        {
+            if (MigrationSignature(record.Record, oldSide) is not { } signature) continue;
+            if (!groups.TryGetValue(signature, out var keys)) groups.Add(signature, keys = []);
+            keys.Add(record.Key);
+        }
+
+        return groups;
+    }
+
+    /// <summary>
+    /// Canonical record content without <c>Id</c>/<c>Index</c>, with each migrated old-side unique-jewel
+    /// ingredient rewritten to its new code and name key; null when the record has no migrated ingredient.
+    /// </summary>
+    private static string? MigrationSignature(JsonElement record, bool oldSide)
+    {
+        if (record.ValueKind != JsonValueKind.Object) return null;
+        var migrated = 0;
+        var signature = new StringBuilder("{");
+        foreach (var property in record.EnumerateObject().OrderBy(static property => property.Name,
+                     StringComparer.Ordinal))
+        {
+            if (property.Name is "Id" or "Index") continue;
+            signature.Append(JsonSerializer.Serialize(property.Name)).Append(':');
+            if (property.Name != "Inputs" || property.Value.ValueKind != JsonValueKind.Array)
+            {
+                signature.Append(ItemPatchNotesMarkdown.CanonicalJson(property.Value)).Append(',');
+                continue;
+            }
+
+            signature.Append('[');
+            foreach (var input in property.Value.EnumerateArray())
+            {
+                if (!IsUniqueJewelMigrationInput(input, oldSide))
+                {
+                    signature.Append(ItemPatchNotesMarkdown.CanonicalJson(input)).Append(',');
+                    continue;
+                }
+
+                migrated++;
+                signature.Append(oldSide ? MigratedInputSignature(input) : ItemPatchNotesMarkdown.CanonicalJson(input))
+                    .Append(',');
+            }
+
+            signature.Append("],");
+        }
+
+        return migrated > 0 ? signature.Append('}').ToString() : null;
+    }
+
+    private static bool IsUniqueJewelMigrationInput(JsonElement input, bool oldSide)
+    {
+        var code = oldSide ? UniqueJewelMigration.OldCode : UniqueJewelMigration.NewCode;
+        var nameKey = oldSide ? UniqueJewelMigration.OldNameKey : UniqueJewelMigration.NewNameKey;
+        if (!TryGet(input, "RawToken", out var rawToken) || rawToken.ValueKind != JsonValueKind.String ||
+            !TryGet(input, "Name", out var name) || name.ValueKind != JsonValueKind.Object ||
+            name.EnumerateObject().Count() != 2 || !TryGet(name, "key", out var key) ||
+            key.ValueKind != JsonValueKind.String || key.GetString() != nameKey ||
+            !TryGet(name, "args", out var args) || args.ValueKind != JsonValueKind.Array ||
+            args.GetArrayLength() != 0) return false;
+
+        var parts = UnquoteRawToken(rawToken.GetString() ?? "").Split(',');
+        return parts[0] == code && parts.Skip(1).Contains(UniqueJewelMigration.Quality, StringComparer.Ordinal);
+    }
+
+    private static string MigratedInputSignature(JsonElement input)
+    {
+        var signature = new StringBuilder("{");
+        foreach (var property in input.EnumerateObject().OrderBy(static property => property.Name,
+                     StringComparer.Ordinal))
+        {
+            if (signature.Length > 1) signature.Append(',');
+            signature.Append(JsonSerializer.Serialize(property.Name)).Append(':');
+            if (property.Name == "Name")
+                signature.Append(UniqueJewelMigrationNewName);
+            else if (property.Name == "RawToken")
+            {
+                var rawToken = property.Value.GetString() ?? "";
+                var quoted = rawToken.Length >= 2 && rawToken[0] == '"' && rawToken[^1] == '"';
+                var token = UnquoteRawToken(rawToken);
+                token = UniqueJewelMigration.NewCode + token[UniqueJewelMigration.OldCode.Length..];
+                signature.Append(JsonSerializer.Serialize(quoted ? '"' + token + '"' : token));
+            }
+            else
+                signature.Append(ItemPatchNotesMarkdown.CanonicalJson(property.Value));
+        }
+
+        return signature.Append('}').ToString();
+    }
+
+    private static string UnquoteRawToken(string rawToken) =>
+        rawToken.Length >= 2 && rawToken[0] == '"' && rawToken[^1] == '"' ? rawToken[1..^1] : rawToken;
 
     private static RecipeEntry CreateEntry(
         RecipeChangeKind kind,
@@ -1449,6 +1593,8 @@ internal static class RecipePatchNotesMarkdown
 
         public Dictionary<(RecipeTranslations Translations, string CanonicalLine), string> RenderedLines { get; } = [];
     }
+
+    private sealed record MigrationPairs(HashSet<string> Added, HashSet<string> Removed);
 
     private sealed record RecipeEntry(
         RecipeChangeKind Kind,

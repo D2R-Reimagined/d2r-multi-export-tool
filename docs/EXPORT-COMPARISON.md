@@ -152,17 +152,24 @@ conditions is described neutrally as a changed recipe condition, with the full
 technical values retained in the detailed comparison. Identical visible recipe
 headings that may differ by technical conditions carry the same neutral caveat.
 Unmatched definitions retain the identity/restructuring caveat and are not
-assumed to be genuine deletions and additions. Untranslated or unsupported
+assumed to be genuine deletions and additions. The one exception is the verified
+unique-jewel ingredient migration from base item code `jew` to item-type code
+`jewl` (`"jew,uni…"` → `"jewl,uni…"`, name key `jew` → `jewlitype`): a removed
+and an added recipe that are identical apart from `Id`, `Index`, and that
+ingredient's code and name key, and that are the only removed/added records with
+that content, are omitted from `recipe-patch-notes.md` and its counts; a category
+left without changes is omitted. Quantities, qualifiers, other ingredients,
+outputs, and properties must match exactly, and `jew` and `jewl` are not treated
+as equivalent anywhere else. Untranslated or unsupported
 properties use one concise fallback pointing to the detailed comparison;
 `changes.json` and `recipe-changes.md` retain their complete technical details.
 
 ## Snapshot validation
 
 Each input must contain a readable schema-2 `manifest.json`. For each category,
-the comparison reads its file only when the manifest records `Succeeded: true`,
-the `keyed-core` step is `Written` and lists the file as an output, and the
-matching `Files[]` entry names the same producer. Recorded byte length and SHA-256
-are checked when available.
+the comparison reads its file only when the `keyed-core` step is `Written` and
+lists the file as an output, and the matching `Files[]` entry names the same
+producer. Recorded byte length and SHA-256 are checked when available.
 
 The compared files are:
 
@@ -177,14 +184,16 @@ The compared files are:
 | `magicprefix` | `keyed/magicprefix.json` | `NameKey`; duplicate names use structural metadata and keyed property signatures |
 | `magicsuffix` | `keyed/magicsuffix.json` | `NameKey`; duplicate names use structural metadata and keyed property signatures |
 
-A missing manifest, failed export, invalid manifest, or unsafe snapshot prevents
-all categories from being compared. A missing, skipped/not-written, unlisted,
-unreadable, malformed, or integrity-mismatched category file prevents only that
-category from being compared when the snapshot manifest itself is valid. A
-physical file left by an earlier run is never treated as current data or proof of
-a deletion. When the manifest has `Complete: false`, the report warns; a category
-can still be compared if its file independently passes current-run and integrity
-checks. Missing integrity metadata is also reported as a warning.
+A missing manifest, invalid manifest, or unsafe snapshot prevents all categories
+from being compared. A missing, skipped/not-written, unlisted, unreadable,
+malformed, or integrity-mismatched category file prevents only that category from
+being compared when the snapshot manifest itself is valid. A physical file left by
+an earlier run is never treated as current data or proof of a deletion. When the
+manifest has `Succeeded: false` or `Complete: false` (for example, because of
+errors in unrelated exporter steps), the report warns (`snapshot-failed`,
+`snapshot-incomplete`); a category can still be compared if its file
+independently passes current-run and integrity checks. Missing integrity metadata
+is also reported as a warning.
 
 The report records each snapshot's absolute path, manifest schema version,
 success/completeness flags, manifest SHA-256 and validation diagnostics. Category
@@ -200,6 +209,8 @@ authenticate the manifest or prove source/code provenance.
   recipe-specific record fields to `RecordEntry`/`ModifiedRecord`-style fields and
   adds set-piece changes; consumers of schema 1 must update.
 - `Succeeded`: false if snapshot validation or any category comparison has errors.
+  A snapshot's own `Succeeded: false`/`Complete: false` is only a warning and
+  does not affect this value.
 - `OldSnapshot` and `NewSnapshot`: snapshot identification, manifest integrity
   metadata, `Errors` and `Warnings`.
 - `Categories`: one entry each for `cube-recipes`, `uniques`, `sets`, `runewords`,
@@ -314,9 +325,10 @@ replacement matching is intentionally not guessed.
 
 ## Exit codes
 
-- `0`: report written and validation/comparison succeeded. A `Complete: false`
-  snapshot can still yield this code if all eight selected category files are
-  verified; the report retains the incompleteness warning.
+- `0`: report written and validation/comparison succeeded. A `Succeeded: false`
+  or `Complete: false` snapshot can still yield this code if all eight selected
+  category files are verified; the report retains the failure/incompleteness
+  warnings.
 - `1`: `changes.json` was written, but validation or category comparison errors
   prevented a successful result.
 - `2`: fatal comparison or report-write failure.

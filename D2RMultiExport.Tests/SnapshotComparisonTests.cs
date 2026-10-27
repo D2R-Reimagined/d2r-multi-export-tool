@@ -714,9 +714,27 @@ public sealed class SnapshotComparisonTests : IDisposable
     }
 
     [Fact]
-    public async Task FailedSnapshotPreventsAllCategoriesFromBeingCompared()
+    public async Task FailedSnapshotWarnsButVerifiedCategoryFilesCanBeCompared()
     {
-        var oldSnapshot = await CreateSnapshotAsync("old", succeeded: false);
+        var oldSnapshot = await CreateSnapshotAsync("old", succeeded: false, complete: false);
+        var newSnapshot = await CreateSnapshotAsync("new");
+
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        Assert.True(report.Succeeded);
+        Assert.False(report.OldSnapshot.Succeeded);
+        Assert.False(report.OldSnapshot.Complete);
+        Assert.Empty(report.OldSnapshot.Errors);
+        Assert.Contains(report.OldSnapshot.Warnings, static issue => issue.Code == "snapshot-failed");
+        Assert.All(report.Categories, category => Assert.Equal("Compared", category.Status));
+        Assert.All(report.Categories,
+            category => Assert.Contains(category.Warnings, static issue => issue.Code == "snapshot-failed"));
+    }
+
+    [Fact]
+    public async Task FailedSnapshotStillRejectsNotWrittenCategoryFiles()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", stepStatus: "Failed", succeeded: false, complete: false);
         var newSnapshot = await CreateSnapshotAsync("new");
 
         var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
@@ -724,7 +742,7 @@ public sealed class SnapshotComparisonTests : IDisposable
         Assert.False(report.Succeeded);
         Assert.All(report.Categories, category => Assert.Equal("NotCompared", category.Status));
         Assert.All(report.Categories,
-            category => Assert.Contains(category.Errors, static issue => issue.Code == "snapshot-failed"));
+            category => Assert.Contains(category.Errors, static issue => issue.Code == "export-step-not-written"));
     }
 
     [Fact]

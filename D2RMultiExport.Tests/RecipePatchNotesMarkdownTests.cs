@@ -435,6 +435,98 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         AssertBalancedDetails(first);
     }
 
+    [Fact]
+    public async Task UniqueJewelIngredientMigrationPairsAreOmittedWhileOtherRecipeChangesRemain()
+    {
+        var oldRecipes = CombineRecipes(
+            JewelRecipe("old-punch-1", "\"jew,uni\"", "jew", 1, "socketPunch"),
+            JewelRecipe("old-punch-4", "\"jew,uni,qty=4\"", "jew", 4, "socketPunch"),
+            JewelRecipe("old-craft", "\"jew,uni\"", "jew", 1, "category", "r01"),
+            JewelRecipe("old-output-change", "\"jew,uni\"", "jew", 1, "category", "r02"),
+            JewelRecipe("old-quantity-change", "\"jew,uni,qty=2\"", "jew", 2, "category"),
+            JewelRecipe("old-magic", "\"jew,mag\"", "jew", 1, "category", qualifier: "magic"),
+            JewelRecipe("old-other-input", "\"jew,uni\"", "jew", 1, "category", "gem"),
+            RecipeWithNotes("removed-other", "Removed other", "r01", 1, "category"),
+            RecipeWithNotes("modified-id", "Modified recipe", "amu", 1, "category"));
+        var newRecipes = CombineRecipes(
+            JewelRecipe("new-punch-1", "\"jewl,uni\"", "jewlitype", 1, "socketPunch"),
+            JewelRecipe("new-punch-4", "\"jewl,uni,qty=4\"", "jewlitype", 4, "socketPunch"),
+            JewelRecipe("new-craft", "\"jewl,uni\"", "jewlitype", 1, "category", "r01"),
+            JewelRecipe("new-output-change", "\"jewl,uni\"", "jewlitype", 1, "category", "r02",
+                outputQuantity: 2),
+            JewelRecipe("new-quantity-change", "\"jewl,uni,qty=3\"", "jewlitype", 3, "category"),
+            JewelRecipe("new-magic", "\"jewl,mag\"", "jewlitype", 1, "category", qualifier: "magic"),
+            JewelRecipe("new-other-input", "\"jewl,uni\"", "jewlitype", 1, "category", "amu"),
+            RecipeWithNotes("added-other", "Added other", "gem", 1, "category"),
+            RecipeWithNotes("modified-id", "Modified recipe", "amu", 2, "category"));
+        var oldSnapshot = await CreateSnapshotAsync("old", oldRecipes, JewelTranslations);
+        var newSnapshot = await CreateSnapshotAsync("new", newRecipes, JewelTranslations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var reportJson = JsonSerializer.Serialize(report);
+        var recipeChanges = await SnapshotComparison.RenderRecipeChangesAsync(report);
+
+        var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
+
+        foreach (var id in new[] { "old-punch-1", "new-punch-1", "old-punch-4", "new-punch-4", "old-craft", "new-craft" })
+        {
+            Assert.DoesNotContain("/ " + id + " -->", markdown);
+            Assert.Contains(id, recipeChanges);
+        }
+
+        foreach (var id in new[]
+                 {
+                     "old-output-change", "new-output-change", "old-quantity-change", "new-quantity-change",
+                     "old-magic", "new-magic", "old-other-input", "new-other-input", "removed-other",
+                     "added-other", "modified-id"
+                 })
+            Assert.Equal(1, markdown.Split("<!-- changes.json: cube-recipes / " + id + " -->",
+                StringSplitOptions.None).Length - 1);
+
+        Assert.DoesNotContain("Socket Punch", markdown);
+        Assert.Contains("| Item Crafting Recipe | 1 | 5 | 5 |", markdown);
+        Assert.Contains("<summary>Item Crafting Recipe — 1 modified, 5 added, 5 removed</summary>", markdown);
+        Assert.Contains("<!-- recipe-patch-notes: omitted 3 removed/added pairs", markdown);
+        AssertBalancedDetails(markdown);
+
+        var cube = Assert.Single(report.Categories, static category => category.Category == "cube-recipes");
+        Assert.Equal(8, cube.Counts.Added);
+        Assert.Equal(8, cube.Counts.Removed);
+        Assert.Equal(1, cube.Counts.Modified);
+        Assert.Equal(reportJson, JsonSerializer.Serialize(report));
+        Assert.Equal(recipeChanges, await SnapshotComparison.RenderRecipeChangesAsync(report));
+    }
+
+    [Fact]
+    public async Task UniqueJewelIngredientMigrationIsNotPairedWhenAmbiguousAndCanLeaveNoVisibleChanges()
+    {
+        var ambiguousOld = await CreateSnapshotAsync("ambiguous-old", CombineRecipes(
+            JewelRecipe("old-a", "\"jew,uni\"", "jew", 1, "socketPunch"),
+            JewelRecipe("old-b", "\"jew,uni\"", "jew", 1, "socketPunch")), JewelTranslations);
+        var ambiguousNew = await CreateSnapshotAsync("ambiguous-new",
+            JewelRecipe("new-a", "\"jewl,uni\"", "jewlitype", 1, "socketPunch"), JewelTranslations);
+        var ambiguous = await SnapshotComparison.RenderRecipePatchNotesAsync(
+            await SnapshotComparison.CompareAsync(ambiguousOld, ambiguousNew));
+
+        Assert.Contains("| Socket Punch | 0 | 1 | 2 |", ambiguous);
+        Assert.DoesNotContain("recipe-patch-notes: omitted", ambiguous);
+
+        var onlyOld = await CreateSnapshotAsync("only-old",
+            JewelRecipe("old-only", "\"jew,uni,qty=6\"", "jew", 6, "socketPunch"), JewelTranslations);
+        var onlyNew = await CreateSnapshotAsync("only-new",
+            JewelRecipe("new-only", "\"jewl,uni,qty=6\"", "jewlitype", 6, "socketPunch"), JewelTranslations);
+        var onlyReport = await SnapshotComparison.CompareAsync(onlyOld, onlyNew);
+        var only = await SnapshotComparison.RenderRecipePatchNotesAsync(onlyReport);
+
+        Assert.Contains("| *No affected categories* | 0 | 0 | 0 |", only);
+        Assert.Contains("*No player-facing recipe changes remain.*", only);
+        Assert.Contains("<!-- recipe-patch-notes: omitted 1 removed/added pairs", only);
+        Assert.DoesNotContain("Socket Punch", only);
+        Assert.DoesNotContain("<details>", only);
+        var cube = Assert.Single(onlyReport.Categories, static category => category.Category == "cube-recipes");
+        Assert.Equal("new-only", Assert.Single(cube.AddedRecords).Key);
+        Assert.Equal("old-only", Assert.Single(cube.RemovedRecords).Key);
+    }
+
     private async Task<string> CreateSnapshotAsync(
         string name,
         string cubeRecipes,
@@ -633,6 +725,29 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         "\"Qualifiers\":[{\"key\":\"strCubeQualifierItemWithSocketsN\",\"args\":[3]}],\"Lines\":[]}}," +
         "\"Notes\":[{\"key\":\"category\",\"args\":[]}]}]";
 
+    private static string JewelRecipe(string id, string rawToken, string nameKey, int quantity, string noteKey,
+        string? secondIngredient = null, string qualifier = "strCubeQualifierUniqueItem", int outputQuantity = 1)
+    {
+        var quantityQualifier = quantity > 1
+            ? ",{\"key\":\"strCubeQualifierQuantityN\",\"args\":[" + quantity + "]}"
+            : "";
+        var second = secondIngredient is null
+            ? ""
+            : ",{\"Name\":{\"key\":\"" + secondIngredient + "\",\"args\":[]},\"Quantity\":1," +
+              "\"Qualifiers\":[],\"RawToken\":\"" + secondIngredient + "\"}";
+        return "[{\"Id\":\"" + id + "\",\"Index\":" + (id.StartsWith("old", StringComparison.Ordinal) ? 10 : 20) +
+               ",\"Description\":\"\",\"RequiredClass\":\"\",\"NumInputs\":" + (quantity + 1) +
+               ",\"ResolvedInputsCount\":2,\"Inputs\":[{\"Name\":{\"key\":\"helmitype\",\"args\":[]}," +
+               "\"Quantity\":1,\"Qualifiers\":[{\"key\":\"strCubeQualifierCraftedItem\",\"args\":[]}]," +
+               "\"RawToken\":\"\\\"helm,crf\\\"\"},{\"Name\":{\"key\":\"" + nameKey + "\",\"args\":[]}," +
+               "\"Quantity\":" + quantity + ",\"Qualifiers\":[{\"key\":\"" + qualifier + "\",\"args\":[]}" +
+               quantityQualifier + "],\"RawToken\":" + JsonSerializer.Serialize(rawToken) + "}" + second + "]," +
+               "\"Outputs\":{\"A\":{\"Name\":{\"key\":\"strCubeOutputUseItemFromInput1\",\"args\":[]}," +
+               "\"Quantity\":" + outputQuantity + ",\"Qualifiers\":[],\"Lines\":[{\"key\":\"strSocketedCount\"," +
+               "\"args\":[" + quantity + "]}]}},\"Notes\":[{\"key\":\"" + noteKey + "\",\"args\":[]}]," +
+               "\"Enabled\":true}]";
+    }
+
     private static string CombineRecipes(params string[] recipes) =>
         "[" + string.Join(",", recipes.Select(static recipe => recipe[1..^1])) + "]";
 
@@ -714,6 +829,11 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         "\"strethereal\":\"Ethereal (Cannot be Repaired)\"," +
         "\"strCubeQualifierItemWithSocketsN\":\"Socketed (%d)\"," +
         "\"strCubeQualifierQuantityN\":\"Quantity (%d)\"}";
+
+    private static readonly string JewelTranslations =
+        Translations[..^1] + ",\"socketPunch\":\"Socket Punch\",\"jew\":\"Jewel\",\"jewlitype\":\"Jewel\"," +
+        "\"helmitype\":\"Any Helm\",\"strCubeQualifierUniqueItem\":\"Unique Item\"," +
+        "\"strCubeQualifierCraftedItem\":\"Crafted Item\",\"strSocketedCount\":\"Socketed (%d)\"}";
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 }

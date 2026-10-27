@@ -211,9 +211,11 @@ not be either snapshot or a directory inside either snapshot. The comparison cov
 string `Index`), and `keyed/sets.json` (matched by set `Index`, with set pieces
 matched by `SetItems.Index`). It validates schema-2 manifest provenance, checks
 recorded byte lengths and hashes when available, and will not treat skipped,
-unwritten, stale or failed snapshot data as gameplay deletions. Category-file
-validation failures are reported separately so other verified categories can still
-be compared. See [Export comparison](docs/EXPORT-COMPARISON.md) for schema 2,
+unwritten, stale or failed-step data as gameplay deletions. A snapshot whose
+manifest records `Succeeded: false` or `Complete: false` only produces a warning;
+its verified category files are still compared. Category-file validation failures
+are reported separately so other verified categories can still be compared.
+See [Export comparison](docs/EXPORT-COMPARISON.md) for schema 2,
 report fields, identity rules and exit codes.
 
 ### Migrating from the old CLI arguments
