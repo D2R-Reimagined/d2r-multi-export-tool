@@ -373,6 +373,53 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         AssertBalancedDetails(first);
     }
 
+    [Fact]
+    public async Task EnchantmentRecipesGroupByTranslatedFirstIngredientType()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("old", CombineRecipes(
+            EnchantmentRecipe("modified-weapon", "weapon", 1),
+            EnchantmentRecipe("removed-missile", "missile")), Translations);
+        var newSnapshot = await CreateSnapshotAsync("new", CombineRecipes(
+            EnchantmentRecipe("modified-weapon", "weapon", 2),
+            EnchantmentRecipe("added-weapon", "weapon"),
+            EnchantmentRecipe("added-onehand", "onehand"),
+            EnchantmentRecipe("added-slam", "slam"),
+            EnchantmentRecipe("added-missileweapons", "missileweapons"),
+            EnchantmentRecipe("added-spearpolearm", "spearpolearm"),
+            EnchantmentRecipe("added-missile", "missile"),
+            RecipeWithId("ordinary-recipe", "Ordinary recipe", "r01", 1)), Translations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+
+        var first = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
+        var second = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
+        var enchantmentStart = first.IndexOf("<summary>Item Enchantment Recipe", StringComparison.Ordinal);
+        var enchantmentEnd = first.IndexOf("</details>", enchantmentStart, StringComparison.Ordinal);
+        var enchantmentSection = first[enchantmentStart..enchantmentEnd];
+
+        Assert.Equal(first, second);
+        Assert.Equal(
+            [
+                "### 1H Weapons (1)",
+                "### Any Weapon (2)",
+                "### Missile (2)",
+                "### Missile Weapons (1)",
+                "### Slam Weapons (1)",
+                "### Spears and Polearms (1)"
+            ],
+            enchantmentSection.Split('\n').Select(static line => line.TrimEnd('\r'))
+                .Where(static line => line.StartsWith("### ", StringComparison.Ordinal)));
+        Assert.Contains("#### Confirmed matched modifications (1)", enchantmentSection);
+        Assert.Contains("#### Added recipe definitions (1)", enchantmentSection);
+        Assert.Contains("#### Removed recipe definitions (1)", enchantmentSection);
+        Assert.Equal(8,
+            enchantmentSection.Split("<!-- changes.json: cube-recipes / ", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("<details>", enchantmentSection);
+        Assert.Contains("### Added recipe definitions (1)", first);
+        Assert.Contains("#### Ordinary recipe", first);
+        Assert.Equal(2, first.Split("<details>", StringSplitOptions.None).Length - 1);
+        AssertBalancedDetails(first);
+    }
+
     private async Task<string> CreateSnapshotAsync(
         string name,
         string cubeRecipes,
@@ -523,6 +570,13 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
                "\"Qualifiers\":[],\"OutputChance\":100,\"Lines\":[]}},\"Notes\":[" + notes + "]}]";
     }
 
+    private static string EnchantmentRecipe(string id, string itemType, int outputQuantity = 1) =>
+        "[{\"Id\":\"" + id + "\",\"Index\":1,\"NumInputs\":1,\"ResolvedInputsCount\":1," +
+        "\"Inputs\":[{\"Name\":{\"key\":\"" + itemType + "\",\"args\":[]},\"Quantity\":1," +
+        "\"Qualifiers\":[]}],\"Outputs\":{\"A\":{\"Name\":{\"key\":\"out\",\"args\":[]}," +
+        "\"Quantity\":" + outputQuantity + ",\"Qualifiers\":[],\"OutputChance\":100,\"Lines\":[]}}," +
+        "\"Notes\":[{\"key\":\"strCubeNoteItemEnchantment\",\"args\":[]}]}]";
+
     private static string RecipeWithOutputMode(string id, string outputKey) =>
         "[{\"Id\":\"" + id + "\",\"Index\":1,\"NumInputs\":1,\"ResolvedInputsCount\":1," +
         "\"Inputs\":[{\"Name\":{\"key\":\"weapon\",\"args\":[]},\"Quantity\":1,\"Qualifiers\":[]}]," +
@@ -608,7 +662,10 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
         "\"r01\":\"El Rune\",\"r02\":\"Eld Rune\",\"gem\":\"Perfect Ruby\"," +
         "\"out\":\"Rare Jewel\",\"out2\":\"Socketed Armor\",\"magic\":\"Magic Item\"," +
         "\"rare\":\"Rare Item\",\"enhanced\":\"%+d%% Enhanced Damage\"," +
-        "\"weapon\":\"Any Weapon\",\"jewel\":\"Jewel\",\"useitem\":\"Return Exact Input Item\"," +
+        "\"weapon\":\"Any Weapon\",\"onehand\":\"1H Weapons\",\"slam\":\"Slam Weapons\"," +
+        "\"missileweapons\":\"Missile Weapons\",\"spearpolearm\":\"Spears and Polearms\"," +
+        "\"missile\":\"Missile\",\"jewel\":\"Jewel\",\"useitem\":\"Return Exact Input Item\"," +
+        "\"strCubeNoteItemEnchantment\":\"Item Enchantment Recipe\"," +
         "\"rvs\":\"35%\",\"r27\":\"Ohm Rune (#27)\",\"demRune\":\"Dem Rune (#38)\",\"ring\":\"Magic Ring\"," +
         "\"ModStr1y\":\"Indestructible\",\"ModStr3y\":\"Cannot Be Frozen\"," +
         "\"ModStr4b\":\"Knockback\",\"ModStr5z\":\"Ignore Target's Defense\"," +

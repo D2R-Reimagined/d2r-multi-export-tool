@@ -125,6 +125,8 @@ and recipes inside it use ordinary Markdown headings. The summary table and
 category headings retain their counts; snapshot paths, manifest hashes, recipe
 IDs, row indexes, and routine comparison diagnostics are not shown. Each recipe
 still has an HTML comment linking its record to `changes.json` for traceability.
+Within `Item Enchantment Recipe`, affected definitions are grouped by the first
+ingredient's translated keyed item type, with counts and change headings.
 Unavailable recipe comparisons remain explicitly labeled unavailable instead of
 being represented as zero changes.
 
