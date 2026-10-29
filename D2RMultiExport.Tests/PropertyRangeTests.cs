@@ -308,15 +308,108 @@ public sealed class PropertyRangeTests
         var group = new PropertyGroupEntry
         {
             Code = "tabGroup",
+            PickMode = 2,
             SubProperties =
-            [new PropertyGroupSubEntry { Property = "skilltab", Parameter = "56-58", Min = 1, Max = 3 }]
+            [new PropertyGroupSubEntry { Property = "skilltab", Parameter = "56-58", Min = 1, Max = 3, Chance = 75 }]
         };
         var parent = Assert.Single(Assert.Single(PropertyGroupExpander.Expand(group, 0, 1, data)).Lines);
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(parent));
         var child = json.RootElement.GetProperty("children")[0];
+        Assert.Equal("2", parent.PickMode);
+        Assert.Equal("strSkillTabRandomClassOnly", child.GetProperty("key").GetString());
         Assert.Equal([1, 3], child.GetProperty("args").EnumerateArray().Select(v => v.GetInt32()));
+        Assert.Equal("WarOnly", child.GetProperty("classOnly").GetString());
+        Assert.Equal(75, child.GetProperty("chance").GetInt32());
+        Assert.Equal("item_addskill_tab", child.GetProperty("selection").GetProperty("stat").GetString());
         Assert.Equal(56, child.GetProperty("selection").GetProperty("min").GetInt32());
         Assert.Equal(58, child.GetProperty("selection").GetProperty("max").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("0-2", 0, 2, "ama", "AmaOnly")]
+    [InlineData("3-5", 3, 5, "sor", "SorOnly")]
+    [InlineData("6-8", 6, 8, "nec", "NecOnly")]
+    [InlineData("9-11", 9, 11, "pal", "PalOnly")]
+    [InlineData("12-14", 12, 14, "bar", "BarOnly")]
+    [InlineData("15-17", 15, 17, "dru", "DruOnly")]
+    [InlineData("18-20", 18, 20, "ass", "AssOnly")]
+    [InlineData("21-23", 21, 23, "war", "WarOnly")]
+    public void GroupedSkillTabRangeUsesConfiguredClassAndKeepsSelection(
+        string parameter,
+        int tabMin,
+        int tabMax,
+        string classCode,
+        string classOnly)
+    {
+        var data = NewData();
+        AddStat(data, "skilltab", "item_addskill_tab", 10, 14, "tabKey");
+        foreach (var code in ClassRangeConfig.ClassOrder)
+            data.CharStatsByCode[code] = new CharStatEntry { Class = code };
+
+        var group = new PropertyGroupEntry
+        {
+            Code = "skilltab-all",
+            PickMode = 2,
+            SubProperties =
+            [new PropertyGroupSubEntry { Property = "skilltab", Parameter = parameter, Min = 1, Max = 1, Chance = 37 }]
+        };
+
+        var parent = Assert.Single(Assert.Single(PropertyGroupExpander.Expand(group, 0, 1, data)).Lines);
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(parent));
+        var parentJson = json.RootElement;
+        var child = parentJson.GetProperty("children")[0];
+
+        Assert.Equal("skilltab-all", parentJson.GetProperty("code").GetString());
+        Assert.Equal("2", parentJson.GetProperty("pickMode").GetString());
+        Assert.Equal("strSkillTabRandomClassOnly", child.GetProperty("key").GetString());
+        Assert.Equal([1], child.GetProperty("args").EnumerateArray().Select(static value => value.GetInt32()));
+        Assert.All(child.GetProperty("args").EnumerateArray(), static value => Assert.Equal(JsonValueKind.Number, value.ValueKind));
+        Assert.Equal(classOnly, child.GetProperty("classOnly").GetString());
+        Assert.Equal(37, child.GetProperty("chance").GetInt32());
+        Assert.Equal("item_addskill_tab", child.GetProperty("selection").GetProperty("stat").GetString());
+        Assert.Equal(tabMin, child.GetProperty("selection").GetProperty("min").GetInt32());
+        Assert.Equal(tabMax, child.GetProperty("selection").GetProperty("max").GetInt32());
+        Assert.Equal(ClassRangeConfig.CodeForClassIndex(tabMin / 3), classCode);
+    }
+
+    [Fact]
+    public void FixedSkillTabKeepsItsLocalizedTabKey()
+    {
+        var data = NewData();
+        AddStat(data, "skilltab", "item_addskill_tab", 10, 14, "tabKey");
+
+        var mapped = PropertyMapper.Map("skilltab", "4", 1, 1, data, 1);
+        var line = Assert.Single(mapped.Lines);
+
+        Assert.Equal("StrSklTabItem14", line.Key);
+        Assert.Equal([1], line.Args);
+        Assert.Null(line.Selection);
+    }
+
+    [Theory]
+    [InlineData("2-3")]
+    [InlineData("3-2")]
+    [InlineData("-1-1")]
+    [InlineData("24-26")]
+    public void InvalidGroupedSkillTabRangesKeepFallbackRendering(string parameter)
+    {
+        var data = NewData();
+        AddStat(data, "skilltab", "item_addskill_tab", 10, 14, "tabKey");
+        foreach (var code in ClassRangeConfig.ClassOrder)
+            data.CharStatsByCode[code] = new CharStatEntry { Class = code };
+
+        var group = new PropertyGroupEntry
+        {
+            Code = "skilltab-all",
+            SubProperties = [new PropertyGroupSubEntry { Property = "skilltab", Parameter = parameter, Min = 1, Max = 1 }]
+        };
+
+        var parent = Assert.Single(Assert.Single(PropertyGroupExpander.Expand(group, 0, 1, data)).Lines);
+        var child = Assert.Single(parent.Children!);
+
+        Assert.Equal("strSkillTabBonusClassOnly", child.Key);
+        Assert.Contains(parameter, child.Args);
+        Assert.Null(child.ClassOnly);
     }
 
     [Theory]

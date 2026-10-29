@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+using D2RMultiExport.Lib.Config;
 using D2RMultiExport.Lib.Models;
 
 namespace D2RMultiExport.Lib.Import;
@@ -84,17 +85,9 @@ public static class PropertyGroupExpander
                         if (sub.Chance is > 0)
                             line.Chance = sub.Chance;
 
-                        // Mod-added class-restricted random-skill-tab groups
-                        // (e.g. `skilltab-war` on Wraithstep) wrap a `skilltab`
-                        // sub-property whose Min/Max parameter range doesn't
-                        // resolve to a single tab id, so BuildSkillTab falls back
-                        // to strSkillTabBonusClassOnly with an empty class slot.
-                        // Mirror the doc-generator's hardcoded Wraithstep
-                        // workaround by rewriting such children into a
-                        // "+N Random Skill Tab (<Class> Only)" line scoped to
-                        // the configured class. The mapping lives in
-                        // export-config.json → customSkillTabAliases (parent
-                        // group code → 3-letter CharStats class code).
+                        // Explicit aliases preserve the existing behavior for
+                        // class-restricted groups whose identifiers do not encode
+                        // a class range directly.
                         if (data.ExportConfig.CustomSkillTabAliases.TryGetValue(group.Code, out var aliasClassCode)
                             && data.CharStatsByCode.ContainsKey(aliasClassCode)
                             && (line.Key == Translation.SyntheticStringRegistry.Keys.SkillTabBonusClassOnly
@@ -103,6 +96,12 @@ public static class PropertyGroupExpander
                             line.Key = Translation.SyntheticStringRegistry.Keys.SkillTabRandomClassOnly;
                             line.Args = line.Args.TakeWhile(static arg => arg is int or double).ToArray();
                             line.ClassOnly = Translation.PropertyKeyResolver.TryGetClassOnlyKey(aliasClassCode);
+                        }
+                        else if (GroupedSkillTabClassOnlyKey(line, data) is { } classOnlyKey)
+                        {
+                            line.Key = Translation.SyntheticStringRegistry.Keys.SkillTabRandomClassOnly;
+                            line.Args = line.Args.TakeWhile(static arg => arg is int or double).ToArray();
+                            line.ClassOnly = classOnlyKey;
                         }
 
                         children.Add(line);
@@ -149,5 +148,29 @@ public static class PropertyGroupExpander
                 Lines = [parent]
             }
         ];
+    }
+
+    /// <summary>
+    /// Resolves the class suffix for a grouped random skill-tab child only when
+    /// its identifier bounds form a valid range within one configured class.
+    /// </summary>
+    private static string? GroupedSkillTabClassOnlyKey(KeyedLine line, GameData data)
+    {
+        var selection = line.Selection;
+        if (line.Key != Translation.SyntheticStringRegistry.Keys.SkillTabBonusClassOnly
+            || selection is null
+            || !string.Equals(selection.Stat, "item_addskill_tab", StringComparison.OrdinalIgnoreCase)
+            || selection.Min is not int tabMin
+            || selection.Max is not int tabMax
+            || tabMin < 0
+            || tabMax < tabMin
+            || tabMin / 3 != tabMax / 3)
+            return null;
+
+        var classCode = ClassRangeConfig.CodeForClassIndex(tabMin / 3);
+        if (classCode is null || !data.CharStatsByCode.ContainsKey(classCode))
+            return null;
+
+        return Translation.PropertyKeyResolver.TryGetClassOnlyKey(classCode);
     }
 }
