@@ -106,6 +106,13 @@ public sealed class ExportConfig
     public List<RecipeNoteConfig> CubeRecipeNotes { get; set; } = [];
 
     /// <summary>
+    /// Input-token and guard configuration for cube recipe families that can be
+    /// represented as one class-neutral website recipe.
+    /// </summary>
+    [JsonPropertyName("cubeRecipeClassUpgradeFamilies")]
+    public List<ClassUpgradeFamilyConfig> CubeRecipeClassUpgradeFamilies { get; set; } = [];
+
+    /// <summary>
     /// Property codes that should be silently dropped from the export. Mirrors the
     /// formerly hardcoded <c>PropertyMapper.IgnoredProperties</c> set.
     /// </summary>
@@ -325,6 +332,9 @@ public sealed class ExportConfig
         public int? ValueMax { get; set; }
     }
 
+    /// <summary>
+    /// Criteria and synthetic notes for an optional cube recipe classification rule.
+    /// </summary>
     public sealed class RecipeNoteConfig
     {
         public string? Description { get; set; }
@@ -332,6 +342,69 @@ public sealed class ExportConfig
         public int? Param { get; set; }
         public int? Value { get; set; }
         public List<string> Notes { get; set; } = [];
+
+        [JsonPropertyName("inputCodes")]
+        public List<string> InputCodes { get; set; } = [];
+
+        [JsonPropertyName("anyInputCodes")]
+        public List<string> AnyInputCodes { get; set; } = [];
+
+        [JsonPropertyName("outputCodes")]
+        public List<string> OutputCodes { get; set; } = [];
+
+        [JsonIgnore]
+        public HashSet<string> InputCodesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        [JsonIgnore]
+        public HashSet<string> AnyInputCodesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        [JsonIgnore]
+        public HashSet<string> OutputCodesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        internal void BuildLookups()
+        {
+            InputCodesSet = new HashSet<string>(InputCodes, StringComparer.OrdinalIgnoreCase);
+            AnyInputCodesSet = new HashSet<string>(AnyInputCodes, StringComparer.OrdinalIgnoreCase);
+            OutputCodesSet = new HashSet<string>(OutputCodes, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>Source tokens and refund guards for one class-specific cube-recipe family.</summary>
+    public sealed class ClassUpgradeFamilyConfig
+    {
+        [JsonPropertyName("inputCodes")]
+        public List<string> InputCodes { get; set; } = [];
+
+        [JsonPropertyName("tierInputCodes")]
+        public List<string> TierInputCodes { get; set; } = [];
+
+        [JsonPropertyName("classCodes")]
+        public List<string> ClassCodes { get; set; } = [];
+
+        [JsonPropertyName("killStatParam")]
+        public int KillStatParam { get; set; }
+
+        [JsonPropertyName("insufficientKillsOp")]
+        public int InsufficientKillsOp { get; set; }
+
+        [JsonPropertyName("alreadyUpgradedOp")]
+        public int AlreadyUpgradedOp { get; set; }
+
+        [JsonIgnore]
+        public HashSet<string> InputCodesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        [JsonIgnore]
+        public HashSet<string> TierInputCodesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        [JsonIgnore]
+        public HashSet<string> ClassCodesSet { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        internal void BuildLookups()
+        {
+            InputCodesSet = new HashSet<string>(InputCodes, StringComparer.OrdinalIgnoreCase);
+            TierInputCodesSet = new HashSet<string>(TierInputCodes, StringComparer.OrdinalIgnoreCase);
+            ClassCodesSet = new HashSet<string>(ClassCodes, StringComparer.OrdinalIgnoreCase);
+        }
     }
 
     // Derived lookup sets built after deserialization
@@ -437,6 +510,10 @@ public sealed class ExportConfig
         CubeSocketPunch.BuildLookups();
         CubeIngredientLabels.BuildLookups();
         MissilePotionDamage.BuildLookups();
+        foreach (var noteRule in CubeRecipeNotes)
+            noteRule.BuildLookups();
+        foreach (var family in CubeRecipeClassUpgradeFamilies)
+            family.BuildLookups();
     }
 
     public static async Task<ExportConfig> LoadAsync(string path)

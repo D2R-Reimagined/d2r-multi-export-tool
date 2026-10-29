@@ -463,10 +463,31 @@
         { "op": 18, "param": 361, "value": 0 },
         { "op": 15, "param": 362, "valueMin": 101 }
     ],
+    "$cubeRecipeClassUpgradeFamiliesNote": "Cube recipe families whose class-specific success rows and refund guards can be consolidated when all source variants validate. Family detection uses raw input main tokens; inconsistent families remain untouched and are reported.",
+    "cubeRecipeClassUpgradeFamilies": [
+        {
+            "inputCodes": [ "Relic of the Ancients", "ooe" ],
+            "tierInputCodes": [ "r37", "r38", "r39" ],
+            "classCodes": [ "ama", "sor", "nec", "pal", "bar", "dru", "ass", "war" ],
+            "killStatParam": 438,
+            "insufficientKillsOp": 4,
+            "alreadyUpgradedOp": 15
+        }
+    ],
+    "$cubeRecipeNotesNote": "Optional cube-recipe note rules. Match every inputCodes main token, at least one anyInputCodes main token when supplied, and outputCodes against output A's main token; criteria combine with description/op/param/value. Notes are synthetic translation keys.",
     "cubeRecipeNotes": [
         {
             "description": "potion alchemy",
             "notes": [ "strCubeNoteEarlyGamePotion" ]
+        },
+        {
+            "inputCodes": [ "Relic of the Ancients", "ooe" ],
+            "anyInputCodes": [ "r37", "r38", "r39" ],
+            "notes": [ "strCubeNoteUberCharmUpgrade" ]
+        },
+        {
+            "outputCodes": [ "tax", "jav" ],
+            "notes": [ "strCubeNoteItemCrafting" ]
         }
     ],
 

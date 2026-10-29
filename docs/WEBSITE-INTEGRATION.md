@@ -162,6 +162,14 @@ inputs/op create a new identity. A parser change stripping/requoting raw cells
 can rotate ids; treat that as a coordinated breaking migration (the website
 owns the alias remapping of saved links).
 
+The Relic of the Ancients class-upgrade families use the first class success
+row's existing `Id` (the `ama` success for each tier) for the consolidated card.
+The other seven class-success ids and both refund-row ids per tier are no longer
+emitted. Aggregation reuses the existing `Inputs`, `Outputs`, and `Notes` fields;
+it adds no wire shape or website rendering requirement. If a saved build refers
+to one of the suppressed ids, the website's saved-link alias map must redirect it
+to that tier's representative success id; the exporter does not emit aliases.
+
 ## Engine row identifiers
 
 Every exported numeric table identifier is the game's record index: the zero-based
