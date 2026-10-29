@@ -221,6 +221,7 @@ public static class KeyedJsonExporter
         public List<KeyedCubeIngredient> Inputs { get; set; } = [];
         public KeyedCubeOutputs Outputs { get; set; } = new();
         public List<KeyedLine> Notes { get; set; } = [];
+        public List<KeyedLine> Details { get; set; } = [];
         public bool Enabled { get; set; }
     }
 
@@ -409,6 +410,7 @@ public static class KeyedJsonExporter
             C = MapCubeOutput(c.Outputs.C)
         },
         Notes = c.Notes,
+        Details = c.Details,
         Enabled = c.Enabled
     };
 

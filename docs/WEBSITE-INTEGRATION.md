@@ -165,10 +165,18 @@ owns the alias remapping of saved links).
 The Relic of the Ancients class-upgrade families use the first class success
 row's existing `Id` (the `ama` success for each tier) for the consolidated card.
 The other seven class-success ids and both refund-row ids per tier are no longer
-emitted. Aggregation reuses the existing `Inputs`, `Outputs`, and `Notes` fields;
-it adds no wire shape or website rendering requirement. If a saved build refers
-to one of the suppressed ids, the website's saved-link alias map must redirect it
-to that tier's representative success id; the exporter does not emit aliases.
+emitted. Aggregation reuses the existing `Inputs` and `Outputs` fields. If a saved
+build refers to one of the suppressed ids, the website's saved-link alias map must
+redirect it to that tier's representative success id; the exporter does not emit
+aliases.
+
+Every cube recipe carries two `KeyedLine` lists. `Notes` holds recipe
+classifications only (for the Relic cards, `strCubeNoteUberCharmUpgrade`);
+`Details` holds explanatory lines and is `[]` unless populated. The Relic cards
+emit `strCubeNoteRelicKillRequirement` (args: required kills) followed by
+`strCubeNoteRelicUpgradeRefund` in `Details`. Consumers may treat every `Notes`
+key as a classification without an allowlist and render `Details` as
+explanatory text.
 
 ## Engine row identifiers
 

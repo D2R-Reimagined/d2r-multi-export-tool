@@ -165,6 +165,14 @@ public sealed class CubeRecipeExport
     [JsonIgnore]
     public List<KeyedLine> Notes { get; set; } = [];
 
+    /// <summary>
+    /// Explanatory keyed lines (requirements, refund behavior) kept separate from
+    /// the classification lines in <see cref="Notes"/>. Serialized by
+    /// <see cref="Exporters.KeyedJsonExporter"/>.
+    /// </summary>
+    [JsonIgnore]
+    public List<KeyedLine> Details { get; set; } = [];
+
     public bool Enabled { get; set; }
 }
 public sealed class CubeIngredientExport

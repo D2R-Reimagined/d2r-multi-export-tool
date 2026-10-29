@@ -61,6 +61,7 @@ public sealed class CubeRecipeAggregationTests
         Assert.Equal(originalOrdinary.Id, ordinary.Id);
         Assert.Equal(originalOrdinary.Notes.Select(SerializeLine), ordinary.Notes.Select(SerializeLine));
         Assert.Contains(ordinary.Notes, note => note.Key == K.CubeNoteItemCrafting);
+        Assert.Empty(ordinary.Details);
 
         data.CubeRecipes = imported.Items;
         var outputRoot = Directory.CreateTempSubdirectory("d2r-relic-cube-json-").FullName;
@@ -85,11 +86,13 @@ public sealed class CubeRecipeAggregationTests
                     line.GetProperty("key").GetString() == StatKey(tier.StatCode)
                     && line.GetProperty("args")[0].GetInt32() == 5);
                 var noteLines = serialized.GetProperty("Notes").EnumerateArray().ToArray();
-                Assert.Contains(noteLines, line => line.GetProperty("key").GetString() == K.CubeNoteUberCharmUpgrade);
-                Assert.Contains(noteLines, line =>
-                    line.GetProperty("key").GetString() == K.CubeNoteRelicKillRequirement
-                    && line.GetProperty("args")[0].GetInt32() == tier.Kills);
-                Assert.Contains(noteLines, line => line.GetProperty("key").GetString() == K.CubeNoteRelicUpgradeRefund);
+                var noteLine = Assert.Single(noteLines);
+                Assert.Equal(K.CubeNoteUberCharmUpgrade, noteLine.GetProperty("key").GetString());
+                var detailLines = serialized.GetProperty("Details").EnumerateArray().ToArray();
+                Assert.Equal(2, detailLines.Length);
+                Assert.Equal(K.CubeNoteRelicKillRequirement, detailLines[0].GetProperty("key").GetString());
+                Assert.Equal(tier.Kills, detailLines[0].GetProperty("args")[0].GetInt32());
+                Assert.Equal(K.CubeNoteRelicUpgradeRefund, detailLines[1].GetProperty("key").GetString());
                 Assert.Equal(output.GetProperty("Name").GetRawText(), serialized.GetProperty("Inputs")[0].GetProperty("Name").GetRawText());
             }
         }
@@ -339,10 +342,11 @@ public sealed class CubeRecipeAggregationTests
         var sharedBonus = Assert.Single(lines, line => line.Key == StatKey(tier.StatCode));
         Assert.Equal(new object[] { 5 }, sharedBonus.Args);
 
-        Assert.Contains(recipe.Notes, note => note.Key == K.CubeNoteUberCharmUpgrade);
-        var killNote = Assert.Single(recipe.Notes, note => note.Key == K.CubeNoteRelicKillRequirement);
-        Assert.Equal(new object[] { tier.Kills }, killNote.Args);
-        Assert.Contains(recipe.Notes, note => note.Key == K.CubeNoteRelicUpgradeRefund);
+        Assert.Equal(K.CubeNoteUberCharmUpgrade, Assert.Single(recipe.Notes).Key);
+        Assert.Equal(2, recipe.Details.Count);
+        Assert.Equal(K.CubeNoteRelicKillRequirement, recipe.Details[0].Key);
+        Assert.Equal(new object[] { tier.Kills }, recipe.Details[0].Args);
+        Assert.Equal(K.CubeNoteRelicUpgradeRefund, recipe.Details[1].Key);
     }
 
     private static bool HasInput(CubeRecipeExport recipe, string code) =>

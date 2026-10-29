@@ -273,9 +273,12 @@ internal static class CubeClassUpgradeAggregator
             .Select(static group => group.First())
             .ToList();
         AddNote(notes, K.CubeNoteUberCharmUpgrade);
-        notes.Add(KeyedLine.Of(K.CubeNoteRelicKillRequirement, requiredKills));
-        notes.Add(KeyedLine.Of(K.CubeNoteRelicUpgradeRefund));
         representative.Notes = notes;
+        representative.Details =
+        [
+            KeyedLine.Of(K.CubeNoteRelicKillRequirement, requiredKills),
+            KeyedLine.Of(K.CubeNoteRelicUpgradeRefund),
+        ];
     }
 
     private static void AddNote(List<KeyedLine> notes, string key)
