@@ -175,7 +175,7 @@ public sealed class RunewordImporter
                         // propertygroups.txt reference on a runeword's direct mods
                         // → expand into the parent KeyedLine carrying
                         // strPropertyGroupsProperty.
-                        if (PropertyGroupExpander.TryExpand(mod.Code, i, itemLevel, _data, out var groupExpansion))
+                        if (PropertyGroupExpander.TryExpand(mod.Code, mod.Min, mod.Max, i, itemLevel, _data, out var groupExpansion))
                         {
                             export.Properties.AddRange(groupExpansion);
                             continue;
@@ -263,7 +263,7 @@ public sealed class RunewordImporter
             // → expand into the parent KeyedLine carrying
             // strPropertyGroupsProperty. Qualifier is stamped on every child
             // so the website can render the "(Weapon)/(Shield)/(Armor)" tail.
-            if (PropertyGroupExpander.TryExpand(gp.Code, target.Count, itemLevel, _data, out var groupExpansion))
+            if (PropertyGroupExpander.TryExpand(gp.Code, gp.Min, gp.Max, target.Count, itemLevel, _data, out var groupExpansion))
             {
                 foreach (var groupProp in groupExpansion)
                 {

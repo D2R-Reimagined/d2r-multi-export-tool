@@ -18,6 +18,8 @@ namespace D2RMultiExport.Lib.Import;
 ///   website resolves for the bucket label.</item>
 ///   <item><see cref="KeyedLine.PickMode"/> — the group's <c>PickMode</c>
 ///   column.</item>
+///   <item><see cref="KeyedLine.RollCount"/> — the referencing source slot's
+///   outer <c>min</c>/<c>max</c> (how many children the group rolls).</item>
 ///   <item><see cref="KeyedLine.Children"/> — the resolved sub-property
 ///   <see cref="KeyedLine"/>s, each carrying its own <see cref="KeyedLine.Chance"/>.</item>
 /// </list>
@@ -31,14 +33,18 @@ public static class PropertyGroupExpander
     /// <c>propertygroups.txt</c> entry, expands it into a one-element
     /// <see cref="CubePropertyExport"/> list and returns <c>true</c>.
     /// Otherwise returns <c>false</c> with an empty <paramref name="results"/>.
+    /// <paramref name="rollMin"/>/<paramref name="rollMax"/> are the outer
+    /// <c>min</c>/<c>max</c> cells of the referencing source slot; they are
+    /// exported as the parent's <see cref="KeyedLine.RollCount"/>.
     /// </summary>
-    public static bool TryExpand(string? propertyCode, int index, int itemLevel, GameData data, out List<CubePropertyExport> results)
+    public static bool TryExpand(string? propertyCode, int? rollMin, int? rollMax, int index, int itemLevel, GameData data,
+        out List<CubePropertyExport> results)
     {
         results = [];
         if (string.IsNullOrEmpty(propertyCode)) return false;
         if (!data.PropertyGroups.TryGetValue(propertyCode, out var group)) return false;
 
-        results = Expand(group, index, itemLevel, data);
+        results = Expand(group, index, itemLevel, data, rollMin, rollMax);
         return true;
     }
 
@@ -48,7 +54,8 @@ public static class PropertyGroupExpander
     /// has no resolvable sub-properties (matches doc-generator behaviour: a
     /// property group with no children produces no on-wire entry).
     /// </summary>
-    public static List<CubePropertyExport> Expand(PropertyGroupEntry group, int index, int itemLevel, GameData data)
+    public static List<CubePropertyExport> Expand(PropertyGroupEntry group, int index, int itemLevel, GameData data,
+        int? rollMin = null, int? rollMax = null)
     {
         // Stringify the group's PickMode once so it can live on the parent line.
         // Null when the group has no PickMode column populated (rare — treated
@@ -128,6 +135,8 @@ public static class PropertyGroupExpander
             Code = group.Code,
             NameKey = Translation.SyntheticStringRegistry.Keys.PropertyGroupsProperty,
             PickMode = pickModeStr,
+            // Outer source-slot min/max: how many children this group rolls.
+            RollCount = PropertyGroupRollCount.From(rollMin, rollMax),
             Children = children
         };
 

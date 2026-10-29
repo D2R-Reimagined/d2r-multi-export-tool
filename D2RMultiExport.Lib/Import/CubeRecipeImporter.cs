@@ -414,7 +414,7 @@ public sealed class CubeRecipeImporter
 
             // propertygroups.txt reference on a cube-recipe Mod slot → expand
             // into the parent KeyedLine carrying strPropertyGroupsProperty.
-            if (PropertyGroupExpander.TryExpand(propCode, i, 99, _data, out var groupExpansion))
+            if (PropertyGroupExpander.TryExpand(propCode, min, max, i, 99, _data, out var groupExpansion))
             {
                 foreach (var groupProp in groupExpansion)
                 {
