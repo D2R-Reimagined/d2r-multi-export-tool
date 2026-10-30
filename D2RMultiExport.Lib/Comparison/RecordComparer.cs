@@ -108,6 +108,12 @@ internal static class RecordComparer
                 definition.NestedMatchKey ?? definition.VariantMatchKey,
                 definition.NestedArrayOptional,
                 new HashSet<string>(definition.UnorderedRootArrays, StringComparer.Ordinal));
+            // Older exporter snapshots omit Details, whereas newer ones emit an empty array.
+            // Neither represents recipe data; populated Details must still be compared.
+            if (definition.Category == "cube-recipes" &&
+                HasNoRecipeDetails(oldRecord.Value) && HasNoRecipeDetails(newRecord.Value))
+                changes.RemoveAll(static change => change.Path == "Details");
+
             if (changes.Count == 0)
             {
                 unchanged++;
@@ -160,6 +166,13 @@ internal static class RecordComparer
             ModifiedRecords = modified
         };
     }
+
+    /// <summary>Whether this recipe has no detail lines, including pre-Details export schemas.</summary>
+    internal static bool HasNoRecipeDetails(JsonElement record) =>
+        record.ValueKind == JsonValueKind.Object &&
+        (!record.TryGetProperty("Details", out var details) ||
+         details.ValueKind == JsonValueKind.Null ||
+         details.ValueKind == JsonValueKind.Array && details.GetArrayLength() == 0);
 
     private static Dictionary<string, RecordData> ReadRecords(
         ComparisonDefinition definition,
