@@ -19,6 +19,54 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
     private readonly string _root = Directory.CreateTempSubdirectory("d2r-recipe-patch-notes-").FullName;
 
     [Fact]
+    public async Task MissingAndEmptyRecipeDetailsDoNotProduceFalseModifications()
+    {
+        const string oldRecipes = "[{\"Id\":\"same\",\"Index\":1,\"Notes\":[]}]";
+        const string newRecipes = "[{\"Id\":\"same\",\"Index\":2,\"Notes\":[],\"Details\":[]}]";
+        var oldSnapshot = await CreateSnapshotAsync("details-old", oldRecipes, Translations);
+        var newSnapshot = await CreateSnapshotAsync("details-new", newRecipes, Translations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var cube = Assert.Single(report.Categories, static category => category.Category == "cube-recipes");
+
+        Assert.Equal(0, cube.Counts.Modified);
+        Assert.Equal(1, cube.Counts.Unchanged);
+        Assert.Equal(1, cube.Counts.Reindexed);
+        Assert.Contains("*No recipe changes.*", await SnapshotComparison.RenderRecipePatchNotesAsync(report));
+    }
+
+    [Fact]
+    public async Task PopulatedRecipeDetailsStillCountAsChanges()
+    {
+        const string oldRecipes = "[{\"Id\":\"same\",\"Index\":1,\"Details\":[]}]";
+        const string newRecipes = "[{\"Id\":\"same\",\"Index\":1," +
+                                  "\"Details\":[{\"key\":\"meaningful\",\"args\":[2]}]}]";
+        var oldSnapshot = await CreateSnapshotAsync("detail-content-old", oldRecipes, Translations);
+        var newSnapshot = await CreateSnapshotAsync("detail-content-new", newRecipes, Translations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var cube = Assert.Single(report.Categories, static category => category.Category == "cube-recipes");
+
+        Assert.Equal(1, cube.Counts.Modified);
+        Assert.Contains("Details", Assert.Single(cube.ModifiedRecords).ChangedFields);
+    }
+
+    [Fact]
+    public async Task UniqueJewelMigrationIgnoresOldSchemaMissingDetails()
+    {
+        var oldSnapshot = await CreateSnapshotAsync("jewel-details-old",
+            JewelRecipe("old-only", "\\\"jew,uni\\\"", "jew", 1, "socketPunch"), JewelTranslations);
+        var newSnapshot = await CreateSnapshotAsync("jewel-details-new",
+            JewelRecipe("new-only", "\\\"jewl,uni\\\"", "jewlitype", 1, "socketPunch")
+                .Replace("\\"Enabled\\":true", "\\"Details\\":[],\\"Enabled\\":true", StringComparison.Ordinal),
+            JewelTranslations);
+        var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
+        var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
+
+        Assert.Equal(1, Assert.Single(report.Categories, static category => category.Category == "cube-recipes")
+            .Counts.Added);
+        Assert.Contains("*No recipe changes.*", markdown);
+    }
+
+    [Fact]
     public async Task MatchedChangesDescribeIngredientsRestrictionsAndOutputs()
     {
         var oldSnapshot = await CreateSnapshotAsync("old", MatchedRecipe("Amazon", 5, "magic", "out", 1, 100, 10, 1),
