@@ -87,12 +87,8 @@ internal static class RecipePatchNotesMarkdown
         var entries = new List<RecipeEntry>(category.Counts.Added + category.Counts.Removed +
                                             category.Counts.Modified);
         foreach (var record in category.ModifiedRecords)
-        {
-            // Notes alone are generated presentation metadata, not a gameplay recipe change.
-            if (record.ChangedFields.All(static field => field == "Notes")) continue;
             entries.Add(CreateEntry(RecipeChangeKind.Modified, record.Key, record.NewRowIndex, record.New,
                 record.Old, record.New, newTranslations, context));
-        }
         foreach (var record in category.AddedRecords.Where(record => !migrationPairs.Added.Contains(record.Key)))
             entries.Add(CreateEntry(RecipeChangeKind.Added, record.Key, record.RowIndex, record.Record,
                 default, record.Record, newTranslations, context));
