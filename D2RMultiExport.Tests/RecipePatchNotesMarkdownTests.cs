@@ -53,10 +53,10 @@ public sealed class RecipePatchNotesMarkdownTests : IDisposable
     public async Task UniqueJewelMigrationIgnoresOldSchemaMissingDetails()
     {
         var oldSnapshot = await CreateSnapshotAsync("jewel-details-old",
-            JewelRecipe("old-only", "\\\"jew,uni\\\"", "jew", 1, "socketPunch"), JewelTranslations);
+            JewelRecipe("old-only", "\"jew,uni\"", "jew", 1, "socketPunch"), JewelTranslations);
         var newSnapshot = await CreateSnapshotAsync("jewel-details-new",
-            JewelRecipe("new-only", "\\\"jewl,uni\\\"", "jewlitype", 1, "socketPunch")
-                .Replace("\\"Enabled\\":true", "\\"Details\\":[],\\"Enabled\\":true", StringComparison.Ordinal),
+            JewelRecipe("new-only", "\"jewl,uni\"", "jewlitype", 1, "socketPunch")
+                .Replace("\"Enabled\":true", "\"Details\":[],\"Enabled\":true", StringComparison.Ordinal),
             JewelTranslations);
         var report = await SnapshotComparison.CompareAsync(oldSnapshot, newSnapshot);
         var markdown = await SnapshotComparison.RenderRecipePatchNotesAsync(report);
