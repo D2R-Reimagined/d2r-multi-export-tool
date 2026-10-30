@@ -154,7 +154,7 @@ public sealed class SetImporter
                         // propertygroups.txt reference (e.g. crafted-affix groups
                         // assigned to a set item) → expand into the parent
                         // KeyedLine carrying strPropertyGroupsProperty.
-                        if (PropertyGroupExpander.TryExpand(mod.Code, i, export.ItemLevel, _data, out var groupExpansion))
+                        if (PropertyGroupExpander.TryExpand(mod.Code, mod.Min, mod.Max, i, export.ItemLevel, _data, out var groupExpansion))
                         {
                             properties.AddRange(groupExpansion);
                             continue;
@@ -212,7 +212,8 @@ public sealed class SetImporter
                     // property → expand into the parent KeyedLine carrying
                     // strPropertyGroupsProperty. Stamp the per-N-items / full-set
                     // metadata on the parent's children below.
-                    if (PropertyGroupExpander.TryExpand(mod.Code!, export.Properties.Count, export.ItemLevel, _data, out var groupExpansion))
+                    if (PropertyGroupExpander.TryExpand(mod.Code!, mod.Min, mod.Max, export.Properties.Count, export.ItemLevel, _data,
+                            out var groupExpansion))
                     {
                         foreach (var groupProp in groupExpansion)
                         {
@@ -412,7 +413,7 @@ public sealed class SetImporter
         // into the parent KeyedLine. The (N Items) / (full set) metadata is
         // stamped on the parent's children so the website still receives the
         // bucket scope label.
-        if (PropertyGroupExpander.TryExpand(code, target.Count, 0, _data, out var groupExpansion))
+        if (PropertyGroupExpander.TryExpand(code, min, max, target.Count, 0, _data, out var groupExpansion))
         {
             foreach (var groupProp in groupExpansion)
             {

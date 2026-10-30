@@ -173,7 +173,7 @@ public sealed class UniqueImporter
             try
             {
                 // Check if this property code is a property group (e.g. "Gelid-Affix1")
-                if (PropertyGroupExpander.TryExpand(prop.Property, i, itemLevel, _data, out var groupExpansion))
+                if (PropertyGroupExpander.TryExpand(prop.Property, prop.Min, prop.Max, i, itemLevel, _data, out var groupExpansion))
                 {
                     properties.AddRange(groupExpansion);
                     continue;

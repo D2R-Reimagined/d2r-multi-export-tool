@@ -221,6 +221,7 @@ public static class KeyedJsonExporter
         public List<KeyedCubeIngredient> Inputs { get; set; } = [];
         public KeyedCubeOutputs Outputs { get; set; } = new();
         public List<KeyedLine> Notes { get; set; } = [];
+        public List<KeyedLine> Details { get; set; } = [];
         public bool Enabled { get; set; }
     }
 
@@ -409,6 +410,7 @@ public static class KeyedJsonExporter
             C = MapCubeOutput(c.Outputs.C)
         },
         Notes = c.Notes,
+        Details = c.Details,
         Enabled = c.Enabled
     };
 
@@ -440,7 +442,7 @@ public static class KeyedJsonExporter
             // KeyedLine carrying strPropertyGroupsProperty (with chance-stamped
             // children) so magic affixes surface property groups the same way
             // uniques/sets/runewords do.
-            if (Import.PropertyGroupExpander.TryExpand(prop.Code, i, entry.Level, data, out var groupExpansion))
+            if (Import.PropertyGroupExpander.TryExpand(prop.Code, prop.Min, prop.Max, i, entry.Level, data, out var groupExpansion))
             {
                 foreach (var groupProp in groupExpansion)
                     lines.AddRange(groupProp.Lines);
@@ -570,7 +572,7 @@ public static class KeyedJsonExporter
                 if (string.IsNullOrEmpty(prop.Code) || PropertyMapper.IsIgnored(prop.Code, data.ExportConfig)) { propIndex++; continue; }
                 // propertygroups.txt reference on an automagic row → emit the
                 // parent KeyedLine carrying strPropertyGroupsProperty.
-                if (Import.PropertyGroupExpander.TryExpand(prop.Code, propIndex, am.Level, data, out var groupExpansion))
+                if (Import.PropertyGroupExpander.TryExpand(prop.Code, prop.Min, prop.Max, propIndex, am.Level, data, out var groupExpansion))
                 {
                     foreach (var groupProp in groupExpansion)
                         lines.AddRange(groupProp.Lines);

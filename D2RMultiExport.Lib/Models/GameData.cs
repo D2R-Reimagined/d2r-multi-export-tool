@@ -167,14 +167,23 @@ public sealed class GameData
         return null;
     }
 
-    private string ResolveBaseItemName(string code, string? nameStr)
+    /// <summary>
+    /// Selects the translation key for a base item, preferring a code-specific
+    /// translation before its <c>NameStr</c> key.
+    /// </summary>
+    public string ResolveBaseItemNameKey(string code, string? nameStr)
     {
         if (Translations.TryGetValue(code, out var byCode) && !string.IsNullOrEmpty(byCode))
-            return byCode;
+            return code;
         if (!string.IsNullOrEmpty(nameStr) && Translations.TryGetValue(nameStr, out var byName) && !string.IsNullOrEmpty(byName))
-            return byName;
+            return nameStr;
+        return !string.IsNullOrEmpty(nameStr) ? nameStr : code;
+    }
+
+    private string ResolveBaseItemName(string code, string? nameStr)
+    {
         // Last resort: record the missing-key probe against NameStr if available,
         // else against the code, so the gap shows up exactly once.
-        return Translations.GetValue(!string.IsNullOrEmpty(nameStr) ? nameStr : code);
+        return Translations.GetValue(ResolveBaseItemNameKey(code, nameStr));
     }
 }

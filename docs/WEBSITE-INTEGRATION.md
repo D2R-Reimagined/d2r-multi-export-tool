@@ -123,6 +123,15 @@ property semantics, audit coverage and fixtures.
   percentages otherwise; do not flatten these into independent properties.
   As for `dmg-elem` and cold duration, a sub-property emitting several lines
   yields sibling children carrying the same `chance`.
+- A property-group parent also carries `rollCount: { min, max }`: the outer
+  `min`/`max` cells of the referencing source slot (unique, set item/bonus,
+  runeword or rune, cube output, magic affix, automagic), i.e. how many children
+  the group rolls. Both bounds are written when present, so
+  `skilltab-all [blank] 1 1` exports `{"min":1,"max":1}` and `1 3` exports
+  `{"min":1,"max":3}`; a blank cell omits that bound and two blank cells omit
+  `rollCount`. It is independent of each child's `args` and `selection`
+  (grouped skill-tab `selection.min`/`max` remain tab identifier bounds).
+  The field is additive; consumers that ignore it are unaffected.
 - Asset maps layer CASC then mod entry by entry, preserving last-wins duplicate
   resolution. Existing normalized name matches precede compatibility aliases;
   aliases remove apostrophes and the separator before a trailing numeric suffix,
@@ -161,6 +170,22 @@ Identity survives row moves/output/balance changes, but changes to matching
 inputs/op create a new identity. A parser change stripping/requoting raw cells
 can rotate ids; treat that as a coordinated breaking migration (the website
 owns the alias remapping of saved links).
+
+The Relic of the Ancients class-upgrade families use the first class success
+row's existing `Id` (the `ama` success for each tier) for the consolidated card.
+The other seven class-success ids and both refund-row ids per tier are no longer
+emitted. Aggregation reuses the existing `Inputs` and `Outputs` fields. If a saved
+build refers to one of the suppressed ids, the website's saved-link alias map must
+redirect it to that tier's representative success id; the exporter does not emit
+aliases.
+
+Every cube recipe carries two `KeyedLine` lists. `Notes` holds recipe
+classifications only (for the Relic cards, `strCubeNoteUberCharmUpgrade`);
+`Details` holds explanatory lines and is `[]` unless populated. The Relic cards
+emit `strCubeNoteRelicKillRequirement` (args: required kills) followed by
+`strCubeNoteRelicUpgradeRefund` in `Details`. Consumers may treat every `Notes`
+key as a classification without an allowlist and render `Details` as
+explanatory text.
 
 ## Engine row identifiers
 

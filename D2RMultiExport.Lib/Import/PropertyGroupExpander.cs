@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+using D2RMultiExport.Lib.Config;
 using D2RMultiExport.Lib.Models;
 
 namespace D2RMultiExport.Lib.Import;
@@ -17,6 +18,8 @@ namespace D2RMultiExport.Lib.Import;
 ///   website resolves for the bucket label.</item>
 ///   <item><see cref="KeyedLine.PickMode"/> — the group's <c>PickMode</c>
 ///   column.</item>
+///   <item><see cref="KeyedLine.RollCount"/> — the referencing source slot's
+///   outer <c>min</c>/<c>max</c> (how many children the group rolls).</item>
 ///   <item><see cref="KeyedLine.Children"/> — the resolved sub-property
 ///   <see cref="KeyedLine"/>s, each carrying its own <see cref="KeyedLine.Chance"/>.</item>
 /// </list>
@@ -30,14 +33,18 @@ public static class PropertyGroupExpander
     /// <c>propertygroups.txt</c> entry, expands it into a one-element
     /// <see cref="CubePropertyExport"/> list and returns <c>true</c>.
     /// Otherwise returns <c>false</c> with an empty <paramref name="results"/>.
+    /// <paramref name="rollMin"/>/<paramref name="rollMax"/> are the outer
+    /// <c>min</c>/<c>max</c> cells of the referencing source slot; they are
+    /// exported as the parent's <see cref="KeyedLine.RollCount"/>.
     /// </summary>
-    public static bool TryExpand(string? propertyCode, int index, int itemLevel, GameData data, out List<CubePropertyExport> results)
+    public static bool TryExpand(string? propertyCode, int? rollMin, int? rollMax, int index, int itemLevel, GameData data,
+        out List<CubePropertyExport> results)
     {
         results = [];
         if (string.IsNullOrEmpty(propertyCode)) return false;
         if (!data.PropertyGroups.TryGetValue(propertyCode, out var group)) return false;
 
-        results = Expand(group, index, itemLevel, data);
+        results = Expand(group, index, itemLevel, data, rollMin, rollMax);
         return true;
     }
 
@@ -47,7 +54,8 @@ public static class PropertyGroupExpander
     /// has no resolvable sub-properties (matches doc-generator behaviour: a
     /// property group with no children produces no on-wire entry).
     /// </summary>
-    public static List<CubePropertyExport> Expand(PropertyGroupEntry group, int index, int itemLevel, GameData data)
+    public static List<CubePropertyExport> Expand(PropertyGroupEntry group, int index, int itemLevel, GameData data,
+        int? rollMin = null, int? rollMax = null)
     {
         // Stringify the group's PickMode once so it can live on the parent line.
         // Null when the group has no PickMode column populated (rare — treated
@@ -84,17 +92,9 @@ public static class PropertyGroupExpander
                         if (sub.Chance is > 0)
                             line.Chance = sub.Chance;
 
-                        // Mod-added class-restricted random-skill-tab groups
-                        // (e.g. `skilltab-war` on Wraithstep) wrap a `skilltab`
-                        // sub-property whose Min/Max parameter range doesn't
-                        // resolve to a single tab id, so BuildSkillTab falls back
-                        // to strSkillTabBonusClassOnly with an empty class slot.
-                        // Mirror the doc-generator's hardcoded Wraithstep
-                        // workaround by rewriting such children into a
-                        // "+N Random Skill Tab (<Class> Only)" line scoped to
-                        // the configured class. The mapping lives in
-                        // export-config.json → customSkillTabAliases (parent
-                        // group code → 3-letter CharStats class code).
+                        // Explicit aliases preserve the existing behavior for
+                        // class-restricted groups whose identifiers do not encode
+                        // a class range directly.
                         if (data.ExportConfig.CustomSkillTabAliases.TryGetValue(group.Code, out var aliasClassCode)
                             && data.CharStatsByCode.ContainsKey(aliasClassCode)
                             && (line.Key == Translation.SyntheticStringRegistry.Keys.SkillTabBonusClassOnly
@@ -103,6 +103,12 @@ public static class PropertyGroupExpander
                             line.Key = Translation.SyntheticStringRegistry.Keys.SkillTabRandomClassOnly;
                             line.Args = line.Args.TakeWhile(static arg => arg is int or double).ToArray();
                             line.ClassOnly = Translation.PropertyKeyResolver.TryGetClassOnlyKey(aliasClassCode);
+                        }
+                        else if (GroupedSkillTabClassOnlyKey(line, data) is { } classOnlyKey)
+                        {
+                            line.Key = Translation.SyntheticStringRegistry.Keys.SkillTabRandomClassOnly;
+                            line.Args = line.Args.TakeWhile(static arg => arg is int or double).ToArray();
+                            line.ClassOnly = classOnlyKey;
                         }
 
                         children.Add(line);
@@ -129,6 +135,8 @@ public static class PropertyGroupExpander
             Code = group.Code,
             NameKey = Translation.SyntheticStringRegistry.Keys.PropertyGroupsProperty,
             PickMode = pickModeStr,
+            // Outer source-slot min/max: how many children this group rolls.
+            RollCount = PropertyGroupRollCount.From(rollMin, rollMax),
             Children = children
         };
 
@@ -149,5 +157,29 @@ public static class PropertyGroupExpander
                 Lines = [parent]
             }
         ];
+    }
+
+    /// <summary>
+    /// Resolves the class suffix for a grouped random skill-tab child only when
+    /// its identifier bounds form a valid range within one configured class.
+    /// </summary>
+    private static string? GroupedSkillTabClassOnlyKey(KeyedLine line, GameData data)
+    {
+        var selection = line.Selection;
+        if (line.Key != Translation.SyntheticStringRegistry.Keys.SkillTabBonusClassOnly
+            || selection is null
+            || !string.Equals(selection.Stat, "item_addskill_tab", StringComparison.OrdinalIgnoreCase)
+            || selection.Min is not int tabMin
+            || selection.Max is not int tabMax
+            || tabMin < 0
+            || tabMax < tabMin
+            || tabMin / 3 != tabMax / 3)
+            return null;
+
+        var classCode = ClassRangeConfig.CodeForClassIndex(tabMin / 3);
+        if (classCode is null || !data.CharStatsByCode.ContainsKey(classCode))
+            return null;
+
+        return Translation.PropertyKeyResolver.TryGetClassOnlyKey(classCode);
     }
 }

@@ -149,6 +149,19 @@ public sealed class KeyedLine
 
     /// <summary>
     /// For parent lines representing a <c>propertygroups.txt</c> entry: the
+    /// outer <c>min</c>/<c>max</c> cells of the referencing source property slot
+    /// (unique, set, runeword, cube output, affix, automagic, …), i.e. how many
+    /// child properties the group rolls (e.g. <c>skilltab-all [blank] 1 3</c> →
+    /// 1–3). Unrelated to each child's own <see cref="Args"/> and
+    /// <see cref="Selection"/> bounds. Null on child and non-group lines and when
+    /// both source cells are blank. Serialized only when set.
+    /// </summary>
+    [JsonPropertyName("rollCount")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PropertyGroupRollCount? RollCount { get; set; }
+
+    /// <summary>
+    /// For parent lines representing a <c>propertygroups.txt</c> entry: the
     /// raw English group code from the <c>code</c> column (e.g.
     /// <c>"Magnetic-Affix1"</c>, <c>"Gelid-Affix3"</c>). This is a
     /// **structural identifier** the website branches on (same shape as the
@@ -210,6 +223,29 @@ public sealed class KeyedLine
     public int Priority { get; set; }
 
     public static KeyedLine Of(string key, params object[] args) => new() { Key = key, Args = args };
+}
+
+/// <summary>
+/// Number of child properties a <c>propertygroups.txt</c> parent rolls, copied
+/// verbatim from the referencing source slot's <c>min</c>/<c>max</c> cells.
+/// Both bounds are written whenever present, so a fixed count serializes as
+/// <c>{"min":1,"max":1}</c> and a range as <c>{"min":1,"max":3}</c>.
+/// </summary>
+public sealed class PropertyGroupRollCount
+{
+    /// <summary>Source slot <c>min</c> cell, omitted when blank.</summary>
+    [JsonPropertyName("min")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Min { get; init; }
+
+    /// <summary>Source slot <c>max</c> cell, omitted when blank.</summary>
+    [JsonPropertyName("max")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Max { get; init; }
+
+    /// <summary>Returns <c>null</c> when both source cells are blank.</summary>
+    public static PropertyGroupRollCount? From(int? min, int? max) =>
+        min is null && max is null ? null : new PropertyGroupRollCount { Min = min, Max = max };
 }
 
 /// <summary>Identifier bounds whose selection was previously represented only by a class label.</summary>

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+
 using D2RMultiExport.Lib.ErrorHandling;
 using D2RMultiExport.Lib.Models;
 using D2RMultiExport.Lib.Translation;
@@ -18,7 +19,7 @@ public sealed class CubeRecipeImporter
     // export-config.json (cubeIngredientLabels). They ship raw English to
     // the wire by design (AGENTS.md exception #1) but storage is JSON so a
     // non-coder can fix typos without a code change.
-    private Dictionary<string, string> InputDisplay  => _config.CubeIngredientLabels.Input;
+    private Dictionary<string, string> InputDisplay => _config.CubeIngredientLabels.Input;
     private Dictionary<string, string> OutputDisplay => _config.CubeIngredientLabels.Output;
 
     public bool EarlyStopSentinelEnabled { get; set; }
@@ -128,13 +129,16 @@ public sealed class CubeRecipeImporter
                         export.Inputs.Add(ParseIngredient(inputStr));
                     }
                 }
+
                 export.ResolvedInputsCount = export.Inputs.Count;
 
                 // 2. Process Outputs (A, B, C)
                 var rowId = entry.Description ?? $"Index {index}";
                 void Warn(string message) => result.AddWarning("CubeRecipe", rowId, message);
+
                 void Validate(SourcePropertySlot slot) =>
                     PropertySourceValidator.Report(result, rowId, "cubemain.txt", index, slot, _data);
+
                 export.Outputs.A = ParseOutput(entry.Output, null, "", entry, Warn, Validate);
                 export.Outputs.B = ParseOutput(entry.OutputB, null, "B", entry, Warn, Validate);
                 export.Outputs.C = ParseOutput(entry.OutputC, null, "C", entry, Warn, Validate);
@@ -142,7 +146,8 @@ public sealed class CubeRecipeImporter
                 // 3. Process Notes/Heuristics
                 ProcessNotes(export, entry);
 
-                if (export.Inputs.Count > 0 && (export.Outputs.A != null || export.Outputs.B != null || export.Outputs.C != null))
+                if (export.Inputs.Count > 0 &&
+                    (export.Outputs.A != null || export.Outputs.B != null || export.Outputs.C != null))
                 {
                     var baseId = export.Id;
                     var seen = idCounts.GetValueOrDefault(baseId);
@@ -155,7 +160,8 @@ public sealed class CubeRecipeImporter
             }
             catch (Exception ex)
             {
-                result.AddError("CubeRecipe", entry.Description ?? $"Index {index}", $"Failed to process: {ex.Message}", ex);
+                result.AddError("CubeRecipe", entry.Description ?? $"Index {index}", $"Failed to process: {ex.Message}",
+                    ex);
             }
             finally
             {
@@ -164,10 +170,13 @@ public sealed class CubeRecipeImporter
             }
         }
 
-        foreach (var members in idMembers.Values.Where(static members => members.Count > 1).OrderBy(static members => members[0].Index))
+        foreach (var members in idMembers.Values.Where(static members => members.Count > 1)
+                     .OrderBy(static members => members[0].Index))
         {
             result.AddWarning("CubeRecipe", members[0].Id, DescribeIdCollision(members));
         }
+
+        CubeClassUpgradeAggregator.Aggregate(result, _config);
 
         return result;
     }
@@ -183,7 +192,8 @@ public sealed class CubeRecipeImporter
     /// </summary>
     private static string DescribeIdCollision(List<RecipeIdentityMember> members)
     {
-        var identities = members.Select(static member => string.Join('\u001F', RecipeIdentityCells(member.Entry))).Distinct(StringComparer.Ordinal).Count();
+        var identities = members.Select(static member => string.Join('\u001F', RecipeIdentityCells(member.Entry)))
+            .Distinct(StringComparer.Ordinal).Count();
         var lines = new List<string>
         {
             $"{members.Count} accepted recipes share this base ID; "
@@ -199,18 +209,29 @@ public sealed class CubeRecipeImporter
                 .Select(static pair => $"{pair.Item1}={pair.Item2}")
                 .ToList();
             var inputs = cells.Skip(4).Where(static cell => cell.Length > 0).ToList();
-            var outputs = new[] { ("output", member.Entry.Output), ("output b", member.Entry.OutputB), ("output c", member.Entry.OutputC) }
+            var outputs = new[]
+                {
+                    ("output", member.Entry.Output), ("output b", member.Entry.OutputB),
+                    ("output c", member.Entry.OutputC)
+                }
                 .Where(static pair => !string.IsNullOrWhiteSpace(pair.Item2))
                 .Select(static pair => $"{pair.Item1} {pair.Item2!.Trim()}")
                 .ToList();
-            var description = string.IsNullOrWhiteSpace(member.Entry.Description) ? "<blank>" : $"\"{member.Entry.Description.Trim()}\"";
-            lines.Add($"    Index {member.Index} -> {member.Id}{(member == members[0] ? " (unsuffixed)" : "")}: description {description}"
-                      + (conditions.Count > 0 ? $"; {string.Join(", ", conditions)}" : "")
-                      + $"; inputs {(inputs.Count > 0 ? string.Join(" + ", inputs) : "<none>")}"
-                      + $"; {(outputs.Count > 0 ? string.Join(", ", outputs) : "no output")}");
+            var description = string.IsNullOrWhiteSpace(member.Entry.Description)
+                ? "<blank>"
+                : $"\"{member.Entry.Description.Trim()}\"";
+            lines.Add(
+                $"    Index {member.Index} -> {member.Id}{(member == members[0] ? " (unsuffixed)" : "")}: description {description}"
+                + (conditions.Count > 0 ? $"; {string.Join(", ", conditions)}" : "")
+                + $"; inputs {(inputs.Count > 0 ? string.Join(" + ", inputs) : "<none>")}"
+                + $"; {(outputs.Count > 0 ? string.Join(", ", outputs) : "no output")}");
         }
-        var suffixes = members.Count == 2 ? "the second received -2" : $"later rows received -2 through -{members.Count} in that order";
-        lines.Add($"    Action: all {members.Count} recipes were exported; the first accepted row keeps the base ID and {suffixes}.");
+
+        var suffixes = members.Count == 2
+            ? "the second received -2"
+            : $"later rows received -2 through -{members.Count} in that order";
+        lines.Add(
+            $"    Action: all {members.Count} recipes were exported; the first accepted row keeps the base ID and {suffixes}.");
         return string.Join('\n', lines);
     }
 
@@ -275,13 +296,17 @@ public sealed class CubeRecipeImporter
             if (p.StartsWith("qty="))
             {
                 if (int.TryParse(p.Substring(4), out var q)) ingredient.Quantity = q;
-                ingredient.Qualifiers.Add(InputDisplay.TryGetValue("qty=#", out var d) ? d.Replace("#", ingredient.Quantity.ToString()) : p);
+                ingredient.Qualifiers.Add(InputDisplay.TryGetValue("qty=#", out var d)
+                    ? d.Replace("#", ingredient.Quantity.ToString())
+                    : p);
                 var keyed = CubeQualifierKeyMap.TryGetInputQualifier(p, ingredient.Quantity);
                 if (keyed != null) ingredient.KeyedQualifiers.Add(keyed);
             }
             else if (p.StartsWith("sock="))
             {
-                ingredient.Qualifiers.Add(InputDisplay.TryGetValue("sock=#", out var d) ? d.Replace("#", p.Substring(5)) : p);
+                ingredient.Qualifiers.Add(InputDisplay.TryGetValue("sock=#", out var d)
+                    ? d.Replace("#", p.Substring(5))
+                    : p);
                 var keyed = CubeQualifierKeyMap.TryGetInputQualifier(p, ingredient.Quantity);
                 if (keyed != null) ingredient.KeyedQualifiers.Add(keyed);
             }
@@ -304,7 +329,8 @@ public sealed class CubeRecipeImporter
         return ingredient;
     }
 
-    private CubeOutputExport? ParseOutput(string? token, int? chance, string suffix, D2RReimaginedTools.Models.CubeMain entry, Action<string> warn,
+    private CubeOutputExport? ParseOutput(string? token, int? chance, string suffix,
+        D2RReimaginedTools.Models.CubeMain entry, Action<string> warn,
         Action<SourcePropertySlot> validate)
     {
         if (string.IsNullOrEmpty(token)) return null;
@@ -329,7 +355,9 @@ public sealed class CubeRecipeImporter
             if (p.StartsWith("qty="))
             {
                 if (int.TryParse(p.Substring(4), out var q)) output.Quantity = q;
-                friendly = OutputDisplay.TryGetValue("qty=#", out var d) ? d.Replace("#", output.Quantity.ToString()) : p;
+                friendly = OutputDisplay.TryGetValue("qty=#", out var d)
+                    ? d.Replace("#", output.Quantity.ToString())
+                    : p;
             }
             else if (p.StartsWith("pre="))
             {
@@ -381,17 +409,19 @@ public sealed class CubeRecipeImporter
             var modChance = ImportReflection.GetInt(entry, $"Mod{i}Chance{suffix}", warn);
             // cubemain.txt headers: "mod 1" for output A, "b mod 1"/"c mod 1" for outputs B/C.
             var column = $"{(suffix.Length == 0 ? "" : suffix.ToLowerInvariant() + " ")}mod {i}";
-            validate(new SourcePropertySlot(column, $"{column} param", $"{column} min", $"{column} max", propCode, param, min, max));
+            validate(new SourcePropertySlot(column, $"{column} param", $"{column} min", $"{column} max", propCode,
+                param, min, max));
 
             // propertygroups.txt reference on a cube-recipe Mod slot → expand
             // into the parent KeyedLine carrying strPropertyGroupsProperty.
-            if (PropertyGroupExpander.TryExpand(propCode, i, 99, _data, out var groupExpansion))
+            if (PropertyGroupExpander.TryExpand(propCode, min, max, i, 99, _data, out var groupExpansion))
             {
                 foreach (var groupProp in groupExpansion)
                 {
                     groupProp.ModChance = modChance;
                     output.Properties.Add(groupProp);
                 }
+
                 continue;
             }
 
@@ -414,7 +444,8 @@ public sealed class CubeRecipeImporter
     /// retired English JSON exporter) and a <see cref="KeyedLine"/> for the keyed
     /// wire-format bundle.
     /// </summary>
-    private (string? Name, KeyedLine? Keyed) ResolveNameLine(string? code, D2RReimaginedTools.Models.CubeMain? entry = null)
+    private (string? Name, KeyedLine? Keyed) ResolveNameLine(string? code,
+        D2RReimaginedTools.Models.CubeMain? entry = null)
     {
         if (string.IsNullOrEmpty(code)) return (null, null);
 
@@ -426,6 +457,7 @@ public sealed class CubeRecipeImporter
             return ("Use Type of Input 1",
                 KeyedLine.Of(SyntheticStringRegistry.Keys.CubeOutputUseTypeOfInput1));
         }
+
         if (string.Equals(code, "useitem", StringComparison.OrdinalIgnoreCase))
         {
             if (entry != null && InputsContainGemBag(entry))
@@ -435,24 +467,23 @@ public sealed class CubeRecipeImporter
                 KeyedLine.Of(SyntheticStringRegistry.Keys.CubeOutputUseItemFromInput1));
         }
 
-        // Real items resolve to their NameStr (game translation key) when present;
-        // when the source row has no `namestr` we fall back to the row's `code`
-        // column, mirroring the website's lookup order. Without this fallback,
-        // any base item missing a `namestr` would publish an empty translation
-        // key and surface as a "??" name in the keyed bundle.
+        // Real items prefer a code-specific translation, then NameStr, then code,
+        // matching GameData.ResolveItemName for both the display name and key.
         if (_data.Armors.TryGetValue(code, out var armor))
         {
-            var key = !string.IsNullOrEmpty(armor.NameStr) ? armor.NameStr : armor.Code;
+            var key = _data.ResolveBaseItemNameKey(armor.Code, armor.NameStr);
             return (_data.Translations.GetValue(key), KeyedLine.Of(key));
         }
+
         if (_data.Weapons.TryGetValue(code, out var weapon))
         {
-            var key = !string.IsNullOrEmpty(weapon.NameStr) ? weapon.NameStr : weapon.Code;
+            var key = _data.ResolveBaseItemNameKey(weapon.Code, weapon.NameStr);
             return (_data.Translations.GetValue(key), KeyedLine.Of(key));
         }
+
         if (_data.MiscItems.TryGetValue(code, out var misc))
         {
-            var key = !string.IsNullOrEmpty(misc.NameStr) ? misc.NameStr : misc.Code;
+            var key = _data.ResolveBaseItemNameKey(misc.Code, misc.NameStr);
             return (_data.Translations.GetValue(key), KeyedLine.Of(key));
         }
 
@@ -494,11 +525,11 @@ public sealed class CubeRecipeImporter
     /// </summary>
     private static readonly Dictionary<string, string> SpecialTokenKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Cow Portal"]               = SyntheticStringRegistry.Keys.CubeNoteCowPortal,
-        ["Pandemonium Portal"]       = SyntheticStringRegistry.Keys.CubeNotePandemoniumPortal,
+        ["Cow Portal"] = SyntheticStringRegistry.Keys.CubeNoteCowPortal,
+        ["Pandemonium Portal"] = SyntheticStringRegistry.Keys.CubeNotePandemoniumPortal,
         ["Pandemonium Finale Portal"] = SyntheticStringRegistry.Keys.CubeNotePandemoniumFinalePortal,
-        ["Red Portal"]               = SyntheticStringRegistry.Keys.CubeNoteRedPortal,
-        ["any"]                      = SyntheticStringRegistry.Keys.CubeInputAnyItem,
+        ["Red Portal"] = SyntheticStringRegistry.Keys.CubeNoteRedPortal,
+        ["any"] = SyntheticStringRegistry.Keys.CubeInputAnyItem,
     };
 
     // Lazily-built lookups from item-name (CubeMain code column) to the resolved
@@ -527,6 +558,7 @@ public sealed class CubeRecipeImporter
             if (!lookup.ContainsKey(index))
                 lookup[index] = (name, index);
         }
+
         return lookup;
     }
 
@@ -538,6 +570,7 @@ public sealed class CubeRecipeImporter
             if (string.IsNullOrEmpty(input)) continue;
             if (string.Equals(GetMainToken(input), "bag", StringComparison.OrdinalIgnoreCase)) return true;
         }
+
         return false;
     }
 
@@ -563,29 +596,50 @@ public sealed class CubeRecipeImporter
         if (export.Outputs.C != null) outputs.Add(export.Outputs.C);
 
         bool InputsContainAnyCodes(params string[] codes) =>
-            export.Inputs.Any(i => codes.Any(c => string.Equals(GetMainToken(i.RawToken), c, StringComparison.OrdinalIgnoreCase)));
+            export.Inputs.Any(i =>
+                codes.Any(c => string.Equals(GetMainToken(i.RawToken), c, StringComparison.OrdinalIgnoreCase)));
 
         bool InputsContainCodes(params string[] codes) =>
-            codes.All(c => export.Inputs.Any(i => string.Equals(GetMainToken(i.RawToken), c, StringComparison.OrdinalIgnoreCase)));
+            codes.All(c =>
+                export.Inputs.Any(i => string.Equals(GetMainToken(i.RawToken), c, StringComparison.OrdinalIgnoreCase)));
 
         int InputQtyForMain(string code) =>
-            export.Inputs.Where(i => string.Equals(GetMainToken(i.RawToken), code, StringComparison.OrdinalIgnoreCase)).Sum(i => i.Quantity);
+            export.Inputs.Where(i => string.Equals(GetMainToken(i.RawToken), code, StringComparison.OrdinalIgnoreCase))
+                .Sum(i => i.Quantity);
+
+        string[] RawTokenParts(string? rawToken) => string.IsNullOrEmpty(rawToken)
+            ? []
+            : rawToken.Split(',').Select(p => p.Trim().Trim('"')).Where(p => p.Length > 0).ToArray();
+
+        bool OutputAHasRawPart(string token) =>
+            RawTokenParts(entry.Output).Skip(1)
+                .Any(part => string.Equals(part, token, StringComparison.OrdinalIgnoreCase));
+
+        bool OutputHasForcedAffix() =>
+            outputs.Any(output => output != null && RawTokenParts(output.MainToken).Skip(1).Any(part =>
+                part.StartsWith("pre=", StringComparison.OrdinalIgnoreCase) ||
+                part.StartsWith("suf=", StringComparison.OrdinalIgnoreCase)));
 
         bool AnyOutputHasAnyQualifiers(params string[] friendlyAny) =>
-            outputs.Any(o => o != null && o.Qualifiers.Any(q => friendlyAny.Any(fn => string.Equals(q, fn, StringComparison.OrdinalIgnoreCase))));
+            outputs.Any(o => o != null && o.Qualifiers.Any(q =>
+                friendlyAny.Any(fn => string.Equals(q, fn, StringComparison.OrdinalIgnoreCase))));
 
         bool AnyOutputHasQualifiers(params string[] friendlyNeeded) =>
-            outputs.Any(o => o != null && friendlyNeeded.All(fn => o.Qualifiers.Any(q => string.Equals(q, fn, StringComparison.OrdinalIgnoreCase))));
+            outputs.Any(o => o != null && friendlyNeeded.All(fn =>
+                o.Qualifiers.Any(q => string.Equals(q, fn, StringComparison.OrdinalIgnoreCase))));
 
         bool AnyOutputHasBoth(string friendlyA, params string[] friendlyBOr) =>
-            outputs.Any(o => o != null && o.Qualifiers.Any(q => string.Equals(q, friendlyA, StringComparison.OrdinalIgnoreCase)) &&
-                              o.Qualifiers.Any(q => friendlyBOr.Any(b => string.Equals(q, b, StringComparison.OrdinalIgnoreCase))));
+            outputs.Any(o =>
+                o != null && o.Qualifiers.Any(q => string.Equals(q, friendlyA, StringComparison.OrdinalIgnoreCase)) &&
+                o.Qualifiers.Any(q => friendlyBOr.Any(b => string.Equals(q, b, StringComparison.OrdinalIgnoreCase))));
 
         bool AnyOutputNameContains(string substr) =>
             outputs.Any(o => o != null && o.Name.Contains(substr, StringComparison.OrdinalIgnoreCase));
 
         bool AnyOutputPropertyHasCode(string code) =>
-            outputs.Any(o => o != null && o.Properties.Any(p => string.Equals(p.PropertyCode, code, StringComparison.OrdinalIgnoreCase)));
+            outputs.Any(o =>
+                o != null && o.Properties.Any(p =>
+                    string.Equals(p.PropertyCode, code, StringComparison.OrdinalIgnoreCase)));
 
         // Legacy fuzzy-match used to scan the now-removed English `PropertyString`
         // (e.g. for "upgrade" / "enchant"). The keyed wire only carries the
@@ -597,8 +651,11 @@ public sealed class CubeRecipeImporter
             outputs.Any(o => o != null && o.Properties.Any(p =>
                 (p.PropertyCode ?? string.Empty).Contains(substr, StringComparison.OrdinalIgnoreCase)));
 
-        bool OutputEqualsUseType() => export.Outputs.A?.Name == "Use Type of Input 1" || export.Outputs.A?.MainToken == "usetype";
-        bool OutputEqualsUseItem() => export.Outputs.A?.Name == "Use Item from Input 1" || export.Outputs.A?.MainToken == "useitem";
+        bool OutputEqualsUseType() =>
+            export.Outputs.A?.Name == "Use Type of Input 1" || export.Outputs.A?.MainToken == "usetype";
+
+        bool OutputEqualsUseItem() => export.Outputs.A?.Name == "Use Item from Input 1" ||
+                                      export.Outputs.A?.MainToken == "useitem";
 
         bool FirstOutputHasAnyPropertiesAndFirstNotCorrupted()
         {
@@ -608,7 +665,8 @@ public sealed class CubeRecipeImporter
         }
 
         bool InputsQualifiersContain(string friendly) =>
-            export.Inputs.Any(i => i.Qualifiers.Any(q => string.Equals(q, friendly, StringComparison.OrdinalIgnoreCase)));
+            export.Inputs.Any(i =>
+                i.Qualifiers.Any(q => string.Equals(q, friendly, StringComparison.OrdinalIgnoreCase)));
 
         bool InputsNamesContainExact(params string[] names) =>
             export.Inputs.Any(i => names.Any(n => string.Equals(i.Name, n, StringComparison.OrdinalIgnoreCase)));
@@ -634,16 +692,32 @@ public sealed class CubeRecipeImporter
         if (export.NumInputs == 2 && InputsContainAnyCodes("jwp", "rup")) AddNote(K.CubeNotePliers);
 
         // 9) Crafting
-        if (OutputEqualsUseType() && AnyOutputHasAnyQualifiers("Magic Item", "Rare Item", "Crafted Item") && FirstOutputHasAnyPropertiesAndFirstNotCorrupted())
+        if (OutputEqualsUseType() && AnyOutputHasAnyQualifiers("Magic Item", "Rare Item", "Crafted Item") &&
+            FirstOutputHasAnyPropertiesAndFirstNotCorrupted())
             AddNote(K.CubeNoteItemCrafting);
 
-        if (AnyOutputNameContains("Quiver") || AnyOutputNameContains("Bolt Case") || AnyOutputNameContains("Barilzar's Mazed Band"))
+        if (OutputHasForcedAffix())
+            AddNote(K.CubeNoteItemCrafting);
+
+        if (AnyOutputNameContains("Quiver") || AnyOutputNameContains("Bolt Case") ||
+            AnyOutputNameContains("Barilzar's Mazed Band"))
             AddNote(K.CubeNoteItemCrafting);
 
         // 10) Sunder
-        if (export.Param == 386 && InputsNamesContainExact("Cold Rupture", "Flame Rift", "Crack of the Heavens", "Rotting Fissure", "Bone Break", "Black Cleft"))
+        var sunderFamilies = new[]
+        {
+            "Cold Rupture", "Flame Rift", "Crack of the Heavens", "Rotting Fissure", "Bone Break", "Black Cleft"
+        };
+        if (export.Param == 386 && InputsNamesContainExact(sunderFamilies))
             AddNote(K.CubeNoteSunderItemCrafting);
-        if (InputsNamesContainExact("Latent Cold Rupture", "Latent Flame Rift", "Latent Crack of the Heavens", "Latent Rotting Fissure", "Latent Bone Break", "Latent Black Cleft"))
+        if (InputsNamesContainExact(sunderFamilies.Select(family => $"Latent {family}").ToArray()))
+            AddNote(K.CubeNoteSunderItemCrafting);
+
+        bool isCraftedSunderConversion = export.Param == 386 && sunderFamilies.Any(family =>
+            export.Inputs.Any(input =>
+                string.Equals(GetMainToken(input.RawToken), $"Crafted {family}", StringComparison.OrdinalIgnoreCase)) &&
+            string.Equals(GetMainToken(entry.OutputB), $"PreCrafted {family}", StringComparison.OrdinalIgnoreCase));
+        if (isCraftedSunderConversion)
             AddNote(K.CubeNoteSunderItemCrafting);
 
         // 11-12) Uber / Keys
@@ -651,7 +725,8 @@ public sealed class CubeRecipeImporter
         if (InputsContainAnyCodes("pk1", "pk2", "pk3") && InputsContainCodes("ka3")) AddNote(K.CubeNoteKeyConversion);
 
         // 13) Rejuvenation
-        if ((InputsContainCodes("hpot") && (AnyOutputNameContains("Rejuvenation Potion") || AnyOutputNameContains("Full Rejuvenation Potion"))) ||
+        if ((InputsContainCodes("hpot") && (AnyOutputNameContains("Rejuvenation Potion") ||
+                                            AnyOutputNameContains("Full Rejuvenation Potion"))) ||
             (InputQtyForMain("rvs") >= 3 && AnyOutputNameContains("Full Rejuvenation Potion")))
             AddNote(K.CubeNoteRejuvenationPotion);
 
@@ -667,7 +742,18 @@ public sealed class CubeRecipeImporter
         bool isOor = InputsContainCodes("oor");
         bool isR01R15 = InputsContainCodes("r01") && InputsContainCodes("r15");
         bool hasNormalOutput = AnyOutputHasQualifiers("Normal Item") || AnyOutputHasQualifiers("Normal Quality");
-        if ((isR01R15 && OutputEqualsUseType() && hasNormalOutput) || isOor) AddNote(K.CubeNoteForceWhite);
+        var outputMainToken = GetMainToken(entry.Output);
+        bool hasNormalOutputToken = OutputAHasRawPart("nor");
+        bool r01R15CreatesNormalOutput = isR01R15 &&
+                                         (OutputEqualsUseType() || outputMainToken != null &&
+                                             InputsContainAnyCodes(outputMainToken)) &&
+                                         (hasNormalOutput || hasNormalOutputToken);
+        bool isRenewalReroll = export.Op == 17 && export.Param == 442 && export.NumInputs == 7 &&
+                               InputQtyForMain("oor") == 5 && InputsContainAnyCodes("ooc", "ooa") &&
+                               string.Equals(outputMainToken, "usetype", StringComparison.OrdinalIgnoreCase) &&
+                               OutputAHasRawPart("reg");
+        if (isRenewalReroll) AddNote(K.CubeNoteRerollItem);
+        if (r01R15CreatesNormalOutput || isOor && !isRenewalReroll) AddNote(K.CubeNoteForceWhite);
 
         // 16) Reroll
         if (export.Param == 386)
@@ -700,14 +786,18 @@ public sealed class CubeRecipeImporter
         }
 
         // 19) Recycle / Splash
-        if (AnyOutputNameContains("Gem Cluster") && AnyOutputNameContains("Tome of Identify") && InputsNamesContainExact("Tome of Identify"))
+        if (AnyOutputNameContains("Gem Cluster") && AnyOutputNameContains("Tome of Identify") &&
+            InputsNamesContainExact("Tome of Identify"))
             AddNote(K.CubeNoteRecycle);
 
-        if (export.Param == 386 && (InputsNamesContainExact("Splash Charm") || InputsNamesContainSubstring("Splash Charm") || InputsRawTokensContainSubstring("Splash Charm")))
+        if (export.Param == 386 && (InputsNamesContainExact("Splash Charm") ||
+                                    InputsNamesContainSubstring("Splash Charm") ||
+                                    InputsRawTokensContainSubstring("Splash Charm")))
             AddNote(K.CubeNoteSplashCharmUpgrade);
 
         // 20) Uber Charm
-        if ((InputsNamesContainExact("Hellfire Torch") || InputsNamesContainExact("Annihilus")) && AnyOutputPropertyContains("upgrade"))
+        if ((InputsNamesContainExact("Hellfire Torch") || InputsNamesContainExact("Annihilus")) &&
+            AnyOutputPropertyContains("upgrade"))
             AddNote(K.CubeNoteUberCharmUpgrade);
         if (AnyOutputNameContains("Black Soulstone") || AnyOutputNameContains("Obsidian Beacon"))
             AddNote(K.CubeNoteUberCharmUpgrade);
@@ -727,12 +817,15 @@ public sealed class CubeRecipeImporter
             AddNote(K.CubeNoteItemEnchantment);
 
         // 29) Recycle 2
-        if (export.NumInputs >= 4 && InputsContainAnyCodes("ibk", "tpk") && (AnyOutputNameContains("Jewel") || AnyOutputNameContains("Grand Charm")))
+        if (export.NumInputs >= 4 && InputsContainAnyCodes("ibk", "tpk") &&
+            (AnyOutputNameContains("Jewel") || AnyOutputNameContains("Grand Charm")))
             AddNote(K.CubeNoteRecycle);
 
         // 30) Uber Ancient
         var uberAncientCodes = new[] { "xa1", "xa2", "xa3", "xa4", "xa5", "ua1", "ua2", "ua3", "ua4", "ua5" };
-        if (InputsContainAnyCodes(uberAncientCodes) && outputs.Any(o => o != null && uberAncientCodes.Any(c => string.Equals(GetMainToken(o.MainToken), c, StringComparison.OrdinalIgnoreCase))))
+        if (InputsContainAnyCodes(uberAncientCodes) && outputs.Any(o =>
+                o != null && uberAncientCodes.Any(c =>
+                    string.Equals(GetMainToken(o.MainToken), c, StringComparison.OrdinalIgnoreCase))))
             AddNote(K.CubeNoteRerollUberAncient);
 
         // Custom Portals
@@ -747,6 +840,8 @@ public sealed class CubeRecipeImporter
 
         // Configuration-based notes. Each entry in `cubeRecipeNotes[].notes` is a synthetic
         // translation key (see SyntheticStringRegistry.Keys / Config/synthetic-strings.json).
+        var inputMainTokens = export.Inputs.Select(input => GetMainToken(input.RawToken)).OfType<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var noteRule in _config.CubeRecipeNotes)
         {
             bool matches = true;
@@ -760,6 +855,14 @@ public sealed class CubeRecipeImporter
             if (noteRule.Op.HasValue && export.Op != noteRule.Op.Value) matches = false;
             if (noteRule.Param.HasValue && export.Param != noteRule.Param.Value) matches = false;
             if (noteRule.Value.HasValue && export.Value != noteRule.Value.Value) matches = false;
+
+            if (!noteRule.InputCodesSet.IsSubsetOf(inputMainTokens))
+                matches = false;
+            if (noteRule.AnyInputCodesSet.Count > 0 && !noteRule.AnyInputCodesSet.Overlaps(inputMainTokens))
+                matches = false;
+            if (noteRule.OutputCodesSet.Count > 0 &&
+                !noteRule.OutputCodesSet.Contains(GetMainToken(entry.Output) ?? ""))
+                matches = false;
 
             if (matches)
             {
@@ -779,6 +882,7 @@ public sealed class CubeRecipeImporter
         {
             if (ImportReflection.GetString(entry, $"Mod{i}") == "sock") return true;
         }
+
         return false;
     }
 
@@ -848,6 +952,7 @@ public sealed class CubeRecipeImporter
             // All specified rule criteria matched
             return true;
         }
+
         return false;
     }
 
@@ -865,7 +970,7 @@ public sealed class CubeRecipeImporter
                 if (_config.BlockedCubeInputCodesSet.Contains(p)) return true;
             }
         }
+
         return false;
     }
-
 }
