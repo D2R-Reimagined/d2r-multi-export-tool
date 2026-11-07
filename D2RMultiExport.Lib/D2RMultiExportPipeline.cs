@@ -702,6 +702,8 @@ public sealed class D2RMultiExportPipeline
             warn => SkillIconExporter.ExportAsync(outputs, Sources, Data, AssetDiagnostics, warn, Report));
         await RunExportStepAsync(outputs, "keyed-core", KeyedJsonExporter.OutputPaths,
             _ => KeyedJsonExporter.ExportAsync(outputs, Data, PrettyPrintJson, multiLang.ContainsKeyOrFallback));
+        await RunExportStepAsync(outputs, SocketableExporter.Producer, [SocketableExporter.OutputPath],
+            warn => SocketableExporter.ExportAsync(outputs, Sources, Data, PrettyPrintJson, warn));
         await RunExportStepAsync(outputs, "loot-filter.json", [LootFilterExporter.OutputPath],
             warn => LootFilterExporter.ExportAsync(outputs, Sources, multiLang, PrettyPrintJson, warn));
         await RunExportStepAsync(outputs, "drop-calculator.json", [DropCalculatorExporter.OutputPath],

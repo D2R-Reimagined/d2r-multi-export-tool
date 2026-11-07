@@ -194,6 +194,8 @@
     },
     "$dropRuneTypesNote": "itemtypes.txt codes selecting the drop calculator's rune items (the rune search): every misc.txt base whose Type is a listed code, directly or through its Equiv1/Equiv2 chain, is exported with Kind 'rune'.",
     "dropRuneTypes": ["rune"],
+    "$socketableItemKindsNote": "Root itemtypes.txt codes selecting misc.txt items for keyed/socketables.json, mapped to stable wire kinds. Descendants through Equiv1/Equiv2 are included without item-code allowlists.",
+    "socketableItemKinds": { "rune": "rune", "gem": "gem", "jewl": "jewel" },
     "$dropMonsterLevelBonusesNote": "Engine bonus added to a monster's level when it spawns as this kind; the drop treasure-class level is the base level plus this bonus. Kinds absent here (normal, quest, boss) get 0. The superunique bonus is not applied to boss classes.",
     "dropMonsterLevelBonuses": { "champion": 2, "unique": 3, "superunique": 3 },
     "$dropGeneratedTreasureClassLevelStepNote": "Width of the quality-level bands the game uses for the auto-generated equipment treasure classes (e.g. armo3, armo6, ...), built from itemtypes.txt rows with TreasureClass = 1.",

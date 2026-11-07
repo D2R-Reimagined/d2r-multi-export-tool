@@ -22,6 +22,13 @@ public sealed class ExportConfig
     [JsonPropertyName("dropMiscCodes")]
     public List<string> DropMiscCodes { get; set; } = [];
 
+    /// <summary>
+    /// Root <c>itemtypes.txt</c> codes whose descendants are exported as socketable items,
+    /// mapped to stable consumer-facing kinds.
+    /// </summary>
+    [JsonPropertyName("socketableItemKinds")]
+    public Dictionary<string, string> SocketableItemKinds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     [JsonPropertyName("dropSuperUniqueAreas")]
     public Dictionary<string, int[]> DropSuperUniqueAreas { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -482,6 +489,7 @@ public sealed class ExportConfig
         DropMiscCodesSet                 = new HashSet<string>(DropMiscCodes,                 StringComparer.OrdinalIgnoreCase);
 
         // Rebuild dictionaries case-insensitively where they came in via JSON.
+        SocketableItemKinds = new Dictionary<string, string>(SocketableItemKinds, StringComparer.OrdinalIgnoreCase);
         if (ItemTypeNameNormalizations.Count > 0)
             ItemTypeNameNormalizations = new Dictionary<string, string>(ItemTypeNameNormalizations, StringComparer.OrdinalIgnoreCase);
         if (MagicNameOverrides.Count > 0)

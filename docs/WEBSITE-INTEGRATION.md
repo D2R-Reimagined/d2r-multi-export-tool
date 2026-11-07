@@ -59,6 +59,46 @@ items use the same top-level fields from `setitems.txt`. Their nested slim
 the legacy `ItemLevel: 1`: `sets.txt` has no `lvl` column, so no source level is
 available for the parent.
 
+### Socketable item catalog
+
+`keyed/socketables.json` is the authoritative catalog for runes, gems and jewel
+bases. The exporter selects and classifies `misc.txt` rows through the configured
+`socketableItemKinds` roots and the full `itemtypes.txt` `Equiv1`/`Equiv2`
+ancestry; consumers must not maintain an item-code allowlist. Rows are ordered by
+`RequiredLevel`, then ordinal `Code`, and have this shape:
+
+```json
+{
+  "Code": "r01",
+  "NameKey": "r01",
+  "Type": "runeitype",
+  "Kind": "rune",
+  "ItemLevel": 11,
+  "RequiredLevel": 11,
+  "WeaponLines": [{ "key": "ModStr1h", "args": [50] }],
+  "ArmorLines": [{ "key": "ModStr1i", "args": [15] }],
+  "ShieldLines": [{ "key": "ModStr1i", "args": [15] }]
+}
+```
+
+`Code` and `Type` are structural identifiers. `Kind` is the stable semantic
+classification (`rune`, `gem` or `jewel`) consumers use for grouping and behavior;
+it is derived from configured type roots rather than item-code conventions.
+`NameKey` prefers a translated
+item-code key and otherwise uses the row's `NameStr`; it and every property-line
+key resolve through `strings/<lang>.json`. The three line arrays are finalized
+`KeyedLine[]` values from the corresponding `gems.txt` weapon, helm/armor and
+shield property columns; they use the same property expansion, cleanup and
+argument contract as other keyed item data. The website chooses exactly one
+array from the socket host category and must not merge the three contexts.
+
+Generic jewel bases are intentionally present even when all three arrays are
+empty: their rolled magic or rare affixes belong to the saved build/item model,
+not to the fixed socketable catalog. A missing `NameStr` omits that source row
+with an export warning. Missing `misc.txt`, `gems.txt` or `itemtypes.txt` skips
+only the `socketables.json` producer; consult `manifest.json` before consuming a
+bundle.
+
 ### Property roll preservation
 
 Property `key`/`args` remain the display contract. A genuine roll uses two
