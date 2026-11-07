@@ -15,7 +15,7 @@ public sealed class SocketableExporterTests : IDisposable
     public void Dispose() => Directory.Delete(_output, recursive: true);
 
     [Fact]
-    public async Task ExportsSocketableTypesWithContextLinesAndKeepsJewelsWithoutFixedEffects()
+    public async Task ExportsSocketableTypesReportsMissingEffectsAndSortsWithinKinds()
     {
         var config = new ExportConfig
         {
@@ -46,7 +46,9 @@ public sealed class SocketableExporterTests : IDisposable
         data.ItemTypes["jewl"] = Type("jewl", "jewlitype", "sock");
         data.ItemTypes["poti"] = Type("poti", "potiitype");
         data.MiscItems["r01"] = Misc("r01", "r01L", "rune", 1, 11);
+        data.MiscItems["r15"] = Misc("r15", "r15", "rune", 1, 0);
         data.MiscItems["gpr"] = Misc("gpr", "gpr", "poti", 18, 18, "gem");
+        data.MiscItems["gcv"] = Misc("gcv", "gcv", "gem", 1, 1);
         data.MiscItems["jew"] = Misc("jew", "jew", "jewl", 1, 1);
         data.MiscItems["hp1"] = Misc("hp1", "hp1", "poti", 1, 1);
         data.Properties["str"] = new PropertyEntry { Code = "str", Stat1 = "strength", Function1 = 1 };
@@ -62,12 +64,17 @@ public sealed class SocketableExporterTests : IDisposable
         data.Gems["gpr"] = Gem("gpr", 6, 7, 8);
 
         var outputs = new ExportOutputs(_output) { Producer = SocketableExporter.Producer };
-        await SocketableExporter.ExportAsync(outputs, data, prettyPrint: false, static _ => { });
+        var warnings = new List<string>();
+        await SocketableExporter.ExportAsync(outputs, data, prettyPrint: false, warnings.Add);
 
         using var json = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(_output, "keyed", "socketables.json")));
         var rows = json.RootElement.EnumerateArray().ToList();
-        Assert.Equal(["jew", "r01", "gpr"], rows.Select(row => row.GetProperty("Code").GetString()));
+        Assert.Equal(["gcv", "gpr", "jew", "r01", "r15"], rows.Select(row => row.GetProperty("Code").GetString()));
         Assert.DoesNotContain(rows, row => row.GetProperty("Code").GetString() == "hp1");
+        Assert.Equal(2, warnings.Count);
+        Assert.Contains(warnings, warning => warning.Contains("gem code 'gcv' has no matching gems.txt entry", StringComparison.Ordinal));
+        Assert.Contains(warnings, warning => warning.Contains("rune code 'r15' has no matching gems.txt entry", StringComparison.Ordinal));
+        Assert.DoesNotContain(warnings, warning => warning.Contains("'jew'", StringComparison.Ordinal));
 
         var rune = rows.Single(row => row.GetProperty("Code").GetString() == "r01");
         Assert.Equal("r01", rune.GetProperty("NameKey").GetString());

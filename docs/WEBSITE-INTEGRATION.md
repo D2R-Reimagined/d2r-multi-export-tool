@@ -64,8 +64,9 @@ available for the parent.
 `keyed/socketables.json` is the authoritative catalog for runes, gems and jewel
 bases. The exporter selects and classifies `misc.txt` rows through the configured
 `socketableItemKinds` roots and the full `itemtypes.txt` `Equiv1`/`Equiv2`
-ancestry; consumers must not maintain an item-code allowlist. Rows are ordered by
-`RequiredLevel`, then ordinal `Code`, and have this shape:
+ancestry; consumers must not maintain an item-code allowlist. Rows are grouped by
+ordinal `Kind` and ordered by ordinal `Code` within each group, which preserves
+numeric rune-code order, and have this shape:
 
 ```json
 {
@@ -94,10 +95,12 @@ array from the socket host category and must not merge the three contexts.
 
 Generic jewel bases are intentionally present even when all three arrays are
 empty: their rolled magic or rare affixes belong to the saved build/item model,
-not to the fixed socketable catalog. A missing `NameStr` omits that source row
-with an export warning. Missing `misc.txt`, `gems.txt` or `itemtypes.txt` skips
-only the `socketables.json` producer; consult `manifest.json` before consuming a
-bundle.
+not to the fixed socketable catalog. A rune or gem classified from `misc.txt`
+without a matching `gems.txt` row remains present with empty fixed effects and
+records an export warning in `extras/import-report.txt`. A missing `NameStr`
+omits that source row with an export warning. Missing `misc.txt`, `gems.txt` or
+`itemtypes.txt` skips only the `socketables.json` producer; consult
+`manifest.json` before consuming a bundle.
 
 ### Property roll preservation
 

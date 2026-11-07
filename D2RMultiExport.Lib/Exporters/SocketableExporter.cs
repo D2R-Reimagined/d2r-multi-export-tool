@@ -46,6 +46,10 @@ public static class SocketableExporter
             }
 
             data.Gems.TryGetValue(item.Code, out var gem);
+            if (gem is null && !classification.Kind.Equals("jewel", StringComparison.OrdinalIgnoreCase))
+            {
+                warn($"misc.txt: socketable {classification.Kind} code '{item.Code}' has no matching gems.txt entry; fixed socket effects are empty.");
+            }
             rows.Add(new SocketableRow
             {
                 Code = item.Code,
@@ -62,8 +66,8 @@ public static class SocketableExporter
 
         rows.Sort(static (left, right) =>
         {
-            var required = left.RequiredLevel.CompareTo(right.RequiredLevel);
-            return required != 0 ? required : string.Compare(left.Code, right.Code, StringComparison.Ordinal);
+            var kind = string.Compare(left.Kind, right.Kind, StringComparison.Ordinal);
+            return kind != 0 ? kind : string.Compare(left.Code, right.Code, StringComparison.Ordinal);
         });
 
         var options = new JsonSerializerOptions
