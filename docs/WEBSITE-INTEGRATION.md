@@ -102,6 +102,46 @@ omits that source row with an export warning. Missing `misc.txt`, `gems.txt` or
 `itemtypes.txt` skips only the `socketables.json` producer; consult
 `manifest.json` before consuming a bundle.
 
+### Player calculation inputs
+
+`keyed/player-calculation.json` publishes the class and difficulty values needed
+for deterministic player resource and resistance calculations. `Classes` is
+derived from `charstats.txt`; the structural `Expansion` row is omitted. Growth
+columns stored by the game in fourths are exported as their final fractional
+values, so consumers must not divide them again. Each class row contains:
+
+```json
+{
+  "Class": "Assassin",
+  "StartingStrength": 20,
+  "StartingDexterity": 20,
+  "StartingEnergy": 25,
+  "StartingVitality": 20,
+  "StartingStamina": 95,
+  "HitPointsAdd": 30,
+  "LifePerLevel": 2,
+  "StaminaPerLevel": 1.25,
+  "ManaPerLevel": 1.5,
+  "LifePerVitality": 3.5,
+  "StaminaPerVitality": 1.25,
+  "ManaPerEnergy": 2.25,
+  "StatPointsPerLevel": 5,
+  "SkillPointsPerLevel": 1,
+  "ToHitFactor": 15,
+  "BlockFactor": 25
+}
+```
+
+`Difficulties` is derived from `difficultylevels.txt`. `Id` is the stable source
+name and each row publishes `ResistancePenalty`,
+`NonExpansionResistancePenalty`, and `ResistanceFloor`. Consumers select the
+penalty matching the character's expansion mode and must retain the floor as a
+separate rule from maximum-resistance caps.
+
+Missing `charstats.txt` or `difficultylevels.txt` skips only the
+`player-calculation.json` producer; consult `manifest.json` before consuming the
+bundle.
+
 ### Property roll preservation
 
 Property `key`/`args` remain the display contract. A genuine roll uses two
