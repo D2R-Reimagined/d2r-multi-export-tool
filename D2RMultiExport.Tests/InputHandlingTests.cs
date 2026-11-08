@@ -130,6 +130,7 @@ public sealed class InputHandlingTests
         Assert.Equal((1, 4, 7), (config.MonsterHealth.MinionBonusModifierId,
             config.MonsterHealth.ChampionBonusModifierId, config.MonsterHealth.UniqueBonusModifierId));
         Assert.Contains("RUNE", config.DropRuneTypesSet);
+        Assert.Equal("rune", config.SocketableItemKinds["RUNE"]);
         // Case-insensitive lookups survive JSON deserialization (they did not before BuildLookups rebuilt them).
         Assert.True(config.DropMonsterAreas.ContainsKey(config.DropMonsterAreas.Keys.First().ToUpperInvariant()));
     }

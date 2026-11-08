@@ -296,7 +296,7 @@ filters, free selection, Copy All and Save. It can stay open during an export.
 ```
 <out>/
 ├── manifest.json          # schema 2; current-run payload hashes and step status
-├── keyed/                 # 16 potential content/calculator/presentation JSON documents
+├── keyed/                 # 17 potential content/calculator/presentation JSON documents
 ├── sprites/
 │   ├── items/             # successfully converted item art as WebP
 │   ├── skills/            # successfully converted skill icons
